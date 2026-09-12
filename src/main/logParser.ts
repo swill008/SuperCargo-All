@@ -18,15 +18,18 @@ const PATTERN_ACCEPTED =
   /Added notification "Contract Accepted:\s*(.*?)"\s*\[[^\]]*\].*?MissionId: \[([^\]]+)\]/
 const PATTERN_OBJECTIVE =
   /Added notification "New Objective: Deliver\s+\d+\/(\d+)\s+SCU of\s+(.+?)\s+to\s+(.+?)[:."].*?MissionId: \[([^\]]+)\]/
+const PATTERN_OBJECTIVE_COUNT =
+  /Added notification "New Objective: Deliver\s+\d+\/(\d+)\s+(?!SCU\b)(.+?)\s+to\s+(.+?)[:."].*?MissionId: \[([^\]]+)\]/
+const PATTERN_OBJECTIVE_GO =
+  /Added notification "New Objective: Go\s+to\s+(.+?)[:."].*?MissionId: \[([^\]]+)\]/i
+const PATTERN_OBJECTIVE_NEUTRALIZE =
+  /Added notification "New Objective: Neutralize\s+(.+?)[:."].*?MissionId: \[([^\]]+)\]/i
 const PATTERN_END_MISSION =
   /<EndMission>.*MissionId\[([^\]]+)\].*CompletionType\[(\w+)\](?:.*?Reason\[([^\]]+)\])?/
-// the completion notice carries the real id; the Awarded line right after it has an all-zero id
 const PATTERN_COMPLETE =
   /Added notification "Contract Complete:\s*.*?"\s*\[[^\]]*\].*?MissionId: \[([^\]]+)\]/
 const PATTERN_AWARD = /Added notification "Awarded\s+([\d,]+)\s+aUEC/
-// who am I; PlayerLeft carries a geid and only the local one means the contract is gone
 const PATTERN_IDENTITY = /<AccountLoginCharacterStatus_Character>.*?\bgeid (\d+)\b.*?\bname (\S+)/
-// shared = owner id only; joined/left = players on your contract
 const PATTERN_SHARED = /<MissionShared>.*ownerId\[([^\]]+)\].*missionId\[([^\]]+)\]/
 const PATTERN_JOINED = /<PlayerJoined>.*mission_id\s+([0-9a-f-]+)\s+-\s+player_id\s+(\d+)/
 const PATTERN_LEFT = /<PlayerLeft>.*mission_id\s+([0-9a-f-]+)\s+-\s+player_id\s+(\d+)/
@@ -47,16 +50,13 @@ export function parseTimestamp(line: string): string | null {
   return match ? match[1] : null
 }
 
-// kept to backfill generator/title later
 export interface MarkerEntry {
   generator: string
   contractName: string
   defId?: string
-  /** one CreateMarker line per objective, so these accumulate across lines */
   dropoffs: MarkerDropoff[]
 }
 
-// mutates the markers map
 export function parseLine(line: string, markers: Map<string, MarkerEntry>): ParsedLine {
   let match: RegExpExecArray | null
 
@@ -102,22 +102,28 @@ export function parseLine(line: string, markers: Map<string, MarkerEntry>): Pars
       blueprint: hasBlueprintMarker(rawTitle),
       markerDropoffs: marker?.dropoffs.length ? [...marker.dropoffs].sort((a, b) => a.index - b.index) : undefined
     }
-    // no marker yet, use title
     const isHauling = generator ? isHaulingGenerator(generator) : /haul/i.test(rawTitle)
     return { kind: 'accepted', event, isHauling }
   }
 
   if ((match = PATTERN_OBJECTIVE.exec(line))) {
     const [, scu, commodity, destination, missionId] = match
-    return {
-      kind: 'objective',
-      event: {
-        missionId,
-        scuAmount: parseInt(scu, 10),
-        commodity: commodity.trim(),
-        destination: destination.trim()
-      }
-    }
+    return { kind: 'objective', event: { missionId, scuAmount: parseInt(scu, 10), commodity: commodity.trim(), destination: destination.trim() } }
+  }
+
+  if ((match = PATTERN_OBJECTIVE_COUNT.exec(line))) {
+    const [, count, commodity, destination, missionId] = match
+    return { kind: 'objective', event: { missionId, scuAmount: parseInt(count, 10), commodity: commodity.trim(), destination: destination.trim() } }
+  }
+
+  if ((match = PATTERN_OBJECTIVE_GO.exec(line))) {
+    const [, place, missionId] = match
+    return { kind: 'objective', event: { missionId, scuAmount: 0, commodity: '', destination: place.trim() } }
+  }
+
+  if ((match = PATTERN_OBJECTIVE_NEUTRALIZE.exec(line))) {
+    const [, target, missionId] = match
+    return { kind: 'objective', event: { missionId, scuAmount: 0, commodity: target.trim(), destination: target.trim() } }
   }
 
   if ((match = PATTERN_END_MISSION.exec(line))) {
