@@ -2,7 +2,7 @@
  * Other-mode OCR review. Does not use CaptureModal or haul box/pickup fields.
  * Engine only: window.supercargo.ocrRun / ocrPreview.
  */
-import React, { useMemo, useState } from 'react'
+import React, { useEffect, useMemo, useState } from 'react'
 import { C, F, GLOW } from '../theme'
 import { Btn } from './ui'
 import Typeahead from './Typeahead'
@@ -25,6 +25,7 @@ const newKey = (): string => {
 export default function OtherCaptureModal(): React.ReactElement | null {
   const open = useOtherCapture((s) => s.open)
   const jobId = useOtherCapture((s) => s.jobId)
+  const autoRun = useOtherCapture((s) => s.autoRun)
   const close = useOtherCapture((s) => s.close)
   const job = useOtherJobs((s) => s.jobs.find((j) => j.id === jobId) ?? null)
   const locs = useStore((s) => s.locations)
@@ -39,6 +40,43 @@ export default function OtherCaptureModal(): React.ReactElement | null {
   const [rows, setRows] = useState<DraftRow[]>([])
   const [busy, setBusy] = useState(false)
   const [calibrating, setCalibrating] = useState(false)
+
+  useEffect(() => {
+    if (!open || !autoRun || !jobId) return
+    const j = useOtherJobs.getState().jobs.find((x) => x.id === jobId)
+    if (!j || j.steps.length > 0 || j.objectivesLocked) return
+    let cancelled = false
+    void (async () => {
+      setBusy(true)
+      setStatus('Auto capturing with saved OCR settings\u2026')
+      try {
+        const shot = await window.supercargo.ocrPreview?.()
+        if (cancelled) return
+        if (shot) setPreview(shot)
+        const result = await window.supercargo.ocrRun()
+        if (cancelled) return
+        if (!result?.ok) {
+          setStatus(result?.error || 'OCR failed. Edit or cancel.')
+          return
+        }
+        const text = result.rawText || ''
+        setRawText(text)
+        const parsed = parseOtherOcrText(text)
+        setRows(parsed.rows.map((r) => ({ ...r, key: newKey() })))
+        setReward(result.reward || parsed.reward || j.reward || 0)
+        setStatus(text
+          ? 'Review the imported objectives. Confirm if they look right, or edit them first.'
+          : 'No text. Adjust the capture area or add steps by hand.')
+      } catch (e) {
+        if (!cancelled) setStatus(e instanceof Error ? e.message : 'OCR failed')
+      } finally {
+        if (!cancelled) setBusy(false)
+      }
+    })()
+    return () => {
+      cancelled = true
+    }
+  }, [open, autoRun, jobId])
 
   if (!open || !job) return null
 
@@ -121,7 +159,6 @@ export default function OtherCaptureModal(): React.ReactElement | null {
           </div>
           <Btn onClick={reset} style={{ ...miniBtn, border: 0 }}>CLOSE</Btn>
         </div>
-
         <div style={{ padding: 20 }}>
           {locked && (
             <div style={{ fontFamily: F.body, fontSize: 13, color: C.amber, marginBottom: 12 }}>
