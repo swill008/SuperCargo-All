@@ -1,6 +1,7 @@
 import React, { useEffect } from 'react'
 import { useStore } from './state/store'
 import { useOtherJobs } from './state/otherJobs'
+import { applyOcrObjectives } from './state/otherOcr'
 import { resolveWorkMode } from '@shared/workMode'
 import { C, ZOOM_STEP, ZOOM_DEFAULT, clampZoom } from './theme'
 import TopBar from './components/TopBar'
@@ -46,6 +47,37 @@ function MainApp(): React.ReactElement {
   useEffect(() => {
     window.supercargo.setZoom(uiZoom || 1)
   }, [uiZoom])
+
+  // Other-mode: CaptureModal Confirm writes this job, not a haul contract.
+  useEffect(() => {
+    if (workMode !== 'other') return
+    const origAdd = useStore.getState().addObjectivesToContract
+    const origReward = useStore.getState().setContractReward
+    useStore.setState({
+      addObjectivesToContract: (id, objectives, maxBox) => {
+        if (applyOcrObjectives(id, { objectives })) return
+        origAdd(id, objectives, maxBox)
+      },
+      setContractReward: (id, reward) => {
+        const s = useOtherJobs.getState()
+        const job = s.jobs.find((j) => j.id === id)
+        if (job && job.reward === 0 && reward > 0 && !job.objectivesLocked) {
+          useOtherJobs.setState({
+            jobs: s.jobs.map((j) => (j.id === id ? { ...j, reward } : j))
+          })
+          useOtherJobs.getState().persist()
+          return
+        }
+        origReward(id, reward)
+      }
+    })
+    return () => {
+      useStore.setState({
+        addObjectivesToContract: origAdd,
+        setContractReward: origReward
+      })
+    }
+  }, [workMode])
 
   useEffect(() => {
     const onKey = (e: KeyboardEvent): void => {
