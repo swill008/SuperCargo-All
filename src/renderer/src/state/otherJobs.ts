@@ -167,9 +167,15 @@ export const useOtherJobs = create<OtherJobsState>((set, get) => ({
             : j
         )
       })
+      const byMission = Array.isArray(scanned) ? {} : (scanned.objectivesByMission ?? {})
       for (const c of contracts) {
         get().ingestAccepted(c.accepted)
         for (const o of c.objectives) get().ingestObjective(o)
+      }
+      for (const j of get().jobs) {
+        if (j.status !== 'active' || j.source === 'manual' || j.objectivesLocked) continue
+        if (!j.missionId || j.steps.length > 0) continue
+        for (const o of byMission[j.missionId] ?? []) get().ingestObjective(o)
       }
       get().persist()
     }
@@ -229,7 +235,8 @@ export const useOtherJobs = create<OtherJobsState>((set, get) => ({
           kind: edit.kind,
           reward: Math.max(0, Number(edit.reward) || 0),
           steps,
-          status: j.status === 'active' && steps.length > 0 && steps.every((s) => s.done) ? 'complete' : j.status
+          status: j.status === 'active' && steps.length > 0 && steps.every((s) => s.done) ? 'complete' : j.status,
+          objectivesLocked: true
         }
       })
     })
@@ -253,6 +260,7 @@ export const useOtherJobs = create<OtherJobsState>((set, get) => ({
       createdAt: Date.now(),
       missionId: e.missionId,
       generator: e.generator || undefined,
+      contractName: e.contractName || undefined,
       source: 'log'
     }
     set({ jobs: [...jobs, job], expandedId: job.id })
@@ -262,6 +270,7 @@ export const useOtherJobs = create<OtherJobsState>((set, get) => ({
   ingestObjective: (e) => {
     const job = get().jobs.find((j) => j.missionId === e.missionId && j.status === 'active')
     if (!job) return
+    if (job.source === 'manual' || job.objectivesLocked) return
     const step = stepFromObjective(e)
     if (!step) return
     const key = stepKey(step)
@@ -299,7 +308,7 @@ export const useOtherJobs = create<OtherJobsState>((set, get) => ({
   },
 
   abandonJob: (id) => {
-    set({ jobs: get().jobs.map((j) => (j.id === id ? { ...j, status: 'abandoned' as const } : j)) })
+    set({ jobs: get().jobs.map((j) => (j.id === id ? { ...j, status: 'abandoned' as const, objectivesLocked: true } : j)) })
     get().persist()
   },
 
@@ -307,7 +316,7 @@ export const useOtherJobs = create<OtherJobsState>((set, get) => ({
     set({
       jobs: get().jobs.map((j) =>
         j.id === id
-          ? { ...j, status: 'complete', steps: j.steps.map((s) => ({ ...s, done: true, have: s.need })) }
+          ? { ...j, status: 'complete', objectivesLocked: true, steps: j.steps.map((s) => ({ ...s, done: true, have: s.need })) }
           : j
       )
     })
