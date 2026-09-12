@@ -237,6 +237,8 @@ export const useOtherJobs = create<OtherJobsState>((set, get) => ({
             done: prev?.done ?? false
           }
         })
+        const before = j.steps.map((s) => `${s.location}|${s.item || ''}|${s.need}`).join('\n')
+        const after = steps.map((s) => `${s.location}|${s.item || ''}|${s.need}`).join('\n')
         return {
           ...j,
           title: edit.title.trim() || j.title,
@@ -244,7 +246,8 @@ export const useOtherJobs = create<OtherJobsState>((set, get) => ({
           reward: Math.max(0, Number(edit.reward) || 0),
           steps,
           status: j.status === 'active' && steps.length > 0 && steps.every((s) => s.done) ? 'complete' : j.status,
-          objectivesLocked: true
+          objectivesLocked: true,
+          edited: j.edited || before !== after
         }
       })
     })
