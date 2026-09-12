@@ -53,10 +53,10 @@ export function ensureOtherJobsIpc(): void {
     let changed = false
     const jobs = doc.jobs.map((j) => {
       if (!j.missionId || j.status !== 'active' || still.has(j.missionId)) return j
+      if (j.source === 'manual') return j
       const ev = ended.find((e) => e.missionId === j.missionId)
-      if (!ev) return j
       changed = true
-      const abandoned = ev.completion === 'Abandon' || ev.completion === 'Fail'
+      const abandoned = !ev || ev.completion === 'Abandon' || ev.completion === 'Fail'
       return {
         ...j,
         status: abandoned ? 'abandoned' : 'complete',
