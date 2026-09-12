@@ -59,8 +59,14 @@ const api = {
     ipcRenderer.invoke(IPC.otherJobsSave, doc),
   scanOtherJobs: (
     logPath: string
-  ): Promise<{ contracts: ScannedContract[]; ended: ContractEndedEvent[] } | ScannedContract[]> =>
-    ipcRenderer.invoke(IPC.otherJobsScan, logPath),
+  ): Promise<
+    | {
+        contracts: ScannedContract[]
+        ended: ContractEndedEvent[]
+        objectivesByMission?: Record<string, ObjectiveEvent[]>
+      }
+    | ScannedContract[]
+  > => ipcRenderer.invoke(IPC.otherJobsScan, logPath),
 
   getUexShips: (): Promise<ShipRoster | null> => ipcRenderer.invoke(IPC.uexGetShips),
   getUexLocations: (): Promise<LocationRoster | null> => ipcRenderer.invoke(IPC.uexGetLocations),
