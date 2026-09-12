@@ -1,10 +1,7 @@
 /**
  * Other-mode OCR text parser.
- * Uses Game.log-style objective lines, not haul SCU/box/pickup parseOcrText.
- *
- * mobiGlas wraps long objectives and Tesseract often prefixes junk:
- *   <$ Deliver 0/7 SCU of Beryl to Covalex Distribution Center
- *   S1DC06 on Hurston.
+ * Label is the full cleaned objective sentence from Primary Objectives.
+ * Item / location / counts are still extracted when the line matches.
  */
 import type { OtherObjectiveParse } from './otherLog'
 
@@ -51,52 +48,40 @@ function isContinuation(line: string): boolean {
   return true
 }
 
-/** Structured Other objectives only. Noise lines return null. */
+function row(kind: OtherOcrRow['kind'], text: string, location: string, extra: Partial<OtherOcrRow> = {}): OtherOcrRow {
+  return { kind, label: text, location, have: 0, need: 1, ...extra }
+}
+
+/** Structured fields plus the full on-screen sentence as label. */
 export function parseOtherOcrLine(raw: string): OtherOcrRow | null {
   const text = clean(raw)
   if (!text || text.length < 4 || SKIP.test(text)) return null
 
   let m = text.match(/Go\s+to\s+(.+)$/i)
-  if (m) {
-    const location = m[1].trim()
-    return { kind: 'go', label: `Go to ${location}`, location, have: 0, need: 1 }
-  }
+  if (m) return row('go', text, m[1].trim())
 
   m = text.match(/Neutralize\s+(.+)$/i)
   if (m) {
     const item = m[1].trim()
-    return { kind: 'go', label: `Neutralize ${item}`, location: item, item, have: 0, need: 1 }
+    return row('go', text, item, { item })
   }
 
   m = text.match(/(?:Deliver|Bring|Collect|Recover|Turn\s*in)\s+(\d+)\s*\/\s*(\d+)\s+(?:SCU\s+of\s+)?(.+?)\s+to\s+(.+)$/i)
   if (m) {
-    const have = parseInt(m[1], 10)
-    const need = parseInt(m[2], 10)
-    const item = m[3].trim()
-    const location = m[4].trim()
-    return {
-      kind: 'turnin',
-      label: `Deliver ${have}/${need} ${item} to ${location}`,
-      location,
-      item,
-      have,
-      need
-    }
+    return row('turnin', text, m[4].trim(), {
+      item: m[3].trim(),
+      have: parseInt(m[1], 10),
+      need: parseInt(m[2], 10)
+    })
   }
 
   m = text.match(/(?:Deliver|Bring|Collect|Recover|Turn\s*in)\s+(\d+)\s*\/\s*(\d+)\s+(?:SCU\s+of\s+)?(.+)$/i)
   if (m) {
-    const have = parseInt(m[1], 10)
-    const need = parseInt(m[2], 10)
-    const item = m[3].trim()
-    return {
-      kind: 'turnin',
-      label: `Deliver ${have}/${need} ${item}`,
-      location: '',
-      item,
-      have,
-      need
-    }
+    return row('turnin', text, '', {
+      item: m[3].trim(),
+      have: parseInt(m[1], 10),
+      need: parseInt(m[2], 10)
+    })
   }
 
   return null
@@ -106,7 +91,6 @@ function rowKey(r: OtherOcrRow): string {
   return `${r.kind}|${r.location.toLowerCase()}|${(r.item || '').toLowerCase()}`
 }
 
-/** Glue wrapped HUD lines, then parse. Max two continuation lines per objective. */
 export function parseOtherOcrText(rawText: string): OtherOcrParse {
   const reward = parseReward(rawText)
   const lines = rawText.split(/\r?\n/).map(clean).filter((l) => l.length > 0)
@@ -126,12 +110,12 @@ export function parseOtherOcrText(rawText: string): OtherOcrParse {
   const rows: OtherOcrRow[] = []
   const seen = new Set<string>()
   for (const line of joined) {
-    const row = parseOtherOcrLine(line)
-    if (!row) continue
-    const key = rowKey(row)
+    const parsed = parseOtherOcrLine(line)
+    if (!parsed) continue
+    const key = rowKey(parsed)
     if (seen.has(key)) continue
     seen.add(key)
-    rows.push(row)
+    rows.push(parsed)
   }
   return { reward, rows }
 }
