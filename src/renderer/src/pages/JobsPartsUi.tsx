@@ -1,13 +1,25 @@
-/** Forms and styles for Other-mode Jobs. */
+/** Edit form for Other-mode Jobs. */
 import React, { useState } from 'react'
-import { C, F, GLOW } from '../theme'
+import { C, F } from '../theme'
 import { Btn } from '../components/ui'
 import Typeahead from '../components/Typeahead'
-import { type OtherJobDraft, type OtherJobEdit } from '../state/otherJobs'
+import { type OtherJobEdit } from '../state/otherJobs'
 import { OTHER_KIND_LABEL, type OtherJob, type OtherJobKind } from '@shared/otherJob'
+import { miniBtn, outlineBtn } from './JobsPartsStyles'
 
 const KINDS: OtherJobKind[] = ['delivery', 'collection', 'mining', 'salvage']
-
+const inputStyle: React.CSSProperties = {
+  background: 'rgba(0,0,0,0.4)', border: `1px solid ${C.lineStrong}`, color: C.text,
+  fontFamily: F.body, fontSize: 14, padding: '6px 8px', width: '100%'
+}
+function Field({ label, children }: { label: string; children: React.ReactNode }): React.ReactElement {
+  return (
+    <div style={{ display: 'grid', gridTemplateColumns: '90px 1fr', gap: 10, alignItems: 'center', marginBottom: 8 }}>
+      <span style={{ fontFamily: F.body, fontSize: 13, color: C.dim }}>{label}</span>
+      {children}
+    </div>
+  )
+}
 function UexField({ label, value, options, placeholder, onChange }: {
   label: string
   value: string
@@ -18,17 +30,7 @@ function UexField({ label, value, options, placeholder, onChange }: {
   return (
     <Field label={label}>
       <div style={{ border: `1px solid ${C.lineStrong}`, background: 'rgba(0,0,0,0.4)', padding: '0 8px' }}>
-        <Typeahead
-          value={value}
-          options={options}
-          freeText
-          maxResults={12}
-          menuMinWidth={520}
-          wrapMenu
-          placeholder={placeholder}
-          onChange={onChange}
-          onSelect={onChange}
-        />
+        <Typeahead value={value} options={options} freeText maxResults={12} menuMinWidth={520} wrapMenu placeholder={placeholder} onChange={onChange} onSelect={onChange} />
       </div>
     </Field>
   )
@@ -49,16 +51,13 @@ export function EditForm({ job, uex, onCancel, onSave }: {
   const [newLoc, setNewLoc] = useState('')
   const [newItem, setNewItem] = useState('')
   const [newNeed, setNewNeed] = useState(1)
-
   const patchStep = (id: string, patch: Partial<(typeof steps)[0]>): void => {
     setSteps((rows) => rows.map((r) => (r.id === id ? { ...r, ...patch } : r)))
   }
-
   const stepsForSave = (): OtherJobEdit['steps'] => {
     if (!newLoc.trim() && !newItem.trim()) return steps
     return [...steps, { id: `new-${steps.length}-${Date.now()}`, location: newLoc, item: newItem, need: newNeed }]
   }
-
   return (
     <div style={{ padding: '0 0 16px 70px', overflow: 'visible' }}>
       <div style={{ fontFamily: F.display, fontSize: 11, letterSpacing: '0.18em', color: C.acc, margin: '8px 0 12px' }}>EDIT {job.ref}</div>
