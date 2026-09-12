@@ -21,8 +21,18 @@ export default function OtherOverlay(): React.ReactElement {
   const open = useMemo(() => {
     return jobs
       .filter((j) => j.status === 'active')
-      .map((j) => ({ job: j, step: nextOpenStep(j) }))
-      .filter((x): x is { job: (typeof jobs)[0]; step: NonNullable<ReturnType<typeof nextOpenStep>> } => !!x.step)
+      .map((j) => {
+        const step = nextOpenStep(j) ?? {
+          id: `${j.id}-pending`,
+          kind: 'go' as const,
+          label: j.steps.length ? (j.steps[0]?.label || j.title) : `${j.title} — no objective yet`,
+          location: j.steps[0]?.location || '',
+          have: 0,
+          need: 1,
+          done: false
+        }
+        return { job: j, step }
+      })
   }, [jobs])
 
   useEffect(() => {
