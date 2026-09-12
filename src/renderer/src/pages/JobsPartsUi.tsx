@@ -47,8 +47,9 @@ export function EditForm({ job, uex, onCancel, onSave }: {
   const [kind, setKind] = useState<OtherJobKind>(job.kind)
   const [reward, setReward] = useState(job.reward)
   const [steps, setSteps] = useState(job.steps.map((s) => ({
-    id: s.id, location: s.location, item: s.item ?? '', need: s.need || 1
+    id: s.id, label: s.label || '', location: s.location, item: s.item ?? '', need: s.need || 1
   })))
+  const [newLabel, setNewLabel] = useState('')
   const [newLoc, setNewLoc] = useState('')
   const [newItem, setNewItem] = useState('')
   const [newNeed, setNewNeed] = useState(1)
@@ -64,8 +65,8 @@ export function EditForm({ job, uex, onCancel, onSave }: {
     setSteps((rows) => rows.map((r) => (r.id === id ? { ...r, ...patch } : r)))
   }
   const stepsForSave = (): OtherJobEdit['steps'] => {
-    if (!newLoc.trim() && !newItem.trim()) return steps
-    return [...steps, { id: `new-${steps.length}-${Date.now()}`, location: newLoc, item: newItem, need: newNeed }]
+    if (!newLoc.trim() && !newItem.trim() && !newLabel.trim()) return steps
+    return [...steps, { id: `new-${steps.length}-${Date.now()}`, label: newLabel, location: newLoc, item: newItem, need: newNeed }]
   }
   return (
     <div style={{ padding: '0 0 16px 70px', overflow: 'visible' }}>
@@ -88,6 +89,7 @@ export function EditForm({ job, uex, onCancel, onSave }: {
       {steps.map((row, i) => (
         <div key={row.id} style={{ borderTop: `1px dotted ${C.lineFaint}`, paddingTop: 8, marginTop: 8 }}>
           <div style={{ fontFamily: F.body, fontSize: 12, color: C.dim, marginBottom: 6 }}>Step {i + 1}</div>
+          <Field label="Objective"><input value={row.label} onChange={(e) => patchStep(row.id, { label: e.target.value })} style={inputStyle} /></Field>
           <UexField label="Location" value={row.location} options={uex.locations} onChange={(v) => patchStep(row.id, { location: v })} />
           <UexField label="Item" value={row.item} options={uex.items} onChange={(v) => patchStep(row.id, { item: v })} />
           <Field label="Need"><input type="number" min={1} value={row.need} onChange={(e) => patchStep(row.id, { need: Number(e.target.value) })} style={{ ...inputStyle, width: 100 }} /></Field>
@@ -96,13 +98,14 @@ export function EditForm({ job, uex, onCancel, onSave }: {
       ))}
       <div style={{ borderTop: `1px dotted ${C.lineFaint}`, paddingTop: 8, marginTop: 12 }}>
         <div style={{ fontFamily: F.body, fontSize: 12, color: C.dim, marginBottom: 6 }}>Add step (SAVE also keeps these fields)</div>
+        <Field label="Objective"><input value={newLabel} onChange={(e) => setNewLabel(e.target.value)} style={inputStyle} /></Field>
         <UexField label="Location" value={newLoc} options={uex.locations} placeholder="Shubin Mining Facility SAL-5" onChange={setNewLoc} />
         <UexField label="Item" value={newItem} options={uex.items} placeholder="Hadanite" onChange={setNewItem} />
         <Field label="Need"><input type="number" min={1} value={newNeed} onChange={(e) => setNewNeed(Number(e.target.value))} style={{ ...inputStyle, width: 100 }} /></Field>
         <Btn onClick={() => {
-          if (!newLoc.trim() && !newItem.trim()) return
-          setSteps((rows) => [...rows, { id: `new-${rows.length}-${Date.now()}`, location: newLoc, item: newItem, need: newNeed }])
-          setNewLoc(''); setNewItem(''); setNewNeed(1)
+          if (!newLoc.trim() && !newItem.trim() && !newLabel.trim()) return
+          setSteps((rows) => [...rows, { id: `new-${rows.length}-${Date.now()}`, label: newLabel, location: newLoc, item: newItem, need: newNeed }])
+          setNewLabel(''); setNewLoc(''); setNewItem(''); setNewNeed(1)
         }} style={miniBtn}>ADD STEP</Btn>
       </div>
       <div style={{ display: 'flex', gap: 8, marginTop: 14 }}>
