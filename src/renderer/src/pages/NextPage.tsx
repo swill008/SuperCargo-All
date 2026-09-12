@@ -85,13 +85,14 @@ export default function NextPage(): React.ReactElement {
             options={names}
             freeText={false}
             search
-            maxResults={12}
+            maxResults={40}
             menuMinWidth={420}
             wrapMenu
             onSelect={setStartLocation}
-            placeholder="Where you are now (UEX list)"
+            placeholder="Type city or station \u2014 e.g. New Babbage"
           />
         </div>
+        <span style={{ fontFamily: F.body, fontSize: 12, color: C.dim }}>Type to search the full UEX list. Open list is only the first matches.</span>
         {startLocation && (
           <Btn onClick={() => setStartLocation('')} style={{
             border: `1px solid ${C.lineStrong}`, background: 'transparent', color: C.dim,
