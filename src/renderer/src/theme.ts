@@ -17,9 +17,10 @@ export const C = {
   lineSoft: 'rgba(255,255,255,0.07)',
   lineStrong: 'rgba(255,255,255,0.20)',
   lineFaint: 'rgba(255,255,255,0.09)',
-  accFill: 'rgba(255,210,30,0.10)',
-  accFillStrong: 'rgba(255,210,30,0.18)',
-  accBorder: 'rgba(255,210,30,0.45)'
+  accFill: 'rgba(255,210,30,0.12)',
+  accFillStrong: 'rgba(255,210,30,0.22)',
+  accBorder: 'rgba(255,210,30,0.55)',
+  ink: '#111111'
 } as const
 
 export const F = {

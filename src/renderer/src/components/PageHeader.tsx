@@ -28,7 +28,7 @@ export default function PageHeader({
             fontWeight: 600,
             fontSize: 28,
             letterSpacing: '0.06em',
-            color: C.text,
+            color: C.acc,
             textShadow: GLOW,
             lineHeight: 1
           }}
