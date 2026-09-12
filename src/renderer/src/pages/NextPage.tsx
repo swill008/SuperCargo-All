@@ -66,8 +66,8 @@ export default function NextPage(): React.ReactElement {
               const on = groupBy === id
               return (
                 <Btn key={id} onClick={() => setGroupBy(id)} style={{
-                  border: 0, background: on ? C.accFill : 'transparent', color: on ? C.text : C.ghost,
-                  fontFamily: F.display, fontSize: 12, letterSpacing: '0.14em', padding: '7px 12px', cursor: 'pointer'
+                  border: 0, background: on ? C.acc : 'transparent', color: on ? '#111' : C.ghost,
+                  fontFamily: F.display, fontSize: 12, fontWeight: 700, letterSpacing: '0.14em', padding: '7px 12px', cursor: 'pointer'
                 }}>{id.toUpperCase()}</Btn>
               )
             })}
@@ -103,11 +103,17 @@ export default function NextPage(): React.ReactElement {
         )}
       </div>
       {groups.length === 0 && <div style={{ fontFamily: F.body, fontSize: 14, color: C.dim }}>No open stops. Add a job on the Jobs tab.</div>}
-      {groups.map(([heading, rows]) => (
-        <div key={heading} style={{ marginBottom: 22 }}>
-          <div style={{ fontFamily: F.display, fontSize: 16, color: C.text, marginBottom: 8 }}>{heading}</div>
+      {groups.map(([heading, rows], gi) => (
+        <div key={heading} style={{ marginBottom: 14, border: `1px solid ${C.accBorder}`, background: C.accFill, padding: '12px 14px' }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 8 }}>
+            <span style={{
+              width: 22, height: 22, borderRadius: '50%', border: `1px solid ${C.acc}`, color: C.acc,
+              fontFamily: F.display, fontSize: 12, display: 'inline-flex', alignItems: 'center', justifyContent: 'center', flex: 'none'
+            }}>{gi + 1}</span>
+            <div style={{ fontFamily: F.display, fontSize: 16, color: C.acc }}>{heading}</div>
+          </div>
           {rows.map(({ job, step }) => (
-            <div key={step.id} style={{ display: 'grid', gridTemplateColumns: '1fr auto', gap: 12, alignItems: 'center', padding: '8px 0', borderBottom: `1px solid ${C.lineFaint}` }}>
+            <div key={step.id} style={{ display: 'grid', gridTemplateColumns: '1fr auto', gap: 12, alignItems: 'center', padding: '6px 0 2px 32px' }}>
               <div>
                 <div style={{ fontFamily: F.body, fontSize: 14, color: C.textBody }}>{step.label}</div>
                 <div style={{ fontFamily: F.mono, fontSize: 12, color: C.dim, marginTop: 2 }}>
@@ -116,8 +122,8 @@ export default function NextPage(): React.ReactElement {
                 </div>
               </div>
               <Btn onClick={() => toggleStep(job.id, step.id)} style={{
-                border: `1px solid ${C.accBorder}`, background: 'transparent', color: C.acc,
-                fontFamily: F.display, fontSize: 11, letterSpacing: '0.12em', padding: '6px 12px', cursor: 'pointer'
+                border: 0, background: C.acc, color: '#111',
+                fontFamily: F.display, fontSize: 11, fontWeight: 700, letterSpacing: '0.12em', padding: '8px 14px', cursor: 'pointer'
               }}>{step.kind === 'go' ? 'GO HERE' : 'TURN IN'}</Btn>
             </div>
           ))}
