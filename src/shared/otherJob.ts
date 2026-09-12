@@ -12,6 +12,12 @@ export type OtherStepKind = 'go' | 'pickup' | 'turnin'
 
 export type OtherJobStatus = 'active' | 'complete' | 'abandoned'
 
+/** Why the contract is no longer live. */
+export type OtherOutcome = 'completed' | 'abandoned'
+
+/** How the row left the Jobs tab. */
+export type OtherMovedBy = 'auto' | 'manual'
+
 export interface OtherStep {
   id: string
   kind: OtherStepKind
@@ -38,11 +44,39 @@ export interface OtherJob {
   source?: 'log' | 'manual'
 }
 
-export interface OtherJobsDoc {
-  jobs: OtherJob[]
+export interface OtherHistoryEntry {
+  id: string
+  ref: string
+  title: string
+  kind: OtherJobKind
+  reward: number
+  outcome: OtherOutcome
+  movedBy: OtherMovedBy
+  steps: OtherStep[]
+  archivedAt: number
+  createdAt: number
+  missionId?: string
+  generator?: string
+  contractName?: string
+  source?: 'log' | 'manual'
 }
 
-export const EMPTY_OTHER_JOBS: OtherJobsDoc = { jobs: [] }
+export interface OtherJobsDoc {
+  jobs: OtherJob[]
+  history: OtherHistoryEntry[]
+}
+
+export const EMPTY_OTHER_JOBS: OtherJobsDoc = { jobs: [], history: [] }
+
+export const OTHER_OUTCOME_LABEL: Record<OtherOutcome, string> = {
+  completed: 'Completed',
+  abandoned: 'Abandoned'
+}
+
+export const OTHER_MOVED_LABEL: Record<OtherMovedBy, string> = {
+  auto: 'Auto moved',
+  manual: 'Manually moved'
+}
 
 export const OTHER_KIND_LABEL: Record<OtherJobKind, string> = {
   delivery: 'DELIVERY',

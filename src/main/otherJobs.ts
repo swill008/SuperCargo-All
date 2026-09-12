@@ -20,9 +20,12 @@ export function loadOtherJobs(): OtherJobsDoc {
   try {
     const raw = fs.readFileSync(filePath(), 'utf8')
     const parsed = JSON.parse(raw) as Partial<OtherJobsDoc>
-    return { jobs: Array.isArray(parsed.jobs) ? parsed.jobs : [] }
+    return {
+      jobs: Array.isArray(parsed.jobs) ? parsed.jobs : [],
+      history: Array.isArray(parsed.history) ? parsed.history : []
+    }
   } catch {
-    return { ...EMPTY_OTHER_JOBS, jobs: [] }
+    return { jobs: [], history: [] }
   }
 }
 
@@ -63,7 +66,7 @@ export function ensureOtherJobsIpc(): void {
         steps: abandoned ? j.steps : j.steps.map((s) => ({ ...s, done: true, have: s.need }))
       }
     })
-    if (changed) saveOtherJobs({ jobs })
+    if (changed) saveOtherJobs({ jobs, history: doc.history ?? [] })
     return contracts
   })
 }
