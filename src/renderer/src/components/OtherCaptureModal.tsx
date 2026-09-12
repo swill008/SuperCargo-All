@@ -12,6 +12,7 @@ import { useOtherJobs } from '../state/otherJobs'
 import { useOtherCapture } from '../state/otherCapture'
 import { applyOcrRows } from '../state/otherOcr'
 import { saveSessionOcrShot } from '../state/otherOcrShot'
+import { mergeLocations } from '../state/otherPlaces'
 import { parseOtherOcrText, type OtherOcrRow } from '@shared/otherOcrParse'
 import { miniBtn, outlineBtn } from '../pages/JobsPartsStyles'
 
@@ -31,7 +32,10 @@ export default function OtherCaptureModal(): React.ReactElement | null {
   const job = useOtherJobs((s) => s.jobs.find((j) => j.id === jobId) ?? null)
   const locs = useStore((s) => s.locations)
   const comms = useStore((s) => s.commodities)
-  const locations = useMemo(() => (locs ?? []).map((l) => l.name).filter(Boolean), [locs])
+  const locations = useMemo(
+    () => mergeLocations(locs).map((l) => l.name).filter(Boolean),
+    [locs]
+  )
   const items = useMemo(() => (comms ?? []).map((c) => c.name).filter(Boolean), [comms])
 
   const [status, setStatus] = useState('')
@@ -200,28 +204,40 @@ export default function OtherCaptureModal(): React.ReactElement | null {
           {rows.map((row, i) => (
             <div key={row.key} style={{ borderTop: `1px dotted ${C.lineFaint}`, paddingTop: 10, marginTop: 10 }}>
               <div style={{ fontFamily: F.body, fontSize: 12, color: C.dim, marginBottom: 6 }}>Step {i + 1}</div>
+              <div style={{ fontFamily: F.body, fontSize: 12, color: C.dim, marginBottom: 4 }}>Objective</div>
               <div style={{ border: `1px solid ${C.lineStrong}`, background: 'rgba(0,0,0,0.4)', padding: '0 8px', marginBottom: 8 }}>
                 <Typeahead
-                  value={row.label || (row.location ? `Go to ${row.location}` : '')}
-                  options={locations}
+                  value={row.label || ''}
+                  options={[]}
                   freeText
-                  maxResults={12}
+                  maxResults={0}
                   menuMinWidth={480}
                   wrapMenu
-                  placeholder="Objective"
-                  onChange={(v) => {
-                    const loc = v.replace(/^Go\\s+to\\s+/i, '').trim()
-                    patch(row.key, { label: v, location: loc || v })
-                  }}
-                  onSelect={(v) => {
-                    const loc = v.replace(/^Go\\s+to\\s+/i, '').trim()
-                    patch(row.key, { label: /^Go\\s/i.test(v) ? v : (row.kind === 'go' ? `Go to ${v}` : v), location: loc || v })
-                  }}
+                  placeholder="Full objective sentence"
+                  onChange={(v) => patch(row.key, { label: v })}
+                  onSelect={(v) => patch(row.key, { label: v })}
                 />
               </div>
+              <div style={{ fontFamily: F.body, fontSize: 12, color: C.dim, marginBottom: 4 }}>Location</div>
+              <div style={{ border: `1px solid ${C.lineStrong}`, background: 'rgba(0,0,0,0.4)', padding: '0 8px', marginBottom: 8 }}>
+                <Typeahead
+                  value={row.location || ''}
+                  options={locations}
+                  freeText
+                  search
+                  maxResults={40}
+                  menuMinWidth={480}
+                  wrapMenu
+                  placeholder="Where this step goes"
+                  onChange={(v) => patch(row.key, { location: v })}
+                  onSelect={(v) => patch(row.key, { location: v })}
+                />
+              </div>
+              <div style={{ fontFamily: F.body, fontSize: 12, color: C.dim, marginBottom: 4 }}>Item</div>
               <div style={{ border: `1px solid ${C.lineStrong}`, background: 'rgba(0,0,0,0.4)', padding: '0 8px', marginBottom: 8 }}>
                 <Typeahead value={row.item || ''} options={items} freeText maxResults={12} menuMinWidth={480} wrapMenu placeholder="Item" onChange={(v) => patch(row.key, { item: v })} onSelect={(v) => patch(row.key, { item: v })} />
               </div>
+              <div style={{ fontFamily: F.body, fontSize: 12, color: C.dim, marginBottom: 4 }}>Need</div>
               <input type="number" min={1} value={row.need} onChange={(e) => patch(row.key, { need: Number(e.target.value) || 1 })} style={{ ...field, width: 100, marginBottom: 8 }} />
               <Btn onClick={() => setRows((list) => list.filter((r) => r.key !== row.key))} style={miniBtn}>REMOVE</Btn>
             </div>
