@@ -8,6 +8,7 @@ import * as path from 'node:path'
 import { app, ipcMain } from 'electron'
 import { IPC } from '@shared/channels'
 import { EMPTY_OTHER_JOBS, type OtherJobsDoc } from '@shared/otherJob'
+import { scanOtherSessionLog } from './scanLog'
 
 const FILE = 'other-jobs.json'
 
@@ -36,7 +37,6 @@ export function saveOtherJobs(doc: OtherJobsDoc): void {
 
 let registered = false
 
-/** Called from loadSettings so we do not have to rewrite main/index.ts. */
 export function ensureOtherJobsIpc(): void {
   if (registered) return
   registered = true
@@ -44,5 +44,9 @@ export function ensureOtherJobsIpc(): void {
   ipcMain.handle(IPC.otherJobsSave, (_e, doc: OtherJobsDoc) => {
     saveOtherJobs(doc)
     return true
+  })
+  ipcMain.handle(IPC.otherJobsScan, (_e, logPath: string) => {
+    if (!logPath) return []
+    return scanOtherSessionLog(logPath)
   })
 }
