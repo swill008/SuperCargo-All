@@ -5,7 +5,7 @@
 import type { OtherObjectiveParse } from './otherLog'
 
 const SKIP =
-  /^(objectives?|details?|description|reputation|risk|reward|aUEC|max box|box size|pickup|drop-?off|contract|accepted|offered)$/i
+  /^(primary\s+)?(objectives?|details?|description|reputation|risk|reward|aUEC|max box|box size|pickup|drop-?off|contract|accepted|offered)$/i
 
 export type OtherOcrRow = {
   kind: OtherObjectiveParse['kind']
@@ -29,7 +29,12 @@ function parseReward(text: string): number {
 }
 
 function clean(line: string): string {
-  return line.replace(/<[^>]+>/g, '').replace(/[:.]+$/g, '').replace(/\s+/g, ' ').trim()
+  return line
+    .replace(/<[^>]+>/g, ' ')
+    .replace(/^[\s<>|[\]•\-–—*]+/, '')
+    .replace(/[:.]+$/g, '')
+    .replace(/\s+/g, ' ')
+    .trim()
 }
 
 /** Structured Other objectives only. Noise lines return null. */
@@ -37,13 +42,13 @@ export function parseOtherOcrLine(raw: string): OtherOcrRow | null {
   const text = clean(raw)
   if (!text || text.length < 4 || SKIP.test(text)) return null
 
-  let m = text.match(/^Go\s+to\s+(.+)$/i)
+  let m = text.match(/Go\s+to\s+(.+)$/i)
   if (m) {
     const location = m[1].trim()
     return { kind: 'go', label: `Go to ${location}`, location, have: 0, need: 1 }
   }
 
-  m = text.match(/^Neutralize\s+(.+)$/i)
+  m = text.match(/Neutralize\s+(.+)$/i)
   if (m) {
     const item = m[1].trim()
     return { kind: 'go', label: `Neutralize ${item}`, location: item, item, have: 0, need: 1 }
