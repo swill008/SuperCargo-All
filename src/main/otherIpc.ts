@@ -15,3 +15,7 @@ export function sendOtherAccepted(payload: unknown): void {
 export function sendOtherSessionDrop(): void {
   sendAll(IPC.evtOtherSessionDrop, {})
 }
+
+export function sendOtherJobsChanged(): void {
+  sendAll(IPC.evtOtherJobsChanged, {})
+}

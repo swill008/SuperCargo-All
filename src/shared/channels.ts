@@ -64,6 +64,7 @@ export const IPC = {
   evtContractAccepted: 'evt:contract:accepted',
   evtOtherAccepted: 'evt:other:accepted',
   evtOtherSessionDrop: 'evt:other:sessionDrop',
+  evtOtherJobsChanged: 'evt:other:jobsChanged',
   evtObjective: 'evt:objective',
   evtContractEnded: 'evt:contract:ended',
   evtContractPaid: 'evt:contract:paid',
