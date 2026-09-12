@@ -44,6 +44,24 @@ export function rosterDistance(a?: Location, b?: Location): number | null {
   return Math.hypot(a.x - b.x, a.y - b.y, a.z - b.z)
 }
 
+export function distanceFromStart(
+  startName: string,
+  destName: string,
+  locations: Location[]
+): number | null {
+  return rosterDistance(findRosterLocation(startName, locations), findRosterLocation(destName, locations))
+}
+
+/** UEX x/y/z are starmap meters. */
+export function formatMapDistance(meters: number | null): string {
+  if (meters == null) return '\u2014'
+  const km = meters / 1000
+  if (km >= 1000) return `${(km / 1000).toFixed(1)} Mm`
+  if (km >= 10) return `${km.toFixed(0)} km`
+  if (km >= 1) return `${km.toFixed(1)} km`
+  return `${Math.round(meters)} m`
+}
+
 export function compareByDistanceFrom(
   startName: string,
   locations: Location[],
