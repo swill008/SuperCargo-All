@@ -57,7 +57,9 @@ const api = {
   loadOtherJobs: (): Promise<OtherJobsDoc> => ipcRenderer.invoke(IPC.otherJobsLoad),
   saveOtherJobs: (doc: OtherJobsDoc): Promise<boolean> =>
     ipcRenderer.invoke(IPC.otherJobsSave, doc),
-  scanOtherJobs: (logPath: string): Promise<ScannedContract[]> =>
+  scanOtherJobs: (
+    logPath: string
+  ): Promise<{ contracts: ScannedContract[]; ended: ContractEndedEvent[] } | ScannedContract[]> =>
     ipcRenderer.invoke(IPC.otherJobsScan, logPath),
 
   getUexShips: (): Promise<ShipRoster | null> => ipcRenderer.invoke(IPC.uexGetShips),
