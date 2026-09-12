@@ -52,11 +52,17 @@ export function distanceFromStart(
   return rosterDistance(findRosterLocation(startName, locations), findRosterLocation(destName, locations))
 }
 
-/** UEX x/y/z are starmap meters. */
+/** UEX x/y/z are starmap meters. Large ranges: "38 Gm 302 Mm". */
 export function formatMapDistance(meters: number | null): string {
   if (meters == null) return '\u2014'
   const km = meters / 1000
-  if (km >= 1000) return `${(km / 1000).toFixed(1)} Mm`
+  const Mm = km / 1000
+  if (Mm >= 1000) {
+    const gm = Math.floor(Mm / 1000)
+    const mm = Math.round(Mm % 1000)
+    return mm === 0 ? `${gm} Gm` : `${gm} Gm ${mm} Mm`
+  }
+  if (Mm >= 1) return `${Mm >= 10 ? Mm.toFixed(0) : Mm.toFixed(1)} Mm`
   if (km >= 10) return `${km.toFixed(0)} km`
   if (km >= 1) return `${km.toFixed(1)} km`
   return `${Math.round(meters)} m`
