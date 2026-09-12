@@ -160,6 +160,16 @@ export const useOtherJobs = create<OtherJobsState>((set, get) => ({
       const scanned = await window.supercargo.scanOtherJobs(logPath)
       const contracts: ScannedContract[] = Array.isArray(scanned) ? scanned : scanned.contracts
       const live = new Set(contracts.map((c) => c.accepted.missionId))
+      const byMission = Array.isArray(scanned) ? {} : (scanned.objectivesByMission ?? {})
+      for (const c of contracts) {
+        get().ingestAccepted(c.accepted)
+        for (const o of c.objectives) get().ingestObjective(o)
+      }
+      for (const j of get().jobs) {
+        if (j.source === 'manual' || j.objectivesLocked) continue
+        if (!j.missionId || j.steps.length > 0) continue
+        for (const o of byMission[j.missionId] ?? []) get().ingestObjective(o)
+      }
       set({
         jobs: get().jobs.map((j) =>
           j.status === 'active' && j.source !== 'manual' && j.missionId && !live.has(j.missionId)
@@ -167,16 +177,6 @@ export const useOtherJobs = create<OtherJobsState>((set, get) => ({
             : j
         )
       })
-      const byMission = Array.isArray(scanned) ? {} : (scanned.objectivesByMission ?? {})
-      for (const c of contracts) {
-        get().ingestAccepted(c.accepted)
-        for (const o of c.objectives) get().ingestObjective(o)
-      }
-      for (const j of get().jobs) {
-        if (j.status !== 'active' || j.source === 'manual' || j.objectivesLocked) continue
-        if (!j.missionId || j.steps.length > 0) continue
-        for (const o of byMission[j.missionId] ?? []) get().ingestObjective(o)
-      }
       get().persist()
     }
   },
