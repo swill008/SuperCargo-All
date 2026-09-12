@@ -25,6 +25,7 @@ import type {
   DataSyncResult,
   BoxSizeReport
 } from '@shared/types'
+import type { OtherJobsDoc } from '@shared/otherJob'
 
 type Unsubscribe = () => void
 
@@ -51,6 +52,10 @@ const api = {
   loadHistory: (): Promise<HistoryDoc> => ipcRenderer.invoke(IPC.historyLoad),
   saveHistory: (doc: HistoryDoc): Promise<boolean> =>
     ipcRenderer.invoke(IPC.historySave, doc),
+
+  loadOtherJobs: (): Promise<OtherJobsDoc> => ipcRenderer.invoke(IPC.otherJobsLoad),
+  saveOtherJobs: (doc: OtherJobsDoc): Promise<boolean> =>
+    ipcRenderer.invoke(IPC.otherJobsSave, doc),
 
   getUexShips: (): Promise<ShipRoster | null> => ipcRenderer.invoke(IPC.uexGetShips),
   getUexLocations: (): Promise<LocationRoster | null> => ipcRenderer.invoke(IPC.uexGetLocations),
@@ -82,7 +87,6 @@ const api = {
     on(IPC.evtManifestChanged, cb),
   onSettings: (cb: (s: AppSettings) => void): Unsubscribe => on(IPC.evtSettings, cb),
 
-  // webFrame zoom avoids layout overflow
   setZoom: (factor: number): void => webFrame.setZoomFactor(factor),
 
   ocrListDisplays: (): Promise<DisplayInfo[]> => ipcRenderer.invoke(IPC.ocrListDisplays),
