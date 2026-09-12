@@ -8,7 +8,7 @@ import { EditForm } from './JobsPartsUi'
 import { miniBtn, tagStyle } from './JobsPartsStyles'
 export { AddForm, miniBtn, outlineBtn } from './JobsPartsStyles'
 
-export function JobRow({ job, uex, expanded, editing, onToggle, onEdit, onCancelEdit, onSaveEdit, onAbandon, onComplete, onStep }: {
+export function JobRow({ job, uex, expanded, editing, onToggle, onEdit, onCancelEdit, onSaveEdit, onAbandon, onComplete, onImportOcr, onStep }: {
   job: OtherJob
   uex: { locations: string[]; items: string[] }
   expanded: boolean
@@ -19,6 +19,7 @@ export function JobRow({ job, uex, expanded, editing, onToggle, onEdit, onCancel
   onSaveEdit: (edit: OtherJobEdit) => void
   onAbandon: () => void
   onComplete: () => void
+  onImportOcr: () => void
   onStep: (id: string) => void
 }): React.ReactElement {
   const { done, total } = jobProgress(job)
@@ -43,7 +44,7 @@ export function JobRow({ job, uex, expanded, editing, onToggle, onEdit, onCancel
         <div style={{ padding: '0 0 16px 70px' }}>
           {job.steps.length === 0 && (
             <div style={{ fontFamily: F.body, fontSize: 13, color: C.dim, padding: '8px 0' }}>
-              No objectives yet. Use EDIT to add a location / item.
+              No objectives yet. Use EDIT or IMPORT FROM OCR.
             </div>
           )}
           {job.steps.map((step) => (
@@ -55,13 +56,16 @@ export function JobRow({ job, uex, expanded, editing, onToggle, onEdit, onCancel
               )}
             </div>
           ))}
-          {job.status === 'active' && (
-            <div style={{ display: 'flex', gap: 8, marginTop: 12 }}>
-              <Btn onClick={onEdit} style={miniBtn}>EDIT</Btn>
-              <Btn onClick={onComplete} style={miniBtn}>COMPLETE</Btn>
-              <Btn onClick={onAbandon} style={miniBtn}>ABANDON</Btn>
-            </div>
-          )}
+          <div style={{ display: 'flex', gap: 8, marginTop: 12, flexWrap: 'wrap' }}>
+            {job.status === 'active' && (
+              <>
+                <Btn onClick={onEdit} style={miniBtn}>EDIT</Btn>
+                <Btn onClick={onComplete} style={miniBtn}>COMPLETE</Btn>
+                <Btn onClick={onAbandon} style={miniBtn}>ABANDON</Btn>
+              </>
+            )}
+            <Btn onClick={onImportOcr} style={miniBtn}>IMPORT FROM OCR</Btn>
+          </div>
         </div>
       )}
     </div>
