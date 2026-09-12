@@ -12,6 +12,7 @@ import { scanOtherSessionLog } from './scanLog'
 import { loadCachedLocations } from './uex'
 import { loadOtherPlaces, refreshOtherPlaces } from './otherUex'
 import { wipeOtherOcrSession, saveOtherOcrShot, loadOtherOcrShot, hookOtherOcrSessionQuit } from './otherOcrSession'
+import { sendOtherJobsChanged } from './otherIpc'
 
 const FILE = 'other-jobs.json'
 
@@ -49,6 +50,7 @@ export function ensureOtherJobsIpc(): void {
   ipcMain.handle(IPC.otherJobsLoad, () => loadOtherJobs())
   ipcMain.handle(IPC.otherJobsSave, (_e, doc: OtherJobsDoc) => {
     saveOtherJobs(doc)
+    sendOtherJobsChanged()
     return true
   })
   ipcMain.handle(IPC.otherJobsScan, (_e, logPath: string) => {
@@ -69,7 +71,10 @@ export function ensureOtherJobsIpc(): void {
         steps: abandoned ? j.steps : j.steps.map((s) => ({ ...s, done: true, have: s.need }))
       }
     })
-    if (changed) saveOtherJobs({ jobs, history: doc.history ?? [] })
+    if (changed) {
+      saveOtherJobs({ jobs, history: doc.history ?? [] })
+      sendOtherJobsChanged()
+    }
     return { contracts, ended, objectivesByMission }
   })
   ipcMain.handle(IPC.otherPlacesGet, () => loadOtherPlaces())
