@@ -21,6 +21,7 @@ export interface LogWatcherEvents {
   ended: (e: ContractEndedEvent) => void
   paid: (e: ContractPaidEvent) => void
   share: (e: ShareEvent) => void
+  sessionDrop: () => void
 }
 
 export class LogWatcher extends EventEmitter {
@@ -199,6 +200,9 @@ export class LogWatcher extends EventEmitter {
         break
       case 'ended':
         this.emit('ended', parsed.event)
+        break
+      case 'sessionDrop':
+        this.emit('sessionDrop')
         break
       case 'completeNotice':
         this.lastCompleteId = parsed.missionId
