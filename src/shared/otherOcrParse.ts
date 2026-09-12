@@ -2,10 +2,9 @@
  * Other-mode OCR text parser.
  * Uses Game.log-style objective lines, not haul SCU/box/pickup parseOcrText.
  *
- * mobiGlas wraps long objectives:
- *   Deliver 0/10 SCU of Recycled Material Composite to
- *   Sakura Sun Goldenrod Workcenter on microTech.
- * parseOtherOcrText joins those before matching.
+ * mobiGlas wraps long objectives and Tesseract often prefixes junk:
+ *   <$ Deliver 0/7 SCU of Beryl to Covalex Distribution Center
+ *   S1DC06 on Hurston.
  */
 import type { OtherObjectiveParse } from './otherLog'
 
@@ -39,7 +38,7 @@ function parseReward(text: string): number {
 function clean(line: string): string {
   return line
     .replace(/<[^>]+>/g, ' ')
-    .replace(/^[\s<>|[\]•\-\u2013\u2014*]+/, '')
+    .replace(/^[^A-Za-z0-9]+/, '')
     .replace(/[:.]+$/g, '')
     .replace(/\s+/g, ' ')
     .trim()
@@ -48,6 +47,7 @@ function clean(line: string): string {
 function isContinuation(line: string): boolean {
   if (!line || SKIP.test(line)) return false
   if (OBJECTIVE_START.test(line)) return false
+  if (line.length < 3) return false
   return true
 }
 
@@ -68,7 +68,7 @@ export function parseOtherOcrLine(raw: string): OtherOcrRow | null {
     return { kind: 'go', label: `Neutralize ${item}`, location: item, item, have: 0, need: 1 }
   }
 
-  m = text.match(/^(?:Deliver|Bring|Collect|Recover|Turn\s*in)\s+(\d+)\s*\/\s*(\d+)\s+(?:SCU\s+of\s+)?(.+?)\s+to\s+(.+)$/i)
+  m = text.match(/(?:Deliver|Bring|Collect|Recover|Turn\s*in)\s+(\d+)\s*\/\s*(\d+)\s+(?:SCU\s+of\s+)?(.+?)\s+to\s+(.+)$/i)
   if (m) {
     const have = parseInt(m[1], 10)
     const need = parseInt(m[2], 10)
@@ -84,7 +84,7 @@ export function parseOtherOcrLine(raw: string): OtherOcrRow | null {
     }
   }
 
-  m = text.match(/^(?:Deliver|Bring|Collect|Recover|Turn\s*in)\s+(\d+)\s*\/\s*(\d+)\s+(?:SCU\s+of\s+)?(.+)$/i)
+  m = text.match(/(?:Deliver|Bring|Collect|Recover|Turn\s*in)\s+(\d+)\s*\/\s*(\d+)\s+(?:SCU\s+of\s+)?(.+)$/i)
   if (m) {
     const have = parseInt(m[1], 10)
     const need = parseInt(m[2], 10)
