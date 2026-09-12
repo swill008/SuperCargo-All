@@ -33,6 +33,9 @@ const PATTERN_IDENTITY = /<AccountLoginCharacterStatus_Character>.*?\bgeid (\d+)
 const PATTERN_SHARED = /<MissionShared>.*ownerId\[([^\]]+)\].*missionId\[([^\]]+)\]/
 const PATTERN_JOINED = /<PlayerJoined>.*mission_id\s+([0-9a-f-]+)\s+-\s+player_id\s+(\d+)/
 const PATTERN_LEFT = /<PlayerLeft>.*mission_id\s+([0-9a-f-]+)\s+-\s+player_id\s+(\d+)/
+/** Quit to menu / player-requested disconnect. CIG does not write EndMission. */
+const PATTERN_SESSION_DROP =
+  /<Channel Disconnected>.*Player requested disconnect/i
 
 export type ParsedLine =
   | { kind: 'identity'; geid: string; handle: string }
@@ -43,6 +46,7 @@ export type ParsedLine =
   | { kind: 'completeNotice'; missionId: string }
   | { kind: 'awarded'; amount: number }
   | { kind: 'share'; event: ShareEvent }
+  | { kind: 'sessionDrop' }
   | null
 
 export function parseTimestamp(line: string): string | null {
@@ -149,6 +153,10 @@ export function parseLine(line: string, markers: Map<string, MarkerEntry>): Pars
 
   if ((match = PATTERN_LEFT.exec(line))) {
     return { kind: 'share', event: { missionId: match[1], kind: 'left', actorId: match[2] } }
+  }
+
+  if (PATTERN_SESSION_DROP.test(line)) {
+    return { kind: 'sessionDrop' }
   }
 
   return null
