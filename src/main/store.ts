@@ -35,7 +35,9 @@ export const DEFAULT_SETTINGS: AppSettings = {
   overlayCorner: 'tr',
   overlayClickThrough: false,
   autoCheckUpdates: true,
-  onboarded: false
+  onboarded: false,
+  // fork default: stock SuperCargo until the user flips Settings
+  workMode: 'haul'
 }
 
 function userDataPath(file: string): string {

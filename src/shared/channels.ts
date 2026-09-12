@@ -13,6 +13,10 @@ export const IPC = {
   historyLoad: 'history:load',
   historySave: 'history:save',
 
+  // fork: Other-mode checklist (not the haul manifest)
+  otherJobsLoad: 'otherJobs:load',
+  otherJobsSave: 'otherJobs:save',
+
   uexGetShips: 'uex:getShips',
   uexGetLocations: 'uex:getLocations',
   uexGetCommodities: 'uex:getCommodities',
