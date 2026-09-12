@@ -46,7 +46,24 @@ export function ensureOtherJobsIpc(): void {
     return true
   })
   ipcMain.handle(IPC.otherJobsScan, (_e, logPath: string) => {
-    if (!logPath) return { contracts: [], ended: [] }
-    return scanOtherSessionLog(logPath)
+    if (!logPath) return []
+    const { contracts, ended } = scanOtherSessionLog(logPath)
+    const still = new Set(contracts.map((c) => c.accepted.missionId))
+    const doc = loadOtherJobs()
+    let changed = false
+    const jobs = doc.jobs.map((j) => {
+      if (!j.missionId || j.status !== 'active' || still.has(j.missionId)) return j
+      const ev = ended.find((e) => e.missionId === j.missionId)
+      if (!ev) return j
+      changed = true
+      const abandoned = ev.completion === 'Abandon' || ev.completion === 'Fail'
+      return {
+        ...j,
+        status: abandoned ? 'abandoned' : 'complete',
+        steps: abandoned ? j.steps : j.steps.map((s) => ({ ...s, done: true, have: s.need }))
+      }
+    })
+    if (changed) saveOtherJobs({ jobs })
+    return contracts
   })
 }
