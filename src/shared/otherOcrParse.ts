@@ -52,43 +52,74 @@ function row(kind: OtherOcrRow['kind'], text: string, location: string, extra: P
   return { kind, label: text, location, have: 0, need: 1, ...extra }
 }
 
-/** Structured fields plus the full on-screen sentence as label. */
+/** Leftover is not a commodity name if it still has verbs or a leading of. */
+function cleanExtractedItem(raw: string): string {
+  let s = raw.replace(/\s+/g, ' ').trim()
+  s = s.replace(/^(?:SCU\s+of\s+|of\s+)/i, '').trim()
+  if (!s) return ''
+  if (/\b(?:bring|deliver|collect|recover|turn\s*in|go\s+to)\b/i.test(s)) return ''
+  if (/[.]$/.test(s)) s = s.replace(/[.]+$/, '').trim()
+  return s
+}
+
+function cleanExtractedLoc(raw: string): string {
+  return raw.replace(/\s+/g, ' ').replace(/[.]+$/, '').trim()
+}
+
+/** Structured fields plus the full on-screen sentence as label. No vendor-specific rules. */
 export function parseOtherOcrLine(raw: string): OtherOcrRow | null {
   const text = clean(raw)
   if (!text || text.length < 4 || SKIP.test(text)) return null
 
   let m = text.match(/Go\s+to\s+(.+)$/i)
-  if (m) return row('go', text, m[1].trim())
+  if (m) return row('go', text, cleanExtractedLoc(m[1]))
 
   m = text.match(/Neutralize\s+(.+)$/i)
   if (m) {
-    const item = m[1].trim()
-    return row('go', text, item, { item })
+    const item = cleanExtractedItem(m[1])
+    return row('go', text, item, item ? { item } : {})
+  }
+
+  // "Bring 0/1 of Item. Bring to Place" — two sentences, generic verbs only.
+  m = text.match(
+    /(?:Deliver|Bring|Collect|Recover|Turn\s*in)\s+(\d+)\s*\/\s*(\d+)\s+(?:SCU\s+of\s+|of\s+)?(.+?)\.\s*(?:Deliver|Bring|Collect|Recover|Turn\s*in)\s+to\s+(.+)$/i
+  )
+  if (m) {
+    const item = cleanExtractedItem(m[3])
+    return row('turnin', text, cleanExtractedLoc(m[4]), {
+      item: item || undefined,
+      have: parseInt(m[1], 10),
+      need: parseInt(m[2], 10)
+    })
   }
 
   m = text.match(/(?:Deliver|Bring|Collect|Recover|Turn\s*in)\s+(\d+)\s*\/\s*(\d+)\s+(?:SCU\s+of\s+)?(.+?)\s+to\s+(.+)$/i)
   if (m) {
-    return row('turnin', text, m[4].trim(), {
-      item: m[3].trim(),
+    const item = cleanExtractedItem(m[3])
+    const loc = cleanExtractedLoc(m[4])
+    return row('turnin', text, item ? loc : '', {
+      item: item || undefined,
       have: parseInt(m[1], 10),
       need: parseInt(m[2], 10)
     })
   }
 
-  m = text.match(/(?:Deliver|Bring|Collect|Recover|Turn\s*in)\s+(\d+)\s*\/\s*(\d+)\s+(?:SCU\s+of\s+)?(.+)$/i)
+  m = text.match(/(?:Deliver|Bring|Collect|Recover|Turn\s*in)\s+(\d+)\s*\/\s*(\d+)\s+(?:SCU\s+of\s+|of\s+)?(.+)$/i)
   if (m) {
+    const item = cleanExtractedItem(m[3])
     return row('turnin', text, '', {
-      item: m[3].trim(),
+      item: item || undefined,
       have: parseInt(m[1], 10),
       need: parseInt(m[2], 10)
     })
   }
 
+  if (OBJECTIVE_START.test(text)) return row('go', text, '')
   return null
 }
 
 function rowKey(r: OtherOcrRow): string {
-  return `${r.kind}|${r.location.toLowerCase()}|${(r.item || '').toLowerCase()}`
+  return `${r.kind}|${r.label.toLowerCase()}`
 }
 
 export function parseOtherOcrText(rawText: string): OtherOcrParse {
