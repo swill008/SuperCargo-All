@@ -42,6 +42,8 @@ export interface OtherJob {
   generator?: string
   contractName?: string
   source?: 'log' | 'manual'
+  /** Set on EDIT / COMPLETE / ABANDON. Log objectives will not replace user steps. */
+  objectivesLocked?: boolean
 }
 
 export interface OtherHistoryEntry {
