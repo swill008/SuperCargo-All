@@ -9,6 +9,7 @@ import ManifestPage from './pages/ManifestPage'
 import ContractsPage from './pages/ContractsPage'
 import CargoGridPage from './pages/CargoGridPage'
 import HistoryPage from './pages/HistoryPage'
+import OtherHistoryPage from './pages/OtherHistoryPage'
 import SettingsPage from './pages/SettingsPage'
 import JobsPage from './pages/JobsPage'
 import NextPage from './pages/NextPage'
@@ -90,7 +91,8 @@ function MainApp(): React.ReactElement {
             {workMode === 'haul' && view === 'grid' && <CargoGridPage />}
             {workMode === 'other' && view === 'next' && <NextPage />}
             {workMode === 'other' && view === 'jobs' && <JobsPage />}
-            {view === 'history' && <HistoryPage />}
+            {view === 'history' && workMode === 'haul' && <HistoryPage />}
+            {view === 'history' && workMode === 'other' && <OtherHistoryPage />}
             {view === 'settings' && (
               <>
                 <WorkModeSection />
