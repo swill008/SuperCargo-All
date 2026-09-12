@@ -42,6 +42,8 @@ export interface OtherJob {
   generator?: string
   contractName?: string
   source?: 'log' | 'manual'
+  /** How steps were first filled. Log-created jobs stay source log. */
+  filledBy?: 'log' | 'ocr'
   /** Set on EDIT / COMPLETE / ABANDON. Log objectives will not replace user steps. */
   objectivesLocked?: boolean
 }

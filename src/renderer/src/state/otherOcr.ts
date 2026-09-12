@@ -55,7 +55,7 @@ export function applyOcrObjectives(
 
   useOtherJobs.setState({
     jobs: store.jobs.map((j) =>
-      j.id === jobId ? { ...j, reward, steps: steps.length ? steps : j.steps } : j
+      j.id === jobId ? { ...j, reward, steps: steps.length ? steps : j.steps, filledBy: 'ocr' as const } : j
     )
   })
   useOtherJobs.getState().persist()
@@ -97,7 +97,7 @@ export function applyOcrRows(
 
   useOtherJobs.setState({
     jobs: store.jobs.map((j) =>
-      j.id === jobId ? { ...j, reward, steps: steps.length ? steps : j.steps } : j
+      j.id === jobId ? { ...j, reward, steps: steps.length ? steps : j.steps, filledBy: 'ocr' as const } : j
     )
   })
   useOtherJobs.getState().persist()

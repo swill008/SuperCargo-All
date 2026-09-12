@@ -27,7 +27,14 @@ export function JobRow({ job, uex, expanded, editing, onToggle, onEdit, onCancel
   return (
     <div style={{ borderBottom: `1px solid ${C.lineSoft}` }}>
       <Btn onClick={onToggle} style={{ width: '100%', textAlign: 'left', background: 'transparent', border: 0, padding: '14px 0', cursor: 'pointer', display: 'grid', gridTemplateColumns: '70px 1fr 140px 130px 90px 40px', gap: 12, alignItems: 'center' }}>
-        <span style={{ fontFamily: F.display, fontSize: 16, color: C.acc }}>{job.ref}</span>
+        <span style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
+          <span style={{ fontFamily: F.display, fontSize: 16, color: C.acc }}>{job.ref}</span>
+          {job.source === 'log' ? (
+            <span style={{ fontFamily: F.display, fontSize: 10, letterSpacing: '0.14em', color: C.dim }}>LOG</span>
+          ) : job.filledBy === 'ocr' ? (
+            <span style={{ fontFamily: F.display, fontSize: 10, letterSpacing: '0.14em', color: C.dim }}>OCR</span>
+          ) : null}
+        </span>
         <div>
           <div style={{ fontFamily: F.body, fontSize: 15, color: C.text }}>{job.title}</div>
           <div style={{ fontFamily: F.body, fontSize: 12, color: C.dim }}>{done}/{total} objectives</div>
