@@ -18,8 +18,8 @@ import CompactWindowApp from './components/CompactWindowApp'
 import Onboarding from './components/Onboarding'
 import UpdateBanner from './components/UpdateBanner'
 import Toast from './components/Toast'
+import WorkModeSection from './components/WorkModeSection'
 
-// overlay window loads this bundle at #compact
 const IS_COMPACT = typeof window !== 'undefined' && window.location.hash.replace('#', '') === 'compact'
 
 export default function App(): React.ReactElement {
@@ -29,7 +29,7 @@ export default function App(): React.ReactElement {
 
 function MainApp(): React.ReactElement {
   const ready = useStore((s) => s.ready)
-  const view = useStore((s) => s.view)
+  const view = useStore((s) => s.view) as string
   const init = useStore((s) => s.init)
   const initOther = useOtherJobs((s) => s.init)
   const workMode = resolveWorkMode(useStore((s) => s.settings.workMode))
@@ -91,7 +91,12 @@ function MainApp(): React.ReactElement {
             {workMode === 'other' && view === 'next' && <NextPage />}
             {workMode === 'other' && view === 'jobs' && <JobsPage />}
             {view === 'history' && <HistoryPage />}
-            {view === 'settings' && <SettingsPage />}
+            {view === 'settings' && (
+              <>
+                <WorkModeSection />
+                <SettingsPage />
+              </>
+            )}
           </>
         )}
       </div>
