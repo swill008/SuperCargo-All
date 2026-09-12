@@ -39,6 +39,8 @@ export default function JobsPage(): React.ReactElement {
   const finished = jobs.filter((j) => j.status !== 'active')
   const uex = useUexNames()
   const openOtherCapture = useOtherCapture((s) => s.openFor)
+  const autoOcr = !!useStore((s) => s.settings.otherAutoOcrOnImport)
+  const updateSettings = useStore((s) => s.updateSettings)
 
   return (
     <div style={{ padding: PAGE_PADDING }}>
@@ -46,10 +48,13 @@ export default function JobsPage(): React.ReactElement {
         title="JOBS"
         subtitle={`${active.length} tracked \u00b7 Other mode \u00b7 click a job to expand objectives`}
         right={
-          <div style={{ display: 'flex', gap: 8 }}>
+          <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
             {finished.length > 0 && (
               <Btn onClick={() => void clearFinished()} style={miniBtn}>CLEAR FINISHED JOBS</Btn>
             )}
+            <Btn onClick={() => void updateSettings({ otherAutoOcrOnImport: !autoOcr })} style={autoOcr ? outlineBtn : miniBtn}>
+              {autoOcr ? 'AUTO OCR ON' : 'AUTO OCR OFF'}
+            </Btn>
             <Btn onClick={() => setAdding((v) => !v)} style={outlineBtn}>{adding ? 'CANCEL' : '+ ADD JOB'}</Btn>
           </div>
         }
