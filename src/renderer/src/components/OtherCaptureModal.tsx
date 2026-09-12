@@ -6,6 +6,7 @@ import React, { useMemo, useState } from 'react'
 import { C, F, GLOW } from '../theme'
 import { Btn } from './ui'
 import Typeahead from './Typeahead'
+import OcrCalibrator from './OcrCalibrator'
 import { useStore } from '../state/store'
 import { useOtherJobs } from '../state/otherJobs'
 import { useOtherCapture } from '../state/otherCapture'
@@ -37,6 +38,7 @@ export default function OtherCaptureModal(): React.ReactElement | null {
   const [reward, setReward] = useState(0)
   const [rows, setRows] = useState<DraftRow[]>([])
   const [busy, setBusy] = useState(false)
+  const [calibrating, setCalibrating] = useState(false)
 
   if (!open || !job) return null
 
@@ -49,6 +51,7 @@ export default function OtherCaptureModal(): React.ReactElement | null {
     setReward(0)
     setRows([])
     setBusy(false)
+    setCalibrating(false)
     close()
   }
 
@@ -110,7 +113,7 @@ export default function OtherCaptureModal(): React.ReactElement | null {
 
   return (
     <div style={{ position: 'absolute', inset: 0, background: 'rgba(0,0,0,0.78)', display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 40, zIndex: 50 }}>
-      <div style={{ width: 720, maxWidth: '100%', maxHeight: '100%', overflowY: 'auto', background: C.black, border: '1px solid rgba(255,255,255,0.22)', fontFamily: F.body }}>
+      <div style={{ width: calibrating ? 940 : 720, maxWidth: '100%', maxHeight: '100%', overflowY: 'auto', background: C.black, border: '1px solid rgba(255,255,255,0.22)', fontFamily: F.body }}>
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '16px 20px', borderBottom: `1px solid ${C.lineStrong}` }}>
           <div>
             <div style={{ fontFamily: F.display, fontSize: 16, letterSpacing: '0.08em', color: C.text, textShadow: GLOW }}>IMPORT FROM OCR</div>
@@ -128,11 +131,21 @@ export default function OtherCaptureModal(): React.ReactElement | null {
           <div style={{ fontFamily: F.body, fontSize: 13, color: C.dim, marginBottom: 12 }}>
             Open the contract on the mobiGlas screen, then capture. Haul box / pickup fields are not used.
           </div>
-          <div style={{ display: 'flex', gap: 8, marginBottom: 14 }}>
+          <div style={{ display: 'flex', gap: 8, marginBottom: 14, flexWrap: 'wrap' }}>
             <Btn onClick={() => void capture()} style={outlineBtn} disabled={busy}>{busy ? 'WORKING…' : 'CAPTURE'}</Btn>
-            <Btn onClick={confirm} style={outlineBtn} disabled={busy || locked || (rows.length === 0 && reward === 0)}>CONFIRM</Btn>
+            <Btn onClick={() => setCalibrating((v) => !v)} style={miniBtn}>{calibrating ? 'DONE, BACK TO CAPTURE' : 'ADJUST CAPTURE AREA'}</Btn>
+            <Btn onClick={confirm} style={outlineBtn} disabled={busy || locked || !rows.some((r) => r.location.trim() || r.item?.trim())}>CONFIRM</Btn>
             <Btn onClick={reset} style={miniBtn}>CANCEL</Btn>
           </div>
+          {calibrating && (
+            <div style={{ marginBottom: 16 }}>
+              <div style={{ fontFamily: F.display, fontSize: 13, letterSpacing: '0.14em', color: C.text, marginBottom: 4 }}>ADJUST CAPTURE AREA</div>
+              <div style={{ fontFamily: F.body, fontSize: 12, color: C.dim, marginBottom: 14, lineHeight: 1.5 }}>
+                Capture a preview, then drag the box over the contract objectives and resize the corner.
+              </div>
+              <OcrCalibrator />
+            </div>
+          )}
           {status && <div style={{ fontFamily: F.body, fontSize: 13, color: C.acc, marginBottom: 12 }}>{status}</div>}
           {preview && (
             <img src={preview} alt="OCR preview" style={{ width: '100%', maxHeight: 180, objectFit: 'contain', marginBottom: 12, border: `1px solid ${C.lineSoft}` }} />
