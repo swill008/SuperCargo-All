@@ -21,11 +21,11 @@ export const useOtherCapture = create<OtherCaptureState>((set) => ({
   close: () => set({ open: false, jobId: null, autoRun: false })
 }))
 
-/** Live add only. Log steps already present → skip. AUTO OCR ON → no modal. */
+/** Live add only. Opens the OCR window so you can see it finish, then auto-closes. */
 export function requestAutoOcrIfEnabled(jobId: string, stepsLength: number, locked?: boolean): void {
   if (stepsLength > 0 || locked) return
   const settings = useStore.getState().settings
   if (resolveWorkMode(settings.workMode) !== 'other') return
   if (!settings.otherAutoOcrOnImport) return
-  void import('./otherAutoOcrRun').then((m) => m.runSilentAutoOcr(jobId))
+  useOtherCapture.getState().openFor(jobId, true)
 }
