@@ -3,7 +3,7 @@ import React, { useState } from 'react'
 import { C, F, GLOW } from '../theme'
 import PageHeader, { PAGE_PADDING } from '../components/PageHeader'
 import { Btn } from '../components/ui'
-import { useOtherJobs, type OtherJobDraft } from '../state/otherJobs'
+import { useOtherJobs, type OtherJobDraft, type OtherJobEdit } from '../state/otherJobs'
 import { OTHER_KIND_LABEL, jobProgress, type OtherJob, type OtherJobKind } from '@shared/otherJob'
 
 const KINDS: OtherJobKind[] = ['delivery', 'collection', 'mining', 'salvage']
@@ -16,11 +16,13 @@ export default function JobsPage(): React.ReactElement {
   const expandedId = useOtherJobs((s) => s.expandedId)
   const setExpanded = useOtherJobs((s) => s.setExpanded)
   const addJob = useOtherJobs((s) => s.addJob)
+  const applyEdit = useOtherJobs((s) => s.applyEdit)
   const abandonJob = useOtherJobs((s) => s.abandonJob)
   const completeJob = useOtherJobs((s) => s.completeJob)
   const toggleStep = useOtherJobs((s) => s.toggleStep)
   const [adding, setAdding] = useState(false)
   const [draft, setDraft] = useState<OtherJobDraft>(emptyDraft)
+  const [editingId, setEditingId] = useState<string | null>(null)
   const active = jobs.filter((j) => j.status === 'active')
 
   return (
@@ -43,7 +45,11 @@ export default function JobsPage(): React.ReactElement {
           key={job.id}
           job={job}
           expanded={expandedId === job.id}
+          editing={editingId === job.id}
           onToggle={() => setExpanded(expandedId === job.id ? null : job.id)}
+          onEdit={() => setEditingId(job.id)}
+          onCancelEdit={() => setEditingId(null)}
+          onSaveEdit={(edit) => { applyEdit(job.id, edit); setEditingId(null) }}
           onAbandon={() => abandonJob(job.id)}
           onComplete={() => completeJob(job.id)}
           onStep={(stepId) => toggleStep(job.id, stepId)}
@@ -53,8 +59,17 @@ export default function JobsPage(): React.ReactElement {
   )
 }
 
-function JobRow({ job, expanded, onToggle, onAbandon, onComplete, onStep }: {
-  job: OtherJob; expanded: boolean; onToggle: () => void; onAbandon: () => void; onComplete: () => void; onStep: (id: string) => void
+function JobRow({ job, expanded, editing, onToggle, onEdit, onCancelEdit, onSaveEdit, onAbandon, onComplete, onStep }: {
+  job: OtherJob
+  expanded: boolean
+  editing: boolean
+  onToggle: () => void
+  onEdit: () => void
+  onCancelEdit: () => void
+  onSaveEdit: (edit: OtherJobEdit) => void
+  onAbandon: () => void
+  onComplete: () => void
+  onStep: (id: string) => void
 }): React.ReactElement {
   const { done, total } = jobProgress(job)
   const statusColor = job.status === 'active' ? C.green : job.status === 'complete' ? C.dim : C.amber
@@ -71,8 +86,16 @@ function JobRow({ job, expanded, onToggle, onAbandon, onComplete, onStep }: {
         <span style={{ fontFamily: F.display, fontSize: 12, letterSpacing: '0.12em', color: statusColor }}>{job.status.toUpperCase()}</span>
         <span style={{ color: C.ghost }}>{expanded ? '▲' : '▼'}</span>
       </Btn>
-      {expanded && (
+      {expanded && editing && (
+        <EditForm job={job} onCancel={onCancelEdit} onSave={onSaveEdit} />
+      )}
+      {expanded && !editing && (
         <div style={{ padding: '0 0 16px 70px' }}>
+          {job.steps.length === 0 && (
+            <div style={{ fontFamily: F.body, fontSize: 13, color: C.dim, padding: '8px 0' }}>
+              No objectives yet. Use EDIT to add a location / item.
+            </div>
+          )}
           {job.steps.map((step) => (
             <div key={step.id} style={{ display: 'flex', alignItems: 'center', gap: 12, padding: '7px 0', borderBottom: `1px dotted ${C.lineFaint}` }}>
               <span style={{ color: step.done ? C.green : C.acc }}>{step.done ? '◆' : '◇'}</span>
@@ -82,12 +105,70 @@ function JobRow({ job, expanded, onToggle, onAbandon, onComplete, onStep }: {
           ))}
           {job.status === 'active' && (
             <div style={{ display: 'flex', gap: 8, marginTop: 12 }}>
+              <Btn onClick={onEdit} style={miniBtn}>EDIT</Btn>
               <Btn onClick={onComplete} style={miniBtn}>COMPLETE</Btn>
               <Btn onClick={onAbandon} style={miniBtn}>ABANDON</Btn>
             </div>
           )}
         </div>
       )}
+    </div>
+  )
+}
+
+function EditForm({ job, onCancel, onSave }: {
+  job: OtherJob
+  onCancel: () => void
+  onSave: (edit: OtherJobEdit) => void
+}): React.ReactElement {
+  const [title, setTitle] = useState(job.title)
+  const [kind, setKind] = useState<OtherJobKind>(job.kind)
+  const [reward, setReward] = useState(job.reward)
+  const [steps, setSteps] = useState(job.steps.map((s) => ({
+    id: s.id, location: s.location, item: s.item ?? '', need: s.need || 1
+  })))
+  const [newLoc, setNewLoc] = useState('')
+  const [newItem, setNewItem] = useState('')
+  const [newNeed, setNewNeed] = useState(1)
+
+  const patchStep = (id: string, patch: Partial<(typeof steps)[0]>): void => {
+    setSteps((rows) => rows.map((r) => (r.id === id ? { ...r, ...patch } : r)))
+  }
+
+  return (
+    <div style={{ padding: '0 0 16px 70px' }}>
+      <div style={{ fontFamily: F.display, fontSize: 11, letterSpacing: '0.18em', color: C.acc, margin: '8px 0 12px' }}>EDIT {job.ref}</div>
+      <Field label="Title"><input value={title} onChange={(e) => setTitle(e.target.value)} style={inputStyle} /></Field>
+      <Field label="Kind">
+        <select value={kind} onChange={(e) => setKind(e.target.value as OtherJobKind)} style={inputStyle}>
+          {KINDS.map((k) => <option key={k} value={k}>{OTHER_KIND_LABEL[k]}</option>)}
+        </select>
+      </Field>
+      <Field label="Reward"><input type="number" min={0} value={reward} onChange={(e) => setReward(Number(e.target.value))} style={{ ...inputStyle, width: 160 }} /></Field>
+      {steps.map((row, i) => (
+        <div key={row.id} style={{ borderTop: `1px dotted ${C.lineFaint}`, paddingTop: 8, marginTop: 8 }}>
+          <div style={{ fontFamily: F.body, fontSize: 12, color: C.dim, marginBottom: 6 }}>Step {i + 1}</div>
+          <Field label="Location"><input value={row.location} onChange={(e) => patchStep(row.id, { location: e.target.value })} style={inputStyle} /></Field>
+          <Field label="Item"><input value={row.item} onChange={(e) => patchStep(row.id, { item: e.target.value })} style={inputStyle} /></Field>
+          <Field label="Need"><input type="number" min={1} value={row.need} onChange={(e) => patchStep(row.id, { need: Number(e.target.value) })} style={{ ...inputStyle, width: 100 }} /></Field>
+          <Btn onClick={() => setSteps((rows) => rows.filter((r) => r.id !== row.id))} style={miniBtn}>REMOVE STEP</Btn>
+        </div>
+      ))}
+      <div style={{ borderTop: `1px dotted ${C.lineFaint}`, paddingTop: 8, marginTop: 12 }}>
+        <div style={{ fontFamily: F.body, fontSize: 12, color: C.dim, marginBottom: 6 }}>Add step</div>
+        <Field label="Location"><input value={newLoc} onChange={(e) => setNewLoc(e.target.value)} style={inputStyle} placeholder="Shubin Mining Facility SAL-5" /></Field>
+        <Field label="Item"><input value={newItem} onChange={(e) => setNewItem(e.target.value)} style={inputStyle} placeholder="Hadanite" /></Field>
+        <Field label="Need"><input type="number" min={1} value={newNeed} onChange={(e) => setNewNeed(Number(e.target.value))} style={{ ...inputStyle, width: 100 }} /></Field>
+        <Btn onClick={() => {
+          if (!newLoc.trim() && !newItem.trim()) return
+          setSteps((rows) => [...rows, { id: `new-${rows.length}-${Date.now()}`, location: newLoc, item: newItem, need: newNeed }])
+          setNewLoc(''); setNewItem(''); setNewNeed(1)
+        }} style={miniBtn}>ADD STEP</Btn>
+      </div>
+      <div style={{ display: 'flex', gap: 8, marginTop: 14 }}>
+        <Btn onClick={() => onSave({ title, kind, reward, steps })} style={outlineBtn}>SAVE</Btn>
+        <Btn onClick={onCancel} style={miniBtn}>CANCEL</Btn>
+      </div>
     </div>
   )
 }
