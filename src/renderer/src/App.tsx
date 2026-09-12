@@ -2,6 +2,7 @@ import React, { useEffect } from 'react'
 import { useStore } from './state/store'
 import { useOtherJobs } from './state/otherJobs'
 import { bindOtherAutoOcr } from './state/otherAutoOcrBind'
+import { bindHaulModeSwitch } from './state/haulModeSwitch'
 import { resolveWorkMode } from '@shared/workMode'
 import { C, ZOOM_STEP, ZOOM_DEFAULT, clampZoom } from './theme'
 import TopBar from './components/TopBar'
@@ -16,6 +17,7 @@ import JobsPage from './pages/JobsPage'
 import NextPage from './pages/NextPage'
 import CaptureModal from './components/CaptureModal'
 import OtherCaptureModal from './components/OtherCaptureModal'
+import HaulModeSwitchModal from './components/HaulModeSwitchModal'
 import ScanReviewModal from './components/ScanReviewModal'
 import CompactGate from './components/CompactGate'
 import Onboarding from './components/Onboarding'
@@ -45,6 +47,7 @@ function MainApp(): React.ReactElement {
       await init()
       await initOther()
       bindOtherAutoOcr()
+      bindHaulModeSwitch()
     })()
   }, [init, initOther])
 
@@ -52,7 +55,6 @@ function MainApp(): React.ReactElement {
     window.supercargo.setZoom(uiZoom || 1)
   }, [uiZoom])
 
-  // Other mode has no Manifest/Contracts/Grid. Default that blank state to Jobs.
   useEffect(() => {
     const haulOnly = view === 'manifest' || view === 'contracts' || view === 'grid'
     const otherOnly = view === 'jobs' || view === 'next'
@@ -79,19 +81,7 @@ function MainApp(): React.ReactElement {
   }, [uiZoom, updateSettings])
 
   return (
-    <div
-      style={{
-        position: 'fixed',
-        inset: 0,
-        display: 'flex',
-        flexDirection: 'column',
-        background: C.black,
-        color: C.textBody,
-        overflow: 'hidden',
-        border: '2px solid rgba(255,210,30,0.6)',
-        borderRadius: 18
-      }}
-    >
+    <div style={{ position: 'fixed', inset: 0, display: 'flex', flexDirection: 'column', background: C.black, color: C.textBody, overflow: 'hidden', border: '2px solid rgba(255,210,30,0.6)', borderRadius: 18 }}>
       <TopBar />
       <UpdateBanner />
       <div style={{ flex: 1, minHeight: 0, overflowY: 'auto', overflowX: 'hidden' }}>
@@ -119,6 +109,7 @@ function MainApp(): React.ReactElement {
       <Toast />
       <CaptureModal />
       <OtherCaptureModal />
+      <HaulModeSwitchModal />
       <ScanReviewModal />
       {ready && !onboarded && <Onboarding />}
     </div>
@@ -127,18 +118,7 @@ function MainApp(): React.ReactElement {
 
 function Loading(): React.ReactElement {
   return (
-    <div
-      style={{
-        height: '100%',
-        display: 'flex',
-        alignItems: 'center',
-        justifyContent: 'center',
-        fontFamily: "'Rajdhani', sans-serif",
-        letterSpacing: '0.2em',
-        color: C.faint,
-        fontSize: 13
-      }}
-    >
+    <div style={{ height: '100%', display: 'flex', alignItems: 'center', justifyContent: 'center', fontFamily: "'Rajdhani', sans-serif", letterSpacing: '0.2em', color: C.faint, fontSize: 13 }}>
       INITIALIZING...
     </div>
   )
