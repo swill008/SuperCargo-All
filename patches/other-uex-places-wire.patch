@@ -1,0 +1,48 @@
+# Other UEX cities/stations/outposts wiring
+# Apply on features. Does not touch haul terminalsToLocations.
+
+--- src/main/index.ts
++++ src/main/index.ts
+@@
+ import { seedCacheIfNeeded, refreshFromRepo } from './dataSync'
++import { loadOtherPlaces, refreshOtherPlaces } from './otherUex'
+@@
+   ipcMain.handle(IPC.uexGetGridFaces, () => loadCachedGridFaces())
++  ipcMain.handle(IPC.otherPlacesGet, () => loadOtherPlaces())
+@@
++    void refreshOtherPlaces(loadCachedLocations()?.locations ?? [])
+     void refreshFromRepo().then((res) => {
+
+--- src/preload/index.ts
++++ src/preload/index.ts
+@@
+   getUexGridFaces: (): Promise<GridFacesRoster | null> => ipcRenderer.invoke(IPC.uexGetGridFaces),
++  getOtherPlaces: (): Promise<import('@shared/types').Location[]> => ipcRenderer.invoke(IPC.otherPlacesGet),
+
+--- src/renderer/src/App.tsx
++++ src/renderer/src/App.tsx
+@@
+ import { bindHaulModeSwitch } from './state/haulModeSwitch'
++import { loadOtherPlacesFromMain } from './state/otherPlaces'
+@@
+       bindHaulModeSwitch()
++      void loadOtherPlacesFromMain()
+
+--- src/renderer/src/pages/NextPage.tsx
++++ src/renderer/src/pages/NextPage.tsx
+@@
+ import { compareByDistanceFrom } from '@shared/otherNext'
++import { mergeLocations } from '../state/otherPlaces'
+@@
+-  const locations = useStore((s) => s.locations) ?? []
++  const haulLocs = useStore((s) => s.locations) ?? []
++  const locations = useMemo(() => mergeLocations(haulLocs), [haulLocs])
+
+--- src/renderer/src/state/otherOcr.ts
++++ src/renderer/src/state/otherOcr.ts
+@@
+ import { useStore } from './store'
++import { mergeLocations } from './otherPlaces'
+@@
+-  const locations = useStore.getState().locations ?? []
++  const locations = mergeLocations(useStore.getState().locations)

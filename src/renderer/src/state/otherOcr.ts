@@ -9,6 +9,7 @@ import type { OtherOcrRow } from '@shared/otherOcrParse'
 import type { OtherStep } from '@shared/otherJob'
 import { useOtherJobs } from './otherJobs'
 import { useStore } from './store'
+import { mergeLocations } from './otherPlaces'
 
 let seq = 0
 function nid(): string {
@@ -27,7 +28,7 @@ export function applyOcrObjectives(
   const job = store.jobs.find((j) => j.id === jobId)
   if (!job) return false
   if (job.objectivesLocked || job.steps.length > 0) return false
-  const locations = useStore.getState().locations ?? []
+  const locations = mergeLocations(useStore.getState().locations)
 
   const steps: OtherStep[] = []
   for (const o of payload.objectives) {
@@ -69,7 +70,7 @@ export function applyOcrRows(
   const job = store.jobs.find((j) => j.id === jobId)
   if (!job) return false
   if (job.objectivesLocked || job.steps.length > 0) return false
-  const locations = useStore.getState().locations ?? []
+  const locations = mergeLocations(useStore.getState().locations)
 
   const steps: OtherStep[] = []
   for (const row of payload.rows) {

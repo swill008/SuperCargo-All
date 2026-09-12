@@ -3,6 +3,7 @@ import { useStore } from './state/store'
 import { useOtherJobs } from './state/otherJobs'
 import { bindOtherAutoOcr } from './state/otherAutoOcrBind'
 import { bindHaulModeSwitch } from './state/haulModeSwitch'
+import { loadOtherPlacesFromMain } from './state/otherPlaces'
 import { resolveWorkMode } from '@shared/workMode'
 import { C, ZOOM_STEP, ZOOM_DEFAULT, clampZoom } from './theme'
 import TopBar from './components/TopBar'
@@ -48,6 +49,7 @@ function MainApp(): React.ReactElement {
       await initOther()
       bindOtherAutoOcr()
       bindHaulModeSwitch()
+      void loadOtherPlacesFromMain()
     })()
   }, [init, initOther])
 
@@ -65,7 +67,7 @@ function MainApp(): React.ReactElement {
   useEffect(() => {
     const onKey = (e: KeyboardEvent): void => {
       if (!(e.ctrlKey || e.metaKey)) return
-      if (e.key === '=' || e.key === '+') {
+      if (e.key === '=' || e.key === '+' ) {
         e.preventDefault()
         void updateSettings({ uiZoom: clampZoom((uiZoom || 1) + ZOOM_STEP) })
       } else if (e.key === '-' || e.key === '_') {
