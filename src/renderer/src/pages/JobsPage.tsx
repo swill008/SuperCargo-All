@@ -231,7 +231,7 @@ function AddForm({ draft, uex, onChange, onSave }: {
       <div style={{ fontFamily: F.display, fontSize: 11, letterSpacing: '0.18em', color: C.acc, marginBottom: 12 }}>NEW JOB</div>
       <Field label="Title"><input value={draft.title} onChange={(e) => set({ title: e.target.value })} style={inputStyle} /></Field>
       <Field label="Kind">
-        <select value={draft.kind} onChange={(e) => set({ kind: e.target.value as OtherJobKind)} style={inputStyle}>
+        <select value={draft.kind} onChange={(e) => set({ kind: e.target.value as OtherJobKind })} style={inputStyle}>
           {KINDS.map((k) => <option key={k} value={k}>{OTHER_KIND_LABEL[k]}</option>)}
         </select>
       </Field>
