@@ -1,5 +1,5 @@
 /** Edit form for Other-mode Jobs. */
-import React, { useState } from 'react'
+import React, { useEffect, useState } from 'react'
 import { C, F } from '../theme'
 import { Btn } from '../components/ui'
 import Typeahead from '../components/Typeahead'
@@ -51,6 +51,14 @@ export function EditForm({ job, uex, onCancel, onSave }: {
   const [newLoc, setNewLoc] = useState('')
   const [newItem, setNewItem] = useState('')
   const [newNeed, setNewNeed] = useState(1)
+  const [shot, setShot] = useState<string | null>(null)
+  useEffect(() => {
+    let live = true
+    void window.supercargo.getOtherOcrShot?.(job.id).then((url) => {
+      if (live) setShot(url || null)
+    })
+    return () => { live = false }
+  }, [job.id])
   const patchStep = (id: string, patch: Partial<(typeof steps)[0]>): void => {
     setSteps((rows) => rows.map((r) => (r.id === id ? { ...r, ...patch } : r)))
   }
@@ -61,6 +69,14 @@ export function EditForm({ job, uex, onCancel, onSave }: {
   return (
     <div style={{ padding: '0 0 16px 70px', overflow: 'visible' }}>
       <div style={{ fontFamily: F.display, fontSize: 11, letterSpacing: '0.18em', color: C.acc, margin: '8px 0 12px' }}>EDIT {job.ref}</div>
+      <div style={{ marginBottom: 14 }}>
+        <div style={{ fontFamily: F.display, fontSize: 11, letterSpacing: '0.16em', color: C.dim, marginBottom: 6 }}>OCR CAPTURE (this session)</div>
+        {shot ? (
+          <img src={shot} alt="OCR capture" style={{ maxWidth: '100%', maxHeight: 220, objectFit: 'contain', border: `1px solid ${C.lineStrong}` }} />
+        ) : (
+          <div style={{ fontFamily: F.body, fontSize: 13, color: C.dim }}>No capture this session. Use Import from OCR.</div>
+        )}
+      </div>
       <Field label="Title"><input value={title} onChange={(e) => setTitle(e.target.value)} style={inputStyle} /></Field>
       <Field label="Kind">
         <select value={kind} onChange={(e) => setKind(e.target.value as OtherJobKind)} style={inputStyle}>
