@@ -1,12 +1,14 @@
 import React, { useState } from 'react'
-import { useStore, type ViewId } from '../state/store'
+import { useStore } from '../state/store'
 import { useNarrow } from '../state/useViewport'
 import { C, F } from '../theme'
 import { Btn } from './ui'
 import { MADE_BY_COMMUNITY } from '@shared/legal'
 import { resolveWorkMode } from '@shared/workMode'
 
-const HAUL_NAV: Array<{ id: ViewId; label: string }> = [
+type TabId = 'manifest' | 'contracts' | 'grid' | 'history' | 'settings' | 'jobs' | 'next'
+
+const HAUL_NAV: Array<{ id: TabId; label: string }> = [
   { id: 'manifest', label: 'MANIFEST' },
   { id: 'contracts', label: 'CONTRACTS' },
   { id: 'grid', label: 'CARGO GRID' },
@@ -14,7 +16,7 @@ const HAUL_NAV: Array<{ id: ViewId; label: string }> = [
   { id: 'settings', label: 'SETTINGS' }
 ]
 
-const OTHER_NAV: Array<{ id: ViewId; label: string }> = [
+const OTHER_NAV: Array<{ id: TabId; label: string }> = [
   { id: 'next', label: 'NEXT' },
   { id: 'jobs', label: 'JOBS' },
   { id: 'history', label: 'HISTORY' },
@@ -22,7 +24,7 @@ const OTHER_NAV: Array<{ id: ViewId; label: string }> = [
 ]
 
 export default function BottomNav(): React.ReactElement {
-  const view = useStore((s) => s.view)
+  const view = useStore((s) => s.view) as TabId
   const setView = useStore((s) => s.setView)
   const workMode = resolveWorkMode(useStore((s) => s.settings.workMode))
   const NAV = workMode === 'other' ? OTHER_NAV : HAUL_NAV
@@ -35,7 +37,7 @@ export default function BottomNav(): React.ReactElement {
         return (
           <Btn
             key={item.id}
-            onClick={() => setView(item.id)}
+            onClick={() => setView(item.id as typeof view)}
             style={{
               flex: 1,
               border: 0,
@@ -87,26 +89,14 @@ function AttributionPanel(): React.ReactElement {
         cursor: 'default'
       }}
     >
-      <div
-        style={{
-          transform: hover ? `translateY(${-FOOTER_H}px)` : 'translateY(0)',
-          transition: 'transform 0.3s cubic-bezier(0.22, 1, 0.36, 1)'
-        }}
-      >
+      <div style={{ transform: hover ? `translateY(${-FOOTER_H}px)` : 'translateY(0)', transition: 'transform 0.3s cubic-bezier(0.22, 1, 0.36, 1)' }}>
         <div style={row}>
           {logoOk && (
-            <img
-              src="./made-by-community.png"
-              alt={MADE_BY_COMMUNITY}
-              onError={() => setLogoOk(false)}
-              style={{ height: 50, width: 'auto', opacity: 0.95 }}
-            />
+            <img src="./made-by-community.png" alt={MADE_BY_COMMUNITY} onError={() => setLogoOk(false)} style={{ height: 50, width: 'auto', opacity: 0.95 }} />
           )}
         </div>
         <div style={{ ...row, flexDirection: 'column', alignItems: 'flex-end', justifyContent: 'center', textAlign: 'right' }}>
-          <div style={{ fontFamily: F.display, fontSize: 10, letterSpacing: '0.16em', color: C.acc }}>
-            UNOFFICIAL FAN TOOL
-          </div>
+          <div style={{ fontFamily: F.display, fontSize: 10, letterSpacing: '0.16em', color: C.acc }}>UNOFFICIAL FAN TOOL</div>
           <div style={{ fontFamily: F.body, fontSize: 10.5, lineHeight: 1.4, color: C.faint, marginTop: 3 }}>
             Star Citizen® is a trademark of
             <br />
@@ -123,22 +113,9 @@ function WatcherStatusPanel(): React.ReactElement {
   const connected = watcher.connected
   const color = connected ? C.green : C.amber
   const label = connected ? 'CONNECTED' : watcher.path ? 'WAITING' : 'NO GAME LOG'
-
   return (
-    <div
-      style={{
-        flex: '0 0 auto',
-        display: 'flex',
-        flexDirection: 'column',
-        justifyContent: 'center',
-        padding: '0 22px',
-        background: 'rgba(255,255,255,0.015)'
-      }}
-      title={watcher.path ?? 'Set the game log path in Settings'}
-    >
-      <div style={{ fontFamily: F.display, fontSize: 11, letterSpacing: '0.2em', color: C.dim, marginBottom: 5 }}>
-        LOG WATCHER
-      </div>
+    <div style={{ flex: '0 0 auto', display: 'flex', flexDirection: 'column', justifyContent: 'center', padding: '0 22px', background: 'rgba(255,255,255,0.015)' }} title={watcher.path ?? 'Set the game log path in Settings'}>
+      <div style={{ fontFamily: F.display, fontSize: 11, letterSpacing: '0.2em', color: C.dim, marginBottom: 5 }}>LOG WATCHER</div>
       <div style={{ display: 'flex', alignItems: 'center', gap: 9 }}>
         <span style={{ width: 8, height: 8, borderRadius: '50%', background: color, flex: 'none' }} />
         <span style={{ fontFamily: F.mono, fontSize: 13, color, letterSpacing: '0.04em' }}>{label}</span>
