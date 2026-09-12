@@ -52,5 +52,7 @@ export function isOtherMode(value: string | undefined | null): boolean {
 declare module './types' {
   interface AppSettings {
     workMode?: WorkMode
+    /** Other mode: auto-run OCR review when a new empty job is added. */
+    otherAutoOcrOnImport?: boolean
   }
 }
