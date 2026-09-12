@@ -59,18 +59,25 @@ export default function OtherOverlay(): React.ReactElement {
       }}
     >
       <div style={{ display: 'flex', justifyContent: 'space-between', gap: 8, marginBottom: 10, alignItems: 'center' }}>
-        <div
-          style={{
-            fontFamily: F.display,
-            fontSize: 13,
-            letterSpacing: '0.08em',
-            color: C.acc,
-            textTransform: 'uppercase',
-            minWidth: 0,
-            flex: 1
-          }}
-        >
-          {current?.step.location || current?.step.label || 'NO OPEN STOP'}
+        <div style={{ display: 'flex', alignItems: 'center', gap: 8, minWidth: 0, flex: 1 }}>
+          {current && (
+            <span style={{
+              width: 22, height: 22, borderRadius: '50%', border: `1px solid ${C.acc}`, color: C.acc,
+              fontFamily: F.display, fontSize: 12, display: 'inline-flex', alignItems: 'center', justifyContent: 'center', flex: 'none'
+            }}>{shown}</span>
+          )}
+          <div
+            style={{
+              fontFamily: F.display,
+              fontSize: 13,
+              letterSpacing: '0.08em',
+              color: C.acc,
+              textTransform: 'uppercase',
+              minWidth: 0
+            }}
+          >
+            {current?.step.location || current?.step.label || 'NO OPEN STOP'}
+          </div>
         </div>
         <div style={{ display: 'flex', alignItems: 'center', gap: 6, flexShrink: 0 }}>
           <button
@@ -134,7 +141,7 @@ export default function OtherOverlay(): React.ReactElement {
           color: C.ghost
         }}
       >
-        SUPERCARGO · OTHER MODE
+        SUPERCARGO \u00b7 OTHER MODE
       </div>
     </div>
   )
