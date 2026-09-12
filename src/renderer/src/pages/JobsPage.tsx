@@ -7,6 +7,7 @@ import { useStore } from '../state/store'
 import { useOtherJobs, type OtherJobDraft } from '../state/otherJobs'
 import { useOtherHistory } from '../state/otherHistory'
 import { useOtherCapture } from '../state/otherCapture'
+import { mergeLocations } from '../state/otherPlaces'
 import { JobRow, AddForm, miniBtn, outlineBtn } from './JobsParts'
 
 const emptyDraft = (): OtherJobDraft => ({
@@ -17,7 +18,7 @@ function useUexNames(): { locations: string[]; items: string[] } {
   const locs = useStore((s) => s.locations)
   const comms = useStore((s) => s.commodities)
   return useMemo(() => ({
-    locations: (locs ?? []).map((l) => l.name).filter(Boolean),
+    locations: mergeLocations(locs).map((l) => l.name).filter(Boolean),
     items: (comms ?? []).map((c) => c.name).filter(Boolean)
   }), [locs, comms])
 }
