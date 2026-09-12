@@ -5,6 +5,7 @@ import PageHeader, { PAGE_PADDING } from '../components/PageHeader'
 import { Btn } from '../components/ui'
 import { useStore } from '../state/store'
 import { useOtherJobs, type OtherJobDraft } from '../state/otherJobs'
+import { useOtherHistory } from '../state/otherHistory'
 import { JobRow, AddForm, miniBtn, outlineBtn } from './JobsParts'
 
 const emptyDraft = (): OtherJobDraft => ({
@@ -29,7 +30,7 @@ export default function JobsPage(): React.ReactElement {
   const abandonJob = useOtherJobs((s) => s.abandonJob)
   const completeJob = useOtherJobs((s) => s.completeJob)
   const toggleStep = useOtherJobs((s) => s.toggleStep)
-  const clearFinished = useOtherJobs((s) => s.clearFinished)
+  const clearFinished = useOtherHistory((s) => s.clearFinished)
   const [adding, setAdding] = useState(false)
   const [draft, setDraft] = useState<OtherJobDraft>(emptyDraft)
   const [editingId, setEditingId] = useState<string | null>(null)
@@ -41,7 +42,7 @@ export default function JobsPage(): React.ReactElement {
     <div style={{ padding: PAGE_PADDING }}>
       <PageHeader
         title="JOBS"
-        subtitle={`${active.length} tracked · Other mode · click a job to expand objectives`}
+        subtitle={`${active.length} tracked \u00b7 Other mode \u00b7 click a job to expand objectives`}
         right={
           <div style={{ display: 'flex', gap: 8 }}>
             {finished.length > 0 && (
