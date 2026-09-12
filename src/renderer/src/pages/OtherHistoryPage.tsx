@@ -1,6 +1,6 @@
 /** Other-mode History. Does not read haul history.json. */
-import React, { useMemo } from 'react'
-import { useOtherJobs } from '../state/otherJobs'
+import React, { useEffect, useMemo } from 'react'
+import { useOtherHistory } from '../state/otherHistory'
 import {
   OTHER_KIND_LABEL,
   OTHER_MOVED_LABEL,
@@ -11,7 +11,10 @@ import { C, F } from '../theme'
 import PageHeader, { PAGE_PADDING } from '../components/PageHeader'
 
 export default function OtherHistoryPage(): React.ReactElement {
-  const history = useOtherJobs((s) => s.history)
+  const history = useOtherHistory((s) => s.history)
+  useEffect(() => {
+    void window.supercargo.loadOtherJobs?.().then((doc) => useOtherHistory.getState().load(doc))
+  }, [])
   const sorted = useMemo(
     () => [...history].sort((a, b) => b.archivedAt - a.archivedAt),
     [history]
@@ -20,7 +23,7 @@ export default function OtherHistoryPage(): React.ReactElement {
     <div style={{ padding: PAGE_PADDING }}>
       <PageHeader
         title="HISTORY"
-        subtitle={`${sorted.length} archived Other jobs · haul history stays in Haul mode`}
+        subtitle={`${sorted.length} archived Other jobs \u00b7 haul history stays in Haul mode`}
       />
       {sorted.length === 0 && (
         <div style={{ fontFamily: F.body, fontSize: 14, color: C.dim, padding: '24px 0' }}>
@@ -59,7 +62,7 @@ function Row({ row }: { row: OtherHistoryEntry }): React.ReactElement {
       </div>
       {row.steps.map((step) => (
         <div key={step.id} style={{ padding: '4px 0 4px 70px', fontFamily: F.body, fontSize: 13, color: C.dim }}>
-          {step.done ? '◆' : '◇'} {step.label}
+          {step.done ? '\u25c6' : '\u25c7'} {step.label}
         </div>
       ))}
     </div>
