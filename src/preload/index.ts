@@ -73,6 +73,8 @@ const api = {
   getUexCommodities: (): Promise<CommodityRoster | null> => ipcRenderer.invoke(IPC.uexGetCommodities),
   getUexGridFaces: (): Promise<GridFacesRoster | null> => ipcRenderer.invoke(IPC.uexGetGridFaces),
   getOtherPlaces: (): Promise<import('@shared/types').Location[]> => ipcRenderer.invoke(IPC.otherPlacesGet),
+  saveOtherOcrShot: (jobId: string, dataUrl: string): Promise<boolean> => ipcRenderer.invoke(IPC.otherOcrShotSave, jobId, dataUrl),
+  getOtherOcrShot: (jobId: string): Promise<string | null> => ipcRenderer.invoke(IPC.otherOcrShotGet, jobId),
 
   getWatcherStatus: (): Promise<WatcherStatus> => ipcRenderer.invoke(IPC.watcherStatus),
   restartWatcher: (): Promise<boolean> => ipcRenderer.invoke(IPC.watcherRestart),
