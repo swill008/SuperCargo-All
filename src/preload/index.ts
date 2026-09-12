@@ -17,6 +17,7 @@ import type {
   CommodityRoster,
   GridFacesRoster,
   SessionScan,
+  ScannedContract,
   DisplayInfo,
   OcrEngineInfo,
   OcrResult,
@@ -56,6 +57,8 @@ const api = {
   loadOtherJobs: (): Promise<OtherJobsDoc> => ipcRenderer.invoke(IPC.otherJobsLoad),
   saveOtherJobs: (doc: OtherJobsDoc): Promise<boolean> =>
     ipcRenderer.invoke(IPC.otherJobsSave, doc),
+  scanOtherJobs: (logPath: string): Promise<ScannedContract[]> =>
+    ipcRenderer.invoke(IPC.otherJobsScan, logPath),
 
   getUexShips: (): Promise<ShipRoster | null> => ipcRenderer.invoke(IPC.uexGetShips),
   getUexLocations: (): Promise<LocationRoster | null> => ipcRenderer.invoke(IPC.uexGetLocations),
@@ -128,6 +131,8 @@ const api = {
     on(IPC.evtWatcherStatus, cb),
   onContractAccepted: (cb: (e: ContractAcceptedEvent) => void): Unsubscribe =>
     on(IPC.evtContractAccepted, cb),
+  onOtherAccepted: (cb: (e: ContractAcceptedEvent) => void): Unsubscribe =>
+    on(IPC.evtOtherAccepted, cb),
   onObjective: (cb: (e: ObjectiveEvent) => void): Unsubscribe => on(IPC.evtObjective, cb),
   onContractEnded: (cb: (e: ContractEndedEvent) => void): Unsubscribe =>
     on(IPC.evtContractEnded, cb),
