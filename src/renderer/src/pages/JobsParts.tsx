@@ -30,7 +30,7 @@ export function JobRow({ job, uex, expanded, editing, onToggle, onEdit, onCancel
         <span style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
           <span style={{ fontFamily: F.display, fontSize: 16, color: C.acc }}>{job.ref}</span>
           {(() => {
-            const base = job.filledBy === 'ocr' ? 'OCR' : (job.filledBy === 'log' || job.source === 'log') ? 'LOG' : ''
+            const base = job.source === 'manual' ? 'MANUAL' : job.filledBy === 'ocr' ? 'OCR' : (job.filledBy === 'log' || job.source === 'log') ? 'LOG' : ''
             if (!base) return null
             const text = job.edited ? `${base} (edited)` : base
             return <span style={{ fontFamily: F.display, fontSize: 10, letterSpacing: '0.08em', color: C.dim }}>{text}</span>
