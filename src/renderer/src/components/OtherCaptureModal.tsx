@@ -11,6 +11,7 @@ import { useStore } from '../state/store'
 import { useOtherJobs } from '../state/otherJobs'
 import { useOtherCapture } from '../state/otherCapture'
 import { applyOcrRows } from '../state/otherOcr'
+import { saveSessionOcrShot } from '../state/otherOcrShot'
 import { parseOtherOcrText, type OtherOcrRow } from '@shared/otherOcrParse'
 import { miniBtn, outlineBtn } from '../pages/JobsPartsStyles'
 
@@ -52,7 +53,10 @@ export default function OtherCaptureModal(): React.ReactElement | null {
       try {
         const shot = await window.supercargo.ocrPreview?.()
         if (cancelled) return
-        if (shot) setPreview(shot)
+        if (shot) {
+          setPreview(shot)
+          saveSessionOcrShot(jobId, shot)
+        }
         const result = await window.supercargo.ocrRun()
         if (cancelled) return
         if (!result?.ok) {
@@ -104,7 +108,10 @@ export default function OtherCaptureModal(): React.ReactElement | null {
     setStatus('Capturing\u2026')
     try {
       const shot = await window.supercargo.ocrPreview?.()
-      if (shot) setPreview(shot)
+      if (shot) {
+        setPreview(shot)
+        saveSessionOcrShot(job.id, shot)
+      }
       const result = await window.supercargo.ocrRun()
       if (!result?.ok) {
         setStatus(result?.error || 'OCR failed')
@@ -126,6 +133,7 @@ export default function OtherCaptureModal(): React.ReactElement | null {
   }
 
   const confirm = (): void => {
+    if (preview) saveSessionOcrShot(job.id, preview)
     if (locked) {
       reset()
       return
