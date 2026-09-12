@@ -6,6 +6,7 @@ import { Btn } from '../components/ui'
 import { useStore } from '../state/store'
 import { useOtherJobs, type OtherJobDraft } from '../state/otherJobs'
 import { useOtherHistory } from '../state/otherHistory'
+import { useOtherCapture } from '../state/otherCapture'
 import { JobRow, AddForm, miniBtn, outlineBtn } from './JobsParts'
 
 const emptyDraft = (): OtherJobDraft => ({
@@ -37,7 +38,7 @@ export default function JobsPage(): React.ReactElement {
   const active = jobs.filter((j) => j.status === 'active')
   const finished = jobs.filter((j) => j.status !== 'active')
   const uex = useUexNames()
-  const openCapture = useStore((s) => s.openCapture)
+  const openOtherCapture = useOtherCapture((s) => s.openFor)
 
   return (
     <div style={{ padding: PAGE_PADDING }}>
@@ -74,7 +75,7 @@ export default function JobsPage(): React.ReactElement {
           onSaveEdit={(edit) => { applyEdit(job.id, edit); setEditingId(null) }}
           onAbandon={() => abandonJob(job.id)}
           onComplete={() => completeJob(job.id)}
-          onImportOcr={() => openCapture(job.id)}
+          onImportOcr={() => openOtherCapture(job.id)}
           onStep={(stepId) => toggleStep(job.id, stepId)}
         />
       ))}
