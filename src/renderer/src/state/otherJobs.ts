@@ -54,6 +54,7 @@ interface OtherJobsState {
   ingestAccepted: (e: ContractAcceptedEvent) => void
   ingestObjective: (e: ObjectiveEvent) => void
   ingestEnded: (e: ContractEndedEvent) => void
+  dropLogSession: () => void
 }
 
 let seq = 0
@@ -147,17 +148,28 @@ export const useOtherJobs = create<OtherJobsState>((set, get) => ({
     if (!listenersBound) {
       listenersBound = true
       window.supercargo.onOtherAccepted?.((e) => get().ingestAccepted(e))
+      window.supercargo.onOtherSessionDrop?.(() => get().dropLogSession())
       window.supercargo.onObjective((e) => get().ingestObjective(e))
       window.supercargo.onContractEnded((e) => get().ingestEnded(e))
     }
 
     const logPath = (await window.supercargo.getSettings()).gameLogPath
     if (logPath && window.supercargo.scanOtherJobs) {
-      const scanned: ScannedContract[] = await window.supercargo.scanOtherJobs(logPath)
-      for (const c of scanned) {
+      const scanned = await window.supercargo.scanOtherJobs(logPath)
+      const contracts: ScannedContract[] = Array.isArray(scanned) ? scanned : scanned.contracts
+      const live = new Set(contracts.map((c) => c.accepted.missionId))
+      set({
+        jobs: get().jobs.map((j) =>
+          j.status === 'active' && j.source !== 'manual' && j.missionId && !live.has(j.missionId)
+            ? { ...j, status: 'abandoned' as const }
+            : j
+        )
+      })
+      for (const c of contracts) {
         get().ingestAccepted(c.accepted)
         for (const o of c.objectives) get().ingestObjective(o)
       }
+      get().persist()
     }
   },
 
@@ -254,6 +266,15 @@ export const useOtherJobs = create<OtherJobsState>((set, get) => ({
     if (job.steps.some((s) => stepKey(s) === key)) return
     set({
       jobs: get().jobs.map((j) => (j.id === job.id ? { ...j, steps: [...j.steps, step] } : j))
+    })
+    get().persist()
+  },
+
+  dropLogSession: () => {
+    set({
+      jobs: get().jobs.map((j) =>
+        j.status === 'active' && j.source !== 'manual' ? { ...j, status: 'abandoned' as const } : j
+      )
     })
     get().persist()
   },
