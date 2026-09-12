@@ -176,6 +176,11 @@ function EditForm({ job, uex, onCancel, onSave }: {
     setSteps((rows) => rows.map((r) => (r.id === id ? { ...r, ...patch } : r)))
   }
 
+  const stepsForSave = (): OtherJobEdit['steps'] => {
+    if (!newLoc.trim() && !newItem.trim()) return steps
+    return [...steps, { id: `new-${steps.length}-${Date.now()}`, location: newLoc, item: newItem, need: newNeed }]
+  }
+
   return (
     <div style={{ padding: '0 0 16px 70px', overflow: 'visible' }}>
       <div style={{ fontFamily: F.display, fontSize: 11, letterSpacing: '0.18em', color: C.acc, margin: '8px 0 12px' }}>EDIT {job.ref}</div>
@@ -196,7 +201,7 @@ function EditForm({ job, uex, onCancel, onSave }: {
         </div>
       ))}
       <div style={{ borderTop: `1px dotted ${C.lineFaint}`, paddingTop: 8, marginTop: 12 }}>
-        <div style={{ fontFamily: F.body, fontSize: 12, color: C.dim, marginBottom: 6 }}>Add step</div>
+        <div style={{ fontFamily: F.body, fontSize: 12, color: C.dim, marginBottom: 6 }}>Add step (SAVE also keeps these fields)</div>
         <UexField label="Location" value={newLoc} options={uex.locations} placeholder="Shubin Mining Facility SAL-5" onChange={setNewLoc} />
         <UexField label="Item" value={newItem} options={uex.items} placeholder="Hadanite" onChange={setNewItem} />
         <Field label="Need"><input type="number" min={1} value={newNeed} onChange={(e) => setNewNeed(Number(e.target.value))} style={{ ...inputStyle, width: 100 }} /></Field>
@@ -207,7 +212,7 @@ function EditForm({ job, uex, onCancel, onSave }: {
         }} style={miniBtn}>ADD STEP</Btn>
       </div>
       <div style={{ display: 'flex', gap: 8, marginTop: 14 }}>
-        <Btn onClick={() => onSave({ title, kind, reward, steps })} style={outlineBtn}>SAVE</Btn>
+        <Btn onClick={() => onSave({ title, kind, reward, steps: stepsForSave() })} style={outlineBtn}>SAVE</Btn>
         <Btn onClick={onCancel} style={miniBtn}>CANCEL</Btn>
       </div>
     </div>
@@ -226,7 +231,7 @@ function AddForm({ draft, uex, onChange, onSave }: {
       <div style={{ fontFamily: F.display, fontSize: 11, letterSpacing: '0.18em', color: C.acc, marginBottom: 12 }}>NEW JOB</div>
       <Field label="Title"><input value={draft.title} onChange={(e) => set({ title: e.target.value })} style={inputStyle} /></Field>
       <Field label="Kind">
-        <select value={draft.kind} onChange={(e) => set({ kind: e.target.value as OtherJobKind })} style={inputStyle}>
+        <select value={draft.kind} onChange={(e) => set({ kind: e.target.value as OtherJobKind)} style={inputStyle}>
           {KINDS.map((k) => <option key={k} value={k}>{OTHER_KIND_LABEL[k]}</option>)}
         </select>
       </Field>
