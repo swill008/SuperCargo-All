@@ -4,13 +4,11 @@ import { C, F } from '../theme'
 export interface TypeaheadProps {
   value: string
   options: string[]
-  /** fires only when freeText */
   onChange?: (v: string) => void
   onSelect?: (v: string) => void
   onBlur?: () => void
   onCancel?: () => void
   placeholder?: string
-  /** allow off-list values */
   freeText?: boolean
   maxResults?: number
   mono?: boolean
@@ -19,6 +17,10 @@ export interface TypeaheadProps {
   search?: boolean
   warn?: (opt: string) => boolean
   warnTitle?: string
+  /** Grow the open list past the input so long UEX names stay readable. */
+  menuMinWidth?: number
+  /** Wrap rows instead of ellipsizing on the right. Default true. */
+  wrapMenu?: boolean
 }
 
 export default function Typeahead({
@@ -36,7 +38,9 @@ export default function Typeahead({
   clearOnFocus = false,
   search = false,
   warn,
-  warnTitle
+  warnTitle,
+  menuMinWidth = 480,
+  wrapMenu = true
 }: TypeaheadProps): React.ReactElement {
   const [query, setQuery] = useState(value)
   const [open, setOpen] = useState(false)
@@ -44,7 +48,6 @@ export default function Typeahead({
   const [focused, setFocused] = useState(false)
   const blurTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
 
-  // idle field tracks value
   useEffect(() => {
     if (clearOnFocus || focused) return
     setQuery(value)
@@ -102,7 +105,7 @@ export default function Typeahead({
     blurTimer.current = setTimeout(() => {
       setFocused(false)
       setOpen(false)
-      if (!freeText && query !== value) setQuery(value) // revert off-list value
+      if (!freeText && query !== value) setQuery(value)
       onBlur?.()
     }, 120)
   }
@@ -159,18 +162,20 @@ export default function Typeahead({
             position: 'absolute',
             top: '100%',
             left: 0,
-            right: 0,
-            zIndex: 60,
+            zIndex: 80,
+            minWidth: Math.max(menuMinWidth, 280),
+            width: 'max-content',
+            maxWidth: 'min(640px, 92vw)',
             background: '#05080a',
             border: `1px solid ${C.accBorder}`,
-            maxHeight: 230,
-            overflowY: 'auto'
+            maxHeight: 280,
+            overflowY: 'auto',
+            boxShadow: '0 8px 24px rgba(0,0,0,0.55)'
           }}
         >
           {filtered.map((opt, i) => (
             <div
               key={opt}
-              // mousedown fires before blur
               onMouseDown={(e) => {
                 e.preventDefault()
                 commit(opt)
@@ -179,14 +184,18 @@ export default function Typeahead({
               style={{
                 display: 'grid',
                 gridTemplateColumns: warn ? '16px 1fr' : '1fr',
-                alignItems: 'center',
+                alignItems: 'start',
                 gap: 8,
                 padding: '8px 11px',
                 fontFamily: mono ? F.mono : F.body,
                 fontSize: 13,
+                lineHeight: 1.35,
                 color: i === highlight ? C.text : C.body,
                 background: i === highlight ? C.accFill : 'transparent',
-                cursor: 'pointer'
+                cursor: 'pointer',
+                whiteSpace: wrapMenu ? 'normal' : 'nowrap',
+                overflow: wrapMenu ? 'visible' : 'hidden',
+                textOverflow: wrapMenu ? undefined : 'ellipsis'
               }}
             >
               {warn && (
@@ -194,7 +203,7 @@ export default function Typeahead({
                   {warn(opt) ? '⚠' : ''}
                 </span>
               )}
-              <span style={{ whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{opt}</span>
+              <span>{opt}</span>
             </div>
           ))}
         </div>
