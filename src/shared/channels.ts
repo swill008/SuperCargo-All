@@ -18,6 +18,8 @@ export const IPC = {
   otherJobsSave: 'otherJobs:save',
   otherJobsScan: 'otherJobs:scan',
   otherPlacesGet: 'otherPlaces:get',
+  otherOcrShotSave: 'otherOcrShot:save',
+  otherOcrShotGet: 'otherOcrShot:get',
 
   uexGetShips: 'uex:getShips',
   uexGetLocations: 'uex:getLocations',
