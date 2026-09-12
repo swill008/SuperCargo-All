@@ -46,7 +46,7 @@ export function ensureOtherJobsIpc(): void {
     return true
   })
   ipcMain.handle(IPC.otherJobsScan, (_e, logPath: string) => {
-    if (!logPath) return []
+    if (!logPath) return { contracts: [], ended: [] }
     return scanOtherSessionLog(logPath)
   })
 }

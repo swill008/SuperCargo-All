@@ -2,7 +2,7 @@
 
 import * as fs from 'node:fs'
 import { parseLine, type MarkerEntry } from './logParser'
-import type { ScannedContract, ScanShare, SessionScan } from '@shared/types'
+import type { ScannedContract, ScanShare, SessionScan, ContractEndedEvent } from '@shared/types'
 
 export function scanSessionLog(logPath: string): SessionScan {
   let content: string
@@ -68,17 +68,24 @@ export function scanSessionLog(logPath: string): SessionScan {
   return { contracts: [...active.values()], shares }
 }
 
+export type OtherSessionScan = {
+  contracts: ScannedContract[]
+  ended: ContractEndedEvent[]
+}
+
 /** Active non-haul contracts still open in this Game.log. Other mode only. */
-export function scanOtherSessionLog(logPath: string): ScannedContract[] {
+export function scanOtherSessionLog(logPath: string): OtherSessionScan {
   let content: string
   try {
     content = fs.readFileSync(logPath, 'utf8')
   } catch {
-    return []
+    return { contracts: [], ended: [] }
   }
 
   const markers = new Map<string, MarkerEntry>()
   const active = new Map<string, ScannedContract>()
+  const ended: ContractEndedEvent[] = []
+  const objsByContract = new Map<string, ScannedContract['objectives']>()
 
   for (const line of content.split(/\r?\n/)) {
     if (!line) continue
@@ -92,14 +99,30 @@ export function scanOtherSessionLog(logPath: string): ScannedContract[] {
         break
       case 'objective': {
         const contract = active.get(parsed.event.missionId)
-        if (contract) contract.objectives.push(parsed.event)
+        if (contract) {
+          contract.objectives.push(parsed.event)
+          const key = contract.accepted.contractName || contract.accepted.title
+          if (key) objsByContract.set(key, [...contract.objectives])
+        }
         break
       }
       case 'ended':
+        ended.push(parsed.event)
         active.delete(parsed.event.missionId)
         break
     }
   }
 
-  return [...active.values()]
+  const contracts = [...active.values()].map((c) => {
+    if (c.objectives.length > 0) return c
+    const key = c.accepted.contractName || c.accepted.title
+    const inherited = key ? objsByContract.get(key) : undefined
+    if (!inherited?.length) return c
+    return {
+      ...c,
+      objectives: inherited.map((o) => ({ ...o, missionId: c.accepted.missionId }))
+    }
+  })
+
+  return { contracts, ended }
 }
