@@ -16,6 +16,7 @@ export const IPC = {
   // fork: Other-mode checklist (not the haul manifest)
   otherJobsLoad: 'otherJobs:load',
   otherJobsSave: 'otherJobs:save',
+  otherJobsScan: 'otherJobs:scan',
 
   uexGetShips: 'uex:getShips',
   uexGetLocations: 'uex:getLocations',
@@ -56,9 +57,9 @@ export const IPC = {
 
   appVersion: 'app:version',
 
-  // push events (main -> renderer)
   evtWatcherStatus: 'evt:watcher:status',
   evtContractAccepted: 'evt:contract:accepted',
+  evtOtherAccepted: 'evt:other:accepted',
   evtObjective: 'evt:objective',
   evtContractEnded: 'evt:contract:ended',
   evtContractPaid: 'evt:contract:paid',
@@ -72,8 +73,8 @@ export const IPC = {
   evtWindowState: 'evt:window:state',
   evtOcrResult: 'evt:ocr:result',
   evtOcrStatus: 'evt:ocr:status',
-  evtManifestChanged: 'evt:manifest:changed', // saved by another window
+  evtManifestChanged: 'evt:manifest:changed',
   evtCompactState: 'evt:compact:state',
-  evtLoadingState: 'evt:loading:state', // main window's loading-mode step
-  evtSettings: 'evt:settings' // settings changed, keep the overlay in sync
+  evtLoadingState: 'evt:loading:state',
+  evtSettings: 'evt:settings'
 } as const
