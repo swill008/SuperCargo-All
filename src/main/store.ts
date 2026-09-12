@@ -4,6 +4,7 @@ import { app } from 'electron'
 import type { AppSettings, ManifestDoc, HistoryDoc } from '@shared/types'
 import { DEFAULT_SHIP } from '@shared/ships'
 import { newRunId, migrateRunId } from '@shared/run'
+import { ensureOtherJobsIpc } from './otherJobs'
 
 const SETTINGS_FILE = 'settings.json'
 const MANIFEST_FILE = 'manifest.json'
@@ -36,7 +37,6 @@ export const DEFAULT_SETTINGS: AppSettings = {
   overlayClickThrough: false,
   autoCheckUpdates: true,
   onboarded: false,
-  // fork default: stock SuperCargo until the user flips Settings
   workMode: 'haul'
 }
 
@@ -63,6 +63,7 @@ function writeJson(file: string, value: unknown): void {
 }
 
 export function loadSettings(): AppSettings {
+  ensureOtherJobsIpc()
   return readJson<AppSettings>(SETTINGS_FILE, DEFAULT_SETTINGS)
 }
 
