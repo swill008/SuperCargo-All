@@ -48,6 +48,14 @@ function MainApp(): React.ReactElement {
     window.supercargo.setZoom(uiZoom || 1)
   }, [uiZoom])
 
+  // Other mode has no Manifest/Contracts/Grid. Default that blank state to Jobs.
+  useEffect(() => {
+    const haulOnly = view === 'manifest' || view === 'contracts' || view === 'grid'
+    const otherOnly = view === 'jobs' || view === 'next'
+    if (workMode === 'other' && haulOnly) useStore.getState().setView('jobs' as 'manifest')
+    if (workMode === 'haul' && otherOnly) useStore.getState().setView('manifest')
+  }, [workMode, view])
+
   useEffect(() => {
     const onKey = (e: KeyboardEvent): void => {
       if (!(e.ctrlKey || e.metaKey)) return

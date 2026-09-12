@@ -8,6 +8,7 @@ import { WORK_MODE_LABELS, resolveWorkMode, type WorkMode } from '@shared/workMo
 export default function WorkModeSection(): React.ReactElement {
   const settings = useStore((s) => s.settings)
   const updateSettings = useStore((s) => s.updateSettings)
+  const setView = useStore((s) => s.setView)
   return (
     <div style={{ padding: '12px 0 8px', borderBottom: `1px solid ${C.lineSoft}` }}>
       <div style={{ fontFamily: F.display, fontSize: 11, letterSpacing: '0.2em', color: C.acc, paddingBottom: 9, borderBottom: `1px solid ${C.lineStrong}`, margin: '0 0 12px' }}>
@@ -19,7 +20,10 @@ export default function WorkModeSection(): React.ReactElement {
         return (
           <Btn
             key={mode}
-            onClick={() => void updateSettings({ workMode: mode })}
+            onClick={() => {
+              void updateSettings({ workMode: mode })
+              setView(mode === 'other' ? 'jobs' as 'manifest' : 'manifest')
+            }}
             style={{
               display: 'block', width: '100%', textAlign: 'left', marginBottom: 8, padding: '12px 14px',
               border: `1px solid ${on ? C.accBorder : C.lineStrong}`, background: on ? C.accFill : 'transparent',
@@ -27,7 +31,7 @@ export default function WorkModeSection(): React.ReactElement {
             }}
           >
             <span style={{ fontFamily: F.display, letterSpacing: '0.08em', color: on ? C.acc : C.dim }}>
-              {on ? '●' : '○'} {copy.title}
+              {on ? '\u25cf' : '\u25cb'} {copy.title}
             </span>
             <span style={{ color: C.dim }}> — {copy.blurb}</span>
           </Btn>
