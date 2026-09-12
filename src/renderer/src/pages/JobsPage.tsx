@@ -1,14 +1,12 @@
 /** Other-mode Jobs page (Contracts analogue). Does not touch haul contracts. */
 import React, { useMemo, useState } from 'react'
-import { C, F, GLOW } from '../theme'
+import { C, F } from '../theme'
 import PageHeader, { PAGE_PADDING } from '../components/PageHeader'
 import { Btn } from '../components/ui'
-import Typeahead from '../components/Typeahead'
 import { useStore } from '../state/store'
-import { useOtherJobs, type OtherJobDraft, type OtherJobEdit } from '../state/otherJobs'
-import { OTHER_KIND_LABEL, jobProgress, type OtherJob, type OtherJobKind } from '@shared/otherJob'
+import { useOtherJobs, type OtherJobDraft } from '../state/otherJobs'
+import { JobRow, AddForm, miniBtn, outlineBtn } from './JobsParts'
 
-const KINDS: OtherJobKind[] = ['delivery', 'collection', 'mining', 'salvage']
 const emptyDraft = (): OtherJobDraft => ({
   title: '', kind: 'delivery', reward: 0, location: '', item: '', need: 1
 })
