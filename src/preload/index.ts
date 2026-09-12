@@ -135,6 +135,8 @@ const api = {
     on(IPC.evtContractAccepted, cb),
   onOtherAccepted: (cb: (e: ContractAcceptedEvent) => void): Unsubscribe =>
     on(IPC.evtOtherAccepted, cb),
+  onOtherSessionDrop: (cb: () => void): Unsubscribe =>
+    on(IPC.evtOtherSessionDrop, cb),
   onObjective: (cb: (e: ObjectiveEvent) => void): Unsubscribe => on(IPC.evtObjective, cb),
   onContractEnded: (cb: (e: ContractEndedEvent) => void): Unsubscribe =>
     on(IPC.evtContractEnded, cb),
