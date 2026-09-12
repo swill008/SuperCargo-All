@@ -60,6 +60,7 @@ export const IPC = {
   evtWatcherStatus: 'evt:watcher:status',
   evtContractAccepted: 'evt:contract:accepted',
   evtOtherAccepted: 'evt:other:accepted',
+  evtOtherSessionDrop: 'evt:other:sessionDrop',
   evtObjective: 'evt:objective',
   evtContractEnded: 'evt:contract:ended',
   evtContractPaid: 'evt:contract:paid',
