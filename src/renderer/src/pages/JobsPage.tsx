@@ -1,8 +1,10 @@
 /** Other-mode Jobs page (Contracts analogue). Does not touch haul contracts. */
-import React, { useState } from 'react'
+import React, { useMemo, useState } from 'react'
 import { C, F, GLOW } from '../theme'
 import PageHeader, { PAGE_PADDING } from '../components/PageHeader'
 import { Btn } from '../components/ui'
+import Typeahead from '../components/Typeahead'
+import { useStore } from '../state/store'
 import { useOtherJobs, type OtherJobDraft, type OtherJobEdit } from '../state/otherJobs'
 import { OTHER_KIND_LABEL, jobProgress, type OtherJob, type OtherJobKind } from '@shared/otherJob'
 
@@ -10,6 +12,15 @@ const KINDS: OtherJobKind[] = ['delivery', 'collection', 'mining', 'salvage']
 const emptyDraft = (): OtherJobDraft => ({
   title: '', kind: 'delivery', reward: 0, location: '', item: '', need: 1
 })
+
+function useUexNames(): { locations: string[]; items: string[] } {
+  const locs = useStore((s) => s.locations)
+  const comms = useStore((s) => s.commodities)
+  return useMemo(() => ({
+    locations: (locs ?? []).map((l) => l.name).filter(Boolean),
+    items: (comms ?? []).map((c) => c.name).filter(Boolean)
+  }), [locs, comms])
+}
 
 export default function JobsPage(): React.ReactElement {
   const jobs = useOtherJobs((s) => s.jobs)
@@ -24,6 +35,7 @@ export default function JobsPage(): React.ReactElement {
   const [draft, setDraft] = useState<OtherJobDraft>(emptyDraft)
   const [editingId, setEditingId] = useState<string | null>(null)
   const active = jobs.filter((j) => j.status === 'active')
+  const uex = useUexNames()
 
   return (
     <div style={{ padding: PAGE_PADDING }}>
@@ -33,7 +45,7 @@ export default function JobsPage(): React.ReactElement {
         right={<Btn onClick={() => setAdding((v) => !v)} style={outlineBtn}>{adding ? 'CANCEL' : '+ ADD JOB'}</Btn>}
       />
       {adding && (
-        <AddForm draft={draft} onChange={setDraft} onSave={() => { addJob(draft); setDraft(emptyDraft()); setAdding(false) }} />
+        <AddForm draft={draft} uex={uex} onChange={setDraft} onSave={() => { addJob(draft); setDraft(emptyDraft()); setAdding(false) }} />
       )}
       {jobs.length === 0 && !adding && (
         <div style={{ fontFamily: F.body, fontSize: 14, color: C.dim, padding: '24px 0' }}>
@@ -44,6 +56,7 @@ export default function JobsPage(): React.ReactElement {
         <JobRow
           key={job.id}
           job={job}
+          uex={uex}
           expanded={expandedId === job.id}
           editing={editingId === job.id}
           onToggle={() => setExpanded(expandedId === job.id ? null : job.id)}
@@ -59,8 +72,9 @@ export default function JobsPage(): React.ReactElement {
   )
 }
 
-function JobRow({ job, expanded, editing, onToggle, onEdit, onCancelEdit, onSaveEdit, onAbandon, onComplete, onStep }: {
+function JobRow({ job, uex, expanded, editing, onToggle, onEdit, onCancelEdit, onSaveEdit, onAbandon, onComplete, onStep }: {
   job: OtherJob
+  uex: { locations: string[]; items: string[] }
   expanded: boolean
   editing: boolean
   onToggle: () => void
@@ -87,7 +101,7 @@ function JobRow({ job, expanded, editing, onToggle, onEdit, onCancelEdit, onSave
         <span style={{ color: C.ghost }}>{expanded ? '▲' : '▼'}</span>
       </Btn>
       {expanded && editing && (
-        <EditForm job={job} onCancel={onCancelEdit} onSave={onSaveEdit} />
+        <EditForm job={job} uex={uex} onCancel={onCancelEdit} onSave={onSaveEdit} />
       )}
       {expanded && !editing && (
         <div style={{ padding: '0 0 16px 70px' }}>
@@ -116,8 +130,35 @@ function JobRow({ job, expanded, editing, onToggle, onEdit, onCancelEdit, onSave
   )
 }
 
-function EditForm({ job, onCancel, onSave }: {
+function UexField({ label, value, options, placeholder, onChange }: {
+  label: string
+  value: string
+  options: string[]
+  placeholder?: string
+  onChange: (v: string) => void
+}): React.ReactElement {
+  return (
+    <Field label={label}>
+      <div style={{ border: `1px solid ${C.lineStrong}`, background: 'rgba(0,0,0,0.4)', padding: '0 8px' }}>
+        <Typeahead
+          value={value}
+          options={options}
+          freeText
+          maxResults={12}
+          menuMinWidth={520}
+          wrapMenu
+          placeholder={placeholder}
+          onChange={onChange}
+          onSelect={onChange}
+        />
+      </div>
+    </Field>
+  )
+}
+
+function EditForm({ job, uex, onCancel, onSave }: {
   job: OtherJob
+  uex: { locations: string[]; items: string[] }
   onCancel: () => void
   onSave: (edit: OtherJobEdit) => void
 }): React.ReactElement {
@@ -136,7 +177,7 @@ function EditForm({ job, onCancel, onSave }: {
   }
 
   return (
-    <div style={{ padding: '0 0 16px 70px' }}>
+    <div style={{ padding: '0 0 16px 70px', overflow: 'visible' }}>
       <div style={{ fontFamily: F.display, fontSize: 11, letterSpacing: '0.18em', color: C.acc, margin: '8px 0 12px' }}>EDIT {job.ref}</div>
       <Field label="Title"><input value={title} onChange={(e) => setTitle(e.target.value)} style={inputStyle} /></Field>
       <Field label="Kind">
@@ -148,16 +189,16 @@ function EditForm({ job, onCancel, onSave }: {
       {steps.map((row, i) => (
         <div key={row.id} style={{ borderTop: `1px dotted ${C.lineFaint}`, paddingTop: 8, marginTop: 8 }}>
           <div style={{ fontFamily: F.body, fontSize: 12, color: C.dim, marginBottom: 6 }}>Step {i + 1}</div>
-          <Field label="Location"><input value={row.location} onChange={(e) => patchStep(row.id, { location: e.target.value })} style={inputStyle} /></Field>
-          <Field label="Item"><input value={row.item} onChange={(e) => patchStep(row.id, { item: e.target.value })} style={inputStyle} /></Field>
+          <UexField label="Location" value={row.location} options={uex.locations} onChange={(v) => patchStep(row.id, { location: v })} />
+          <UexField label="Item" value={row.item} options={uex.items} onChange={(v) => patchStep(row.id, { item: v })} />
           <Field label="Need"><input type="number" min={1} value={row.need} onChange={(e) => patchStep(row.id, { need: Number(e.target.value) })} style={{ ...inputStyle, width: 100 }} /></Field>
           <Btn onClick={() => setSteps((rows) => rows.filter((r) => r.id !== row.id))} style={miniBtn}>REMOVE STEP</Btn>
         </div>
       ))}
       <div style={{ borderTop: `1px dotted ${C.lineFaint}`, paddingTop: 8, marginTop: 12 }}>
         <div style={{ fontFamily: F.body, fontSize: 12, color: C.dim, marginBottom: 6 }}>Add step</div>
-        <Field label="Location"><input value={newLoc} onChange={(e) => setNewLoc(e.target.value)} style={inputStyle} placeholder="Shubin Mining Facility SAL-5" /></Field>
-        <Field label="Item"><input value={newItem} onChange={(e) => setNewItem(e.target.value)} style={inputStyle} placeholder="Hadanite" /></Field>
+        <UexField label="Location" value={newLoc} options={uex.locations} placeholder="Shubin Mining Facility SAL-5" onChange={setNewLoc} />
+        <UexField label="Item" value={newItem} options={uex.items} placeholder="Hadanite" onChange={setNewItem} />
         <Field label="Need"><input type="number" min={1} value={newNeed} onChange={(e) => setNewNeed(Number(e.target.value))} style={{ ...inputStyle, width: 100 }} /></Field>
         <Btn onClick={() => {
           if (!newLoc.trim() && !newItem.trim()) return
@@ -173,10 +214,15 @@ function EditForm({ job, onCancel, onSave }: {
   )
 }
 
-function AddForm({ draft, onChange, onSave }: { draft: OtherJobDraft; onChange: (d: OtherJobDraft) => void; onSave: () => void }): React.ReactElement {
+function AddForm({ draft, uex, onChange, onSave }: {
+  draft: OtherJobDraft
+  uex: { locations: string[]; items: string[] }
+  onChange: (d: OtherJobDraft) => void
+  onSave: () => void
+}): React.ReactElement {
   const set = (patch: Partial<OtherJobDraft>): void => onChange({ ...draft, ...patch })
   return (
-    <div style={{ border: `1px solid ${C.lineStrong}`, background: C.accFill, padding: 16, marginBottom: 18 }}>
+    <div style={{ border: `1px solid ${C.lineStrong}`, background: C.accFill, padding: 16, marginBottom: 18, overflow: 'visible' }}>
       <div style={{ fontFamily: F.display, fontSize: 11, letterSpacing: '0.18em', color: C.acc, marginBottom: 12 }}>NEW JOB</div>
       <Field label="Title"><input value={draft.title} onChange={(e) => set({ title: e.target.value })} style={inputStyle} /></Field>
       <Field label="Kind">
@@ -184,8 +230,8 @@ function AddForm({ draft, onChange, onSave }: { draft: OtherJobDraft; onChange: 
           {KINDS.map((k) => <option key={k} value={k}>{OTHER_KIND_LABEL[k]}</option>)}
         </select>
       </Field>
-      <Field label="Location"><input value={draft.location} onChange={(e) => set({ location: e.target.value })} style={inputStyle} placeholder="SMO-18 / wreck / Port Tressler" /></Field>
-      <Field label="Item"><input value={draft.item} onChange={(e) => set({ item: e.target.value })} style={inputStyle} placeholder="Hadanite / Research Supplies" /></Field>
+      <UexField label="Location" value={draft.location} options={uex.locations} placeholder="SMO-18 / wreck / Port Tressler" onChange={(v) => set({ location: v })} />
+      <UexField label="Item" value={draft.item} options={uex.items} placeholder="Hadanite / Research Supplies" onChange={(v) => set({ item: v })} />
       <Field label="Need"><input type="number" min={1} value={draft.need} onChange={(e) => set({ need: Number(e.target.value) })} style={{ ...inputStyle, width: 100 }} /></Field>
       <Field label="Reward"><input type="number" min={0} value={draft.reward} onChange={(e) => set({ reward: Number(e.target.value) })} style={{ ...inputStyle, width: 160 }} /></Field>
       <Btn onClick={onSave} style={{ ...outlineBtn, marginTop: 8 }}>SAVE JOB</Btn>
