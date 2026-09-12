@@ -1,6 +1,7 @@
 /** Other-mode History. Does not read haul history.json. */
-import React, { useEffect, useMemo } from 'react'
+import React, { useEffect, useMemo, useState } from 'react'
 import { useOtherHistory } from '../state/otherHistory'
+import { Btn } from '../components/ui'
 import {
   OTHER_KIND_LABEL,
   OTHER_MOVED_LABEL,
@@ -12,6 +13,8 @@ import PageHeader, { PAGE_PADDING } from '../components/PageHeader'
 
 export default function OtherHistoryPage(): React.ReactElement {
   const history = useOtherHistory((s) => s.history)
+  const clearAll = useOtherHistory((s) => s.clearAll)
+  const [confirmClear, setConfirmClear] = useState(false)
   useEffect(() => {
     void window.supercargo.loadOtherJobs?.().then((doc) => useOtherHistory.getState().load(doc))
   }, [])
@@ -24,6 +27,33 @@ export default function OtherHistoryPage(): React.ReactElement {
       <PageHeader
         title="HISTORY"
         subtitle={`${sorted.length} archived Other jobs \u00b7 haul history stays in Haul mode`}
+        right={
+          sorted.length > 0 ? (
+            <div style={{ display: 'flex', gap: 8 }}>
+              <Btn
+                onClick={() => {
+                  if (!confirmClear) {
+                    setConfirmClear(true)
+                    return
+                  }
+                  clearAll()
+                  setConfirmClear(false)
+                }}
+                style={{
+                  fontFamily: F.display,
+                  fontSize: 11,
+                  letterSpacing: '0.12em',
+                  border: `1px solid ${C.accBorder}`,
+                  color: C.acc,
+                  background: 'transparent',
+                  padding: '8px 12px'
+                }}
+              >
+                {confirmClear ? 'CONFIRM CLEAR' : 'CLEAR HISTORY'}
+              </Btn>
+            </div>
+          ) : null
+        }
       />
       {sorted.length === 0 && (
         <div style={{ fontFamily: F.body, fontSize: 14, color: C.dim, padding: '24px 0' }}>

@@ -33,6 +33,7 @@ interface OtherHistoryState {
   load: (doc: OtherJobsDoc) => void
   persist: () => void
   clearFinished: () => Promise<void>
+  clearAll: () => void
   reconcileFromLog: () => Promise<void>
 }
 
@@ -61,6 +62,10 @@ export const useOtherHistory = create<OtherHistoryState>((set, get) => ({
     if (!archived.length) return
     useOtherJobs.setState({ jobs: keep })
     set({ history: [...archived, ...get().history] })
+    get().persist()
+  },
+  clearAll: () => {
+    set({ history: [] })
     get().persist()
   },
   reconcileFromLog: async () => {
