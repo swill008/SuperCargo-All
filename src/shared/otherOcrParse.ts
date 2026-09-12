@@ -1,11 +1,19 @@
 /**
  * Other-mode OCR text parser.
  * Uses Game.log-style objective lines, not haul SCU/box/pickup parseOcrText.
+ *
+ * mobiGlas wraps long objectives:
+ *   Deliver 0/10 SCU of Recycled Material Composite to
+ *   Sakura Sun Goldenrod Workcenter on microTech.
+ * parseOtherOcrText joins those before matching.
  */
 import type { OtherObjectiveParse } from './otherLog'
 
 const SKIP =
   /^(primary\s+)?(objectives?|details?|description|reputation|risk|reward|aUEC|max box|box size|pickup|drop-?off|contract|accepted|offered)$/i
+
+const OBJECTIVE_START =
+  /^(?:Deliver|Bring|Collect|Recover|Turn\s*in|Go\s+to|Neutralize)\b/i
 
 export type OtherOcrRow = {
   kind: OtherObjectiveParse['kind']
@@ -31,10 +39,16 @@ function parseReward(text: string): number {
 function clean(line: string): string {
   return line
     .replace(/<[^>]+>/g, ' ')
-    .replace(/^[\s<>|[\]•\-–—*]+/, '')
+    .replace(/^[\s<>|[\]•\-\u2013\u2014*]+/, '')
     .replace(/[:.]+$/g, '')
     .replace(/\s+/g, ' ')
     .trim()
+}
+
+function isContinuation(line: string): boolean {
+  if (!line || SKIP.test(line)) return false
+  if (OBJECTIVE_START.test(line)) return false
+  return true
 }
 
 /** Structured Other objectives only. Noise lines return null. */
@@ -92,11 +106,26 @@ function rowKey(r: OtherOcrRow): string {
   return `${r.kind}|${r.location.toLowerCase()}|${(r.item || '').toLowerCase()}`
 }
 
+/** Glue wrapped HUD lines, then parse. Max two continuation lines per objective. */
 export function parseOtherOcrText(rawText: string): OtherOcrParse {
   const reward = parseReward(rawText)
+  const lines = rawText.split(/\r?\n/).map(clean).filter((l) => l.length > 0)
+  const joined: string[] = []
+  for (let i = 0; i < lines.length; i++) {
+    let text = lines[i]
+    if (OBJECTIVE_START.test(text)) {
+      let extra = 0
+      while (extra < 2 && i + 1 < lines.length && isContinuation(lines[i + 1])) {
+        text = `${text} ${lines[i + 1]}`
+        i += 1
+        extra += 1
+      }
+    }
+    joined.push(text)
+  }
   const rows: OtherOcrRow[] = []
   const seen = new Set<string>()
-  for (const line of rawText.split(/\r?\n/)) {
+  for (const line of joined) {
     const row = parseOtherOcrLine(line)
     if (!row) continue
     const key = rowKey(row)
