@@ -3,6 +3,7 @@
 import { EventEmitter } from 'node:events'
 import * as fs from 'node:fs'
 import { parseLine, type MarkerEntry } from './logParser'
+import { sendOtherAccepted, sendOtherSessionDrop } from './otherIpc'
 import type {
   ContractAcceptedEvent,
   ObjectiveEvent,
@@ -116,7 +117,6 @@ export class LogWatcher extends EventEmitter {
 
     if (rotated) {
       if (this.fd !== null) {
-        // rotated mid-session, reset parser state
         this.closeFd()
         this.markers.clear()
         this.lastCompleteId = ''
@@ -130,7 +130,6 @@ export class LogWatcher extends EventEmitter {
       this.lastIno = st.ino || null
       this.buffer = ''
       if (this.firstOpen) {
-        // skip existing content, but the login identity sits at the top and left-events need it
         this.primeIdentity(st.size)
         this.position = st.size
         this.lastSize = st.size
@@ -170,7 +169,6 @@ export class LogWatcher extends EventEmitter {
     }
   }
 
-  // the tail starts at EOF, so the login block is never replayed; grab the geid from the head once
   private primeIdentity(size: number): void {
     if (this.fd === null) return
     try {
@@ -194,6 +192,7 @@ export class LogWatcher extends EventEmitter {
     switch (parsed.kind) {
       case 'accepted':
         this.emit('accepted', parsed.event, parsed.isHauling)
+        if (!parsed.isHauling) sendOtherAccepted(parsed.event)
         break
       case 'objective':
         this.emit('objective', parsed.event)
@@ -203,6 +202,7 @@ export class LogWatcher extends EventEmitter {
         break
       case 'sessionDrop':
         this.emit('sessionDrop')
+        sendOtherSessionDrop()
         break
       case 'completeNotice':
         this.lastCompleteId = parsed.missionId
