@@ -4,8 +4,9 @@ import { C, F } from '../theme'
 import { Btn } from '../components/ui'
 import { type OtherJobEdit } from '../state/otherJobs'
 import { OTHER_KIND_LABEL, jobProgress, type OtherJob } from '@shared/otherJob'
-import { EditForm, miniBtn, tagStyle } from './JobsPartsUi'
-export { AddForm, miniBtn, outlineBtn } from './JobsPartsUi'
+import { EditForm } from './JobsPartsUi'
+import { miniBtn, tagStyle } from './JobsPartsStyles'
+export { AddForm, miniBtn, outlineBtn } from './JobsPartsStyles'
 
 export function JobRow({ job, uex, expanded, editing, onToggle, onEdit, onCancelEdit, onSaveEdit, onAbandon, onComplete, onStep }: {
   job: OtherJob
@@ -31,9 +32,9 @@ export function JobRow({ job, uex, expanded, editing, onToggle, onEdit, onCancel
           <div style={{ fontFamily: F.body, fontSize: 12, color: C.dim }}>{done}/{total} objectives</div>
         </div>
         <span style={tagStyle}>{OTHER_KIND_LABEL[job.kind]}</span>
-        <span style={{ fontFamily: F.mono, fontSize: 13, color: C.text }}>{job.reward ? `${job.reward.toLocaleString()} aUEC` : '—'}</span>
+        <span style={{ fontFamily: F.mono, fontSize: 13, color: C.text }}>{job.reward ? `${job.reward.toLocaleString()} aUEC` : '\u2014'}</span>
         <span style={{ fontFamily: F.display, fontSize: 12, letterSpacing: '0.12em', color: statusColor }}>{job.status.toUpperCase()}</span>
-        <span style={{ color: C.ghost }}>{expanded ? '▲' : '▼'}</span>
+        <span style={{ color: C.ghost }}>{expanded ? '\u25b2' : '\u25bc'}</span>
       </Btn>
       {expanded && editing && (
         <EditForm job={job} uex={uex} onCancel={onCancelEdit} onSave={onSaveEdit} />
@@ -47,7 +48,7 @@ export function JobRow({ job, uex, expanded, editing, onToggle, onEdit, onCancel
           )}
           {job.steps.map((step) => (
             <div key={step.id} style={{ display: 'flex', alignItems: 'center', gap: 12, padding: '7px 0', borderBottom: `1px dotted ${C.lineFaint}` }}>
-              <span style={{ color: step.done ? C.green : C.acc }}>{step.done ? '◆' : '◇'}</span>
+              <span style={{ color: step.done ? C.green : C.acc }}>{step.done ? '\u25c6' : '\u25c7'}</span>
               <span style={{ flex: 1, fontFamily: F.body, fontSize: 14, color: step.done ? C.dim : C.textBody }}>{step.label}</span>
               {job.status === 'active' && (
                 <Btn onClick={() => onStep(step.id)} style={miniBtn}>{step.done ? 'UNDO' : 'DONE'}</Btn>
