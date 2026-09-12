@@ -110,6 +110,10 @@ export function scanOtherSessionLog(logPath: string): OtherSessionScan {
         ended.push(parsed.event)
         active.delete(parsed.event.missionId)
         break
+      case 'sessionDrop':
+        // Quit to menu. Those contracts are no longer accepted (0/10) with no EndMission.
+        active.clear()
+        break
     }
   }
 
