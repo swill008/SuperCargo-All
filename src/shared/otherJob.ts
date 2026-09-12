@@ -34,6 +34,7 @@ export interface OtherJob {
   createdAt: number
   missionId?: string
   generator?: string
+  contractName?: string
   source?: 'log' | 'manual'
 }
 
