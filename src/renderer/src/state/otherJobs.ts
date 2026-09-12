@@ -11,6 +11,7 @@ import {
   type OtherStep
 } from '@shared/otherJob'
 import { useOtherHistory } from './otherHistory'
+import { requestAutoOcrIfEnabled } from './otherCapture'
 import {
   isOtherGenerator,
   kindFromGenerator,
@@ -149,7 +150,14 @@ export const useOtherJobs = create<OtherJobsState>((set, get) => ({
 
     if (!listenersBound) {
       listenersBound = true
-      window.supercargo.onOtherAccepted?.((e) => get().ingestAccepted(e))
+      window.supercargo.onOtherAccepted?.((e) => {
+        get().ingestAccepted(e)
+        const missionId = e.missionId
+        window.setTimeout(() => {
+          const job = get().jobs.find((j) => j.missionId === missionId || j.id === missionId)
+          if (job) requestAutoOcrIfEnabled(job.id, job.steps.length, job.objectivesLocked)
+        }, 2000)
+      })
       window.supercargo.onOtherSessionDrop?.(() => get().dropLogSession())
       window.supercargo.onObjective((e) => get().ingestObjective(e))
       window.supercargo.onContractEnded((e) => get().ingestEnded(e))
