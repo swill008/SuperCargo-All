@@ -1,11 +1,14 @@
 /**
  * Apply Other OCR confirm onto a job.
  * This pass fills empty unlocked jobs only. Overwrite comes later.
+ * Confirm snaps location to a unique UEX roster name when one is obvious.
  */
 import { parseOtherObjectiveText, stepFromParse, stepKey } from '@shared/otherLog'
+import { snapLocationToUex } from '@shared/otherNext'
 import type { OtherOcrRow } from '@shared/otherOcrParse'
 import type { OtherStep } from '@shared/otherJob'
 import { useOtherJobs } from './otherJobs'
+import { useStore } from './store'
 
 let seq = 0
 function nid(): string {
@@ -24,11 +27,12 @@ export function applyOcrObjectives(
   const job = store.jobs.find((j) => j.id === jobId)
   if (!job) return false
   if (job.objectivesLocked || job.steps.length > 0) return false
+  const locations = useStore.getState().locations ?? []
 
   const steps: OtherStep[] = []
   for (const o of payload.objectives) {
     const item = (o.commodity || '').trim()
-    const dest = (o.destination || '').trim()
+    const dest = snapLocationToUex((o.destination || '').trim(), locations)
     const need = Math.max(1, Number(o.scuAmount) || 1)
     const raw = item && dest
       ? `Deliver 0/${need} SCU of ${item} to ${dest}`
@@ -57,7 +61,6 @@ export function applyOcrObjectives(
   return true
 }
 
-/** Preferred path: rows already parsed by otherOcrParse. */
 export function applyOcrRows(
   jobId: string,
   payload: { reward?: number; rows: OtherOcrRow[] }
@@ -66,17 +69,20 @@ export function applyOcrRows(
   const job = store.jobs.find((j) => j.id === jobId)
   if (!job) return false
   if (job.objectivesLocked || job.steps.length > 0) return false
+  const locations = useStore.getState().locations ?? []
 
   const steps: OtherStep[] = []
   for (const row of payload.rows) {
+    const snapped = snapLocationToUex(row.location || '', locations)
+    const label = row.label || (row.item && snapped
+      ? `Deliver 0/${row.need || 1} ${row.item} to ${snapped}`
+      : snapped
+        ? `Go to ${snapped}`
+        : row.item || 'Objective')
     const step = stepFromParse(nid(), {
       kind: row.kind,
-      label: row.label || (row.item && row.location
-        ? `Deliver 0/${row.need || 1} ${row.item} to ${row.location}`
-        : row.location
-          ? `Go to ${row.location}`
-          : row.item || 'Objective'),
-      location: row.location || '',
+      label,
+      location: snapped,
       item: row.item,
       have: row.have || 0,
       need: Math.max(1, row.need || 1)

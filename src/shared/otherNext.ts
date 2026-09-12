@@ -1,5 +1,5 @@
 /**
- * Other-mode Next sort.
+ * Other-mode Next sort and UEX name snap.
  * Uses the UEX location roster and resolveLogLocation.
  * Does not call planRoute / packer / hold.
  */
@@ -17,6 +17,24 @@ export function findRosterLocation(raw: string, locations: Location[]): Location
     const n = l.name.toLowerCase()
     return n.includes(key) || key.includes(n)
   })
+}
+
+/** Official UEX name only when the match is unique. Otherwise keep OCR text. */
+export function snapLocationToUex(raw: string, locations: Location[]): string {
+  const trimmed = raw.trim()
+  if (!trimmed || locations.length === 0) return trimmed
+  const resolved = resolveLogLocation(trimmed, locations)
+  const exact = locations.find(
+    (l) => l.name.toLowerCase() === resolved.toLowerCase() || l.name.toLowerCase() === trimmed.toLowerCase()
+  )
+  if (exact) return exact.name
+  const rawL = trimmed.toLowerCase()
+  const hits = locations.filter((l) => {
+    const n = l.name.toLowerCase()
+    return n.length >= 10 && rawL.includes(n)
+  })
+  if (hits.length === 1) return hits[0].name
+  return trimmed
 }
 
 export function rosterDistance(a?: Location, b?: Location): number | null {
