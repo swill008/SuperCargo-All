@@ -71,6 +71,8 @@ export function scanSessionLog(logPath: string): SessionScan {
 export type OtherSessionScan = {
   contracts: ScannedContract[]
   ended: ContractEndedEvent[]
+  /** Every New Objective line in this log, kept after quit-to-menu. */
+  objectivesByMission: Record<string, ScannedContract['objectives']>
 }
 
 /** Active non-haul contracts still open in this Game.log. Other mode only. */
@@ -79,13 +81,14 @@ export function scanOtherSessionLog(logPath: string): OtherSessionScan {
   try {
     content = fs.readFileSync(logPath, 'utf8')
   } catch {
-    return { contracts: [], ended: [] }
+    return { contracts: [], ended: [], objectivesByMission: {} }
   }
 
   const markers = new Map<string, MarkerEntry>()
   const active = new Map<string, ScannedContract>()
   const ended: ContractEndedEvent[] = []
   const objsByContract = new Map<string, ScannedContract['objectives']>()
+  const objectivesByMission = new Map<string, ScannedContract['objectives']>()
 
   for (const line of content.split(/\r?\n/)) {
     if (!line) continue
@@ -98,6 +101,9 @@ export function scanOtherSessionLog(logPath: string): OtherSessionScan {
         }
         break
       case 'objective': {
+        const list = objectivesByMission.get(parsed.event.missionId) ?? []
+        list.push(parsed.event)
+        objectivesByMission.set(parsed.event.missionId, list)
         const contract = active.get(parsed.event.missionId)
         if (contract) {
           contract.objectives.push(parsed.event)
@@ -111,7 +117,6 @@ export function scanOtherSessionLog(logPath: string): OtherSessionScan {
         active.delete(parsed.event.missionId)
         break
       case 'sessionDrop':
-        // Quit to menu. Those contracts are no longer accepted (0/10) with no EndMission.
         active.clear()
         break
     }
@@ -128,5 +133,7 @@ export function scanOtherSessionLog(logPath: string): OtherSessionScan {
     }
   })
 
-  return { contracts, ended }
+  const byMission: Record<string, ScannedContract['objectives']> = {}
+  for (const [id, objs] of objectivesByMission) byMission[id] = objs
+  return { contracts, ended, objectivesByMission: byMission }
 }
