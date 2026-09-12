@@ -15,6 +15,7 @@ import { saveSessionOcrShot } from '../state/otherOcrShot'
 import { mergeLocations } from '../state/otherPlaces'
 import { parseOtherOcrText, type OtherOcrRow } from '@shared/otherOcrParse'
 import { miniBtn, outlineBtn } from '../pages/JobsPartsStyles'
+import { OtherOcrShotView } from './OtherOcrShotView'
 
 type DraftRow = OtherOcrRow & { key: string }
 
@@ -197,7 +198,9 @@ export default function OtherCaptureModal(): React.ReactElement | null {
           )}
           {status && <div style={{ fontFamily: F.body, fontSize: 13, color: C.acc, marginBottom: 12 }}>{status}</div>}
           {preview && (
-            <img src={preview} alt="OCR preview" style={{ width: '100%', maxHeight: 180, objectFit: 'contain', marginBottom: 12, border: `1px solid ${C.lineSoft}` }} />
+            <div style={{ marginBottom: 12 }}>
+              <OtherOcrShotView src={preview} thumbMaxHeight={180} />
+            </div>
           )}
           <div style={{ fontFamily: F.body, fontSize: 12, color: C.dim, marginBottom: 6 }}>Reward</div>
           <input type="number" min={0} value={reward} onChange={(e) => setReward(Number(e.target.value))} style={{ ...field, width: 180, marginBottom: 14 }} />
