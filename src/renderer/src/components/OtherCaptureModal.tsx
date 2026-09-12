@@ -63,7 +63,7 @@ export default function OtherCaptureModal(): React.ReactElement | null {
 
   const capture = async (): Promise<void> => {
     setBusy(true)
-    setStatus('Capturing…')
+    setStatus('Capturing\u2026')
     try {
       const shot = await window.supercargo.ocrPreview?.()
       if (shot) setPreview(shot)
@@ -117,7 +117,7 @@ export default function OtherCaptureModal(): React.ReactElement | null {
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '16px 20px', borderBottom: `1px solid ${C.lineStrong}` }}>
           <div>
             <div style={{ fontFamily: F.display, fontSize: 16, letterSpacing: '0.08em', color: C.text, textShadow: GLOW }}>IMPORT FROM OCR</div>
-            <div style={{ fontFamily: F.body, fontSize: 12, color: C.dim }}>{job.ref} · {job.title}</div>
+            <div style={{ fontFamily: F.body, fontSize: 12, color: C.dim }}>{job.ref} \u00b7 {job.title}</div>
           </div>
           <Btn onClick={reset} style={{ ...miniBtn, border: 0 }}>CLOSE</Btn>
         </div>
@@ -132,9 +132,9 @@ export default function OtherCaptureModal(): React.ReactElement | null {
             Open the contract on the mobiGlas screen, then capture. Haul box / pickup fields are not used.
           </div>
           <div style={{ display: 'flex', gap: 8, marginBottom: 14, flexWrap: 'wrap' }}>
-            <Btn onClick={() => void capture()} style={outlineBtn} disabled={busy}>{busy ? 'WORKING…' : 'CAPTURE'}</Btn>
+            <Btn onClick={() => void capture()} style={outlineBtn} disabled={busy}>{busy ? 'WORKING\u2026' : 'CAPTURE'}</Btn>
             <Btn onClick={() => setCalibrating((v) => !v)} style={miniBtn}>{calibrating ? 'DONE, BACK TO CAPTURE' : 'ADJUST CAPTURE AREA'}</Btn>
-            <Btn onClick={confirm} style={outlineBtn} disabled={busy || locked || !rows.some((r) => r.location.trim() || r.item?.trim())}>CONFIRM</Btn>
+            <Btn onClick={confirm} style={outlineBtn} disabled={busy || locked || !rows.some((r) => r.label.trim() || r.location.trim() || r.item?.trim())}>CONFIRM</Btn>
             <Btn onClick={reset} style={miniBtn}>CANCEL</Btn>
           </div>
           {calibrating && (
@@ -156,7 +156,23 @@ export default function OtherCaptureModal(): React.ReactElement | null {
             <div key={row.key} style={{ borderTop: `1px dotted ${C.lineFaint}`, paddingTop: 10, marginTop: 10 }}>
               <div style={{ fontFamily: F.body, fontSize: 12, color: C.dim, marginBottom: 6 }}>Step {i + 1}</div>
               <div style={{ border: `1px solid ${C.lineStrong}`, background: 'rgba(0,0,0,0.4)', padding: '0 8px', marginBottom: 8 }}>
-                <Typeahead value={row.location} options={locations} freeText maxResults={12} menuMinWidth={480} wrapMenu placeholder="Location" onChange={(v) => patch(row.key, { location: v })} onSelect={(v) => patch(row.key, { location: v })} />
+                <Typeahead
+                  value={row.label || (row.location ? `Go to ${row.location}` : '')}
+                  options={locations}
+                  freeText
+                  maxResults={12}
+                  menuMinWidth={480}
+                  wrapMenu
+                  placeholder="Objective"
+                  onChange={(v) => {
+                    const loc = v.replace(/^Go\\s+to\\s+/i, '').trim()
+                    patch(row.key, { label: v, location: loc || v })
+                  }}
+                  onSelect={(v) => {
+                    const loc = v.replace(/^Go\\s+to\\s+/i, '').trim()
+                    patch(row.key, { label: /^Go\\s/i.test(v) ? v : (row.kind === 'go' ? `Go to ${v}` : v), location: loc || v })
+                  }}
+                />
               </div>
               <div style={{ border: `1px solid ${C.lineStrong}`, background: 'rgba(0,0,0,0.4)', padding: '0 8px', marginBottom: 8 }}>
                 <Typeahead value={row.item || ''} options={items} freeText maxResults={12} menuMinWidth={480} wrapMenu placeholder="Item" onChange={(v) => patch(row.key, { item: v })} onSelect={(v) => patch(row.key, { item: v })} />
