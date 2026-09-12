@@ -10,6 +10,7 @@ import {
   type OtherJobsDoc,
   type OtherStep
 } from '@shared/otherJob'
+import { useOtherHistory } from './otherHistory'
 import {
   isOtherGenerator,
   kindFromGenerator,
@@ -144,6 +145,7 @@ export const useOtherJobs = create<OtherJobsState>((set, get) => ({
     }
     const doc = await window.supercargo.loadOtherJobs()
     set({ ready: true, jobs: doc.jobs ?? [] })
+    useOtherHistory.getState().load(doc)
 
     if (!listenersBound) {
       listenersBound = true
@@ -174,7 +176,7 @@ export const useOtherJobs = create<OtherJobsState>((set, get) => ({
   },
 
   persist: () => {
-    const doc: OtherJobsDoc = { jobs: get().jobs }
+    const doc: OtherJobsDoc = { jobs: get().jobs, history: useOtherHistory.getState().history }
     void window.supercargo.saveOtherJobs?.(doc)
   },
 
@@ -276,7 +278,7 @@ export const useOtherJobs = create<OtherJobsState>((set, get) => ({
         j.status === 'active' && j.source !== 'manual' ? { ...j, status: 'abandoned' as const } : j
       )
     })
-    get().persist()
+    void useOtherHistory.getState().reconcileFromLog()
   },
 
   ingestEnded: (e) => {
