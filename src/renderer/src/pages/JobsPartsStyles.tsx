@@ -1,6 +1,6 @@
 /** Add form and shared styles for Other-mode Jobs. */
 import React from 'react'
-import { C, F, GLOW } from '../theme'
+import { C, F } from '../theme'
 import { Btn } from '../components/ui'
 import Typeahead from '../components/Typeahead'
 import { type OtherJobDraft } from '../state/otherJobs'
@@ -9,8 +9,8 @@ import { OTHER_KIND_LABEL, type OtherJobKind } from '@shared/otherJob'
 const KINDS: OtherJobKind[] = ['delivery', 'collection', 'mining', 'salvage']
 
 export const outlineBtn: React.CSSProperties = {
-  border: `1px solid ${C.accBorder}`, background: 'transparent', color: C.acc,
-  fontFamily: F.display, fontSize: 13, letterSpacing: '0.14em', padding: '8px 14px', cursor: 'pointer', textShadow: GLOW
+  border: 0, background: C.acc, color: '#111',
+  fontFamily: F.display, fontSize: 13, letterSpacing: '0.14em', fontWeight: 700, padding: '8px 14px', cursor: 'pointer'
 }
 export const miniBtn: React.CSSProperties = {
   border: `1px solid ${C.lineStrong}`, background: 'transparent', color: C.dim,
@@ -43,7 +43,7 @@ function UexField({ label, value, options, placeholder, onChange }: {
 }): React.ReactElement {
   return (
     <Field label={label}>
-      <div style={{ border: `1px solid ${C.lineStrong}`, background: 'rgba(0,0,0,0.4)', padding: '0 8px' }}>
+      <div style={{ border: `1px solid ${C.lineStrong}`, background: 'rgba(255,255,255,0.02)', padding: '0 8px' }}>
         <Typeahead value={value} options={options} freeText maxResults={12} menuMinWidth={520} wrapMenu placeholder={placeholder} onChange={onChange} onSelect={onChange} />
       </div>
     </Field>
