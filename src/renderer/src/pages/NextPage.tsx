@@ -8,6 +8,7 @@ import { useStore } from '../state/store'
 import { useOtherJobs } from '../state/otherJobs'
 import { nextOpenStep, type OtherJob, type OtherStep } from '@shared/otherJob'
 import { compareByDistanceFrom } from '@shared/otherNext'
+import { mergeLocations } from '../state/otherPlaces'
 
 interface OpenStop { job: OtherJob; step: OtherStep }
 
@@ -18,7 +19,8 @@ export default function NextPage(): React.ReactElement {
   const groupBy = useOtherJobs((s) => s.groupBy)
   const setGroupBy = useOtherJobs((s) => s.setGroupBy)
   const toggleStep = useOtherJobs((s) => s.toggleStep)
-  const locations = useStore((s) => s.locations) ?? []
+  const haulLocs = useStore((s) => s.locations) ?? []
+  const locations = useMemo(() => mergeLocations(haulLocs), [haulLocs])
   const names = useMemo(() => locations.map((l) => l.name).filter(Boolean), [locations])
 
   const open = useMemo(() => {

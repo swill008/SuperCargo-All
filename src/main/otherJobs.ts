@@ -9,6 +9,8 @@ import { app, ipcMain } from 'electron'
 import { IPC } from '@shared/channels'
 import { EMPTY_OTHER_JOBS, type OtherJobsDoc } from '@shared/otherJob'
 import { scanOtherSessionLog } from './scanLog'
+import { loadCachedLocations } from './uex'
+import { loadOtherPlaces, refreshOtherPlaces } from './otherUex'
 
 const FILE = 'other-jobs.json'
 
@@ -69,4 +71,6 @@ export function ensureOtherJobsIpc(): void {
     if (changed) saveOtherJobs({ jobs, history: doc.history ?? [] })
     return { contracts, ended, objectivesByMission }
   })
+  ipcMain.handle(IPC.otherPlacesGet, () => loadOtherPlaces())
+  void refreshOtherPlaces(loadCachedLocations()?.locations ?? [])
 }
