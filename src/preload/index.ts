@@ -72,6 +72,7 @@ const api = {
   getUexLocations: (): Promise<LocationRoster | null> => ipcRenderer.invoke(IPC.uexGetLocations),
   getUexCommodities: (): Promise<CommodityRoster | null> => ipcRenderer.invoke(IPC.uexGetCommodities),
   getUexGridFaces: (): Promise<GridFacesRoster | null> => ipcRenderer.invoke(IPC.uexGetGridFaces),
+  getOtherPlaces: (): Promise<import('@shared/types').Location[]> => ipcRenderer.invoke(IPC.otherPlacesGet),
 
   getWatcherStatus: (): Promise<WatcherStatus> => ipcRenderer.invoke(IPC.watcherStatus),
   restartWatcher: (): Promise<boolean> => ipcRenderer.invoke(IPC.watcherRestart),
