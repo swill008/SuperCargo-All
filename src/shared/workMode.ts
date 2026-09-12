@@ -47,3 +47,10 @@ export function isHaulMode(value: string | undefined | null): boolean {
 export function isOtherMode(value: string | undefined | null): boolean {
   return resolveWorkMode(value) === 'other'
 }
+
+// Merge onto upstream AppSettings without rewriting types.ts.
+declare module './types' {
+  interface AppSettings {
+    workMode?: WorkMode
+  }
+}
