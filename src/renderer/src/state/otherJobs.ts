@@ -10,6 +10,14 @@ import {
   type OtherJobsDoc,
   type OtherStep
 } from '@shared/otherJob'
+import {
+  isOtherGenerator,
+  kindFromGenerator,
+  parseOtherObjectiveText,
+  stepFromParse,
+  stepKey
+} from '@shared/otherLog'
+import type { ContractAcceptedEvent, ContractEndedEvent, ObjectiveEvent, ScannedContract } from '@shared/types'
 
 export interface OtherJobDraft {
   title: string
@@ -35,6 +43,9 @@ interface OtherJobsState {
   abandonJob: (id: string) => void
   completeJob: (id: string) => void
   toggleStep: (jobId: string, stepId: string) => void
+  ingestAccepted: (e: ContractAcceptedEvent) => void
+  ingestObjective: (e: ObjectiveEvent) => void
+  ingestEnded: (e: ContractEndedEvent) => void
 }
 
 let seq = 0
@@ -86,6 +97,20 @@ function stepsFor(draft: OtherJobDraft): OtherStep[] {
   ]
 }
 
+function stepFromObjective(e: ObjectiveEvent): OtherStep | null {
+  const raw =
+    e.destination && !e.commodity
+      ? `Go to ${e.destination}`
+      : e.commodity && e.destination
+        ? `Deliver 0/${e.scuAmount || 1} ${e.commodity} to ${e.destination}`
+        : e.destination || e.commodity || ''
+  const parsed = parseOtherObjectiveText(raw)
+  if (!parsed) return null
+  return stepFromParse(nid('step'), parsed)
+}
+
+let listenersBound = false
+
 export const useOtherJobs = create<OtherJobsState>((set, get) => ({
   ready: false,
   jobs: [],
@@ -100,6 +125,22 @@ export const useOtherJobs = create<OtherJobsState>((set, get) => ({
     }
     const doc = await window.supercargo.loadOtherJobs()
     set({ ready: true, jobs: doc.jobs ?? [] })
+
+    if (!listenersBound) {
+      listenersBound = true
+      window.supercargo.onOtherAccepted?.((e) => get().ingestAccepted(e))
+      window.supercargo.onObjective((e) => get().ingestObjective(e))
+      window.supercargo.onContractEnded((e) => get().ingestEnded(e))
+    }
+
+    const logPath = (await window.supercargo.getSettings()).gameLogPath
+    if (logPath && window.supercargo.scanOtherJobs) {
+      const scanned: ScannedContract[] = await window.supercargo.scanOtherJobs(logPath)
+      for (const c of scanned) {
+        get().ingestAccepted(c.accepted)
+        for (const o of c.objectives) get().ingestObjective(o)
+      }
+    }
   },
 
   persist: () => {
@@ -121,9 +162,63 @@ export const useOtherJobs = create<OtherJobsState>((set, get) => ({
       reward: Math.max(0, Number(draft.reward) || 0),
       status: 'active',
       steps: stepsFor(draft),
-      createdAt: Date.now()
+      createdAt: Date.now(),
+      source: 'manual'
     }
     set({ jobs: [...jobs, job], expandedId: job.id })
+    get().persist()
+  },
+
+  ingestAccepted: (e) => {
+    if (e.generator && !isOtherGenerator(e.generator)) return
+    if (!e.generator && /haul/i.test(e.title || '')) return
+    if (get().jobs.find((j) => j.missionId === e.missionId)) return
+    const kind = kindFromGenerator(e.generator || '', e.title || '')
+    const jobs = get().jobs
+    const job: OtherJob = {
+      id: e.missionId,
+      ref: otherJobRef(jobs.length),
+      title: e.title || 'Contract',
+      kind,
+      reward: 0,
+      status: 'active',
+      steps: [],
+      createdAt: Date.now(),
+      missionId: e.missionId,
+      generator: e.generator || undefined,
+      source: 'log'
+    }
+    set({ jobs: [...jobs, job], expandedId: job.id })
+    get().persist()
+  },
+
+  ingestObjective: (e) => {
+    const job = get().jobs.find((j) => j.missionId === e.missionId && j.status === 'active')
+    if (!job) return
+    const step = stepFromObjective(e)
+    if (!step) return
+    const key = stepKey(step)
+    if (job.steps.some((s) => stepKey(s) === key)) return
+    set({
+      jobs: get().jobs.map((j) => (j.id === job.id ? { ...j, steps: [...j.steps, step] } : j))
+    })
+    get().persist()
+  },
+
+  ingestEnded: (e) => {
+    if (!get().jobs.find((j) => j.missionId === e.missionId && j.status === 'active')) return
+    const abandoned = e.completion === 'Abandon' || e.completion === 'Fail'
+    set({
+      jobs: get().jobs.map((j) =>
+        j.missionId === e.missionId
+          ? {
+              ...j,
+              status: abandoned ? 'abandoned' : 'complete',
+              steps: abandoned ? j.steps : j.steps.map((s) => ({ ...s, done: true, have: s.need }))
+            }
+          : j
+      )
+    })
     get().persist()
   },
 
@@ -152,7 +247,7 @@ export const useOtherJobs = create<OtherJobsState>((set, get) => ({
           const done = !s.done
           return { ...s, done, have: done ? s.need : 0 }
         })
-        const allDone = steps.every((s) => s.done)
+        const allDone = steps.length > 0 && steps.every((s) => s.done)
         return { ...j, steps, status: allDone ? 'complete' : 'active' }
       })
     })
