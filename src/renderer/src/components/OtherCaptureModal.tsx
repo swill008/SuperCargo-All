@@ -65,19 +65,20 @@ export default function OtherCaptureModal(): React.ReactElement | null {
         const result = await window.supercargo.ocrRun()
         if (cancelled) return
         if (!result?.ok) {
-          setStatus(result?.error || 'OCR failed. Edit or cancel.')
+          setStatus(result?.error || 'OCR failed')
+          close()
           return
         }
         const text = result.rawText || ''
-        setRawText(text)
         const parsed = parseOtherOcrText(text)
-        setRows(parsed.rows.map((r) => ({ ...r, key: newKey() })))
-        setReward(result.reward || parsed.reward || j.reward || 0)
-        setStatus(text
-          ? 'Review the imported objectives. Confirm if they look right, or edit them first.'
-          : 'No text. Adjust the capture area or add steps by hand.')
+        applyOcrRows(jobId, {
+          reward: result.reward || parsed.reward || j.reward || 0,
+          rows: parsed.rows
+        })
+        setStatus('Auto OCR done')
+        close()
       } catch (e) {
-        if (!cancelled) setStatus(e instanceof Error ? e.message : 'OCR failed')
+        if (!cancelled) close()
       } finally {
         if (!cancelled) setBusy(false)
       }
