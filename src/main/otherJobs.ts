@@ -50,7 +50,7 @@ export function ensureOtherJobsIpc(): void {
   })
   ipcMain.handle(IPC.otherJobsScan, (_e, logPath: string) => {
     if (!logPath) return []
-    const { contracts, ended } = scanOtherSessionLog(logPath)
+    const { contracts, ended, objectivesByMission } = scanOtherSessionLog(logPath)
     const still = new Set(contracts.map((c) => c.accepted.missionId))
     const doc = loadOtherJobs()
     let changed = false
@@ -67,6 +67,6 @@ export function ensureOtherJobsIpc(): void {
       }
     })
     if (changed) saveOtherJobs({ jobs, history: doc.history ?? [] })
-    return contracts
+    return { contracts, ended, objectivesByMission }
   })
 }
