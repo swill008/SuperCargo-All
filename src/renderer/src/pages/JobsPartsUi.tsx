@@ -6,6 +6,7 @@ import Typeahead from '../components/Typeahead'
 import { type OtherJobEdit } from '../state/otherJobs'
 import { OTHER_KIND_LABEL, type OtherJob, type OtherJobKind } from '@shared/otherJob'
 import { miniBtn, outlineBtn } from './JobsPartsStyles'
+import { OtherOcrShotView } from '../components/OtherOcrShotView'
 
 const KINDS: OtherJobKind[] = ['delivery', 'collection', 'mining', 'salvage']
 const inputStyle: React.CSSProperties = {
@@ -52,7 +53,6 @@ export function EditForm({ job, uex, onCancel, onSave }: {
   const [newItem, setNewItem] = useState('')
   const [newNeed, setNewNeed] = useState(1)
   const [shot, setShot] = useState<string | null>(null)
-  const [shotOpen, setShotOpen] = useState(false)
   useEffect(() => {
     let live = true
     void window.supercargo.getOtherOcrShot?.(job.id).then((url) => {
@@ -73,22 +73,9 @@ export function EditForm({ job, uex, onCancel, onSave }: {
       <div style={{ marginBottom: 14 }}>
         <div style={{ fontFamily: F.display, fontSize: 11, letterSpacing: '0.16em', color: C.dim, marginBottom: 6 }}>OCR CAPTURE (this session)</div>
         {shot ? (
-          <img
-            src={shot}
-            alt="OCR capture"
-            onClick={() => setShotOpen(true)}
-            style={{ maxWidth: '100%', maxHeight: 220, objectFit: 'contain', border: `1px solid ${C.lineStrong}`, cursor: 'zoom-in' }}
-          />
+          <OtherOcrShotView src={shot} />
         ) : (
           <div style={{ fontFamily: F.body, fontSize: 13, color: C.dim }}>No capture this session. Use Import from OCR.</div>
-        )}
-        {shotOpen && shot && (
-          <div
-            onClick={() => setShotOpen(false)}
-            style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.88)', zIndex: 80, display: 'flex', alignItems: 'center', justifyContent: 'center', cursor: 'zoom-out', padding: 24 }}
-          >
-            <img src={shot} alt="OCR capture full" style={{ maxWidth: '100%', maxHeight: '100%', objectFit: 'contain', border: `1px solid ${C.lineStrong}` }} />
-          </div>
         )}
       </div>
       <Field label="Title"><input value={title} onChange={(e) => setTitle(e.target.value)} style={inputStyle} /></Field>
