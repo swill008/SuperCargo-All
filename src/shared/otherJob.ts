@@ -44,6 +44,8 @@ export interface OtherJob {
   source?: 'log' | 'manual'
   /** How steps were first filled. Log-created jobs stay source log. */
   filledBy?: 'log' | 'ocr'
+  /** True after Edit Save changed a step. LOG/OCR stay as first source. */
+  edited?: boolean
   /** Set on EDIT / COMPLETE / ABANDON. Log objectives will not replace user steps. */
   objectivesLocked?: boolean
 }

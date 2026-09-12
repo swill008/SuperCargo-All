@@ -29,11 +29,12 @@ export function JobRow({ job, uex, expanded, editing, onToggle, onEdit, onCancel
       <Btn onClick={onToggle} style={{ width: '100%', textAlign: 'left', background: 'transparent', border: 0, padding: '14px 0', cursor: 'pointer', display: 'grid', gridTemplateColumns: '70px 1fr 140px 130px 90px 40px', gap: 12, alignItems: 'center' }}>
         <span style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
           <span style={{ fontFamily: F.display, fontSize: 16, color: C.acc }}>{job.ref}</span>
-          {job.filledBy === 'ocr' ? (
-            <span style={{ fontFamily: F.display, fontSize: 10, letterSpacing: '0.14em', color: C.dim }}>OCR</span>
-          ) : job.filledBy === 'log' || job.source === 'log' ? (
-            <span style={{ fontFamily: F.display, fontSize: 10, letterSpacing: '0.14em', color: C.dim }}>LOG</span>
-          ) : null}
+          {(() => {
+            const base = job.filledBy === 'ocr' ? 'OCR' : (job.filledBy === 'log' || job.source === 'log') ? 'LOG' : ''
+            if (!base) return null
+            const text = job.edited ? `${base} (edited)` : base
+            return <span style={{ fontFamily: F.display, fontSize: 10, letterSpacing: '0.08em', color: C.dim }}>{text}</span>
+          })()}
         </span>
         <div>
           <div style={{ fontFamily: F.body, fontSize: 15, color: C.text }}>{job.title}</div>
