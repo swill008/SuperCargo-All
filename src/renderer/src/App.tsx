@@ -1,6 +1,7 @@
 import React, { useEffect } from 'react'
 import { useStore } from './state/store'
 import { useOtherJobs } from './state/otherJobs'
+import { bindOtherAutoOcr } from './state/otherAutoOcrBind'
 import { resolveWorkMode } from '@shared/workMode'
 import { C, ZOOM_STEP, ZOOM_DEFAULT, clampZoom } from './theme'
 import TopBar from './components/TopBar'
@@ -40,8 +41,11 @@ function MainApp(): React.ReactElement {
   const updateSettings = useStore((s) => s.updateSettings)
 
   useEffect(() => {
-    void init()
-    void initOther()
+    void (async () => {
+      await init()
+      await initOther()
+      bindOtherAutoOcr()
+    })()
   }, [init, initOther])
 
   useEffect(() => {
