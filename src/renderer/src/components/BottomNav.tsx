@@ -4,8 +4,9 @@ import { useNarrow } from '../state/useViewport'
 import { C, F } from '../theme'
 import { Btn } from './ui'
 import { MADE_BY_COMMUNITY } from '@shared/legal'
+import { resolveWorkMode } from '@shared/workMode'
 
-const NAV: Array<{ id: ViewId; label: string }> = [
+const HAUL_NAV: Array<{ id: ViewId; label: string }> = [
   { id: 'manifest', label: 'MANIFEST' },
   { id: 'contracts', label: 'CONTRACTS' },
   { id: 'grid', label: 'CARGO GRID' },
@@ -13,10 +14,18 @@ const NAV: Array<{ id: ViewId; label: string }> = [
   { id: 'settings', label: 'SETTINGS' }
 ]
 
+const OTHER_NAV: Array<{ id: ViewId; label: string }> = [
+  { id: 'next', label: 'NEXT' },
+  { id: 'jobs', label: 'JOBS' },
+  { id: 'history', label: 'HISTORY' },
+  { id: 'settings', label: 'SETTINGS' }
+]
+
 export default function BottomNav(): React.ReactElement {
   const view = useStore((s) => s.view)
   const setView = useStore((s) => s.setView)
-  // below this, panels crowd out the tabs
+  const workMode = resolveWorkMode(useStore((s) => s.settings.workMode))
+  const NAV = workMode === 'other' ? OTHER_NAV : HAUL_NAV
   const narrow = useNarrow(820)
 
   return (
@@ -56,7 +65,6 @@ export default function BottomNav(): React.ReactElement {
 const FOOTER_H = 70
 
 function AttributionPanel(): React.ReactElement {
-  // hover slides badge up, reveals trademark
   const [logoOk, setLogoOk] = useState(true)
   const [hover, setHover] = useState(false)
   const row: React.CSSProperties = {
