@@ -14,7 +14,7 @@ import JobsPage from './pages/JobsPage'
 import NextPage from './pages/NextPage'
 import CaptureModal from './components/CaptureModal'
 import ScanReviewModal from './components/ScanReviewModal'
-import CompactWindowApp from './components/CompactWindowApp'
+import CompactGate from './components/CompactGate'
 import Onboarding from './components/Onboarding'
 import UpdateBanner from './components/UpdateBanner'
 import Toast from './components/Toast'
@@ -23,7 +23,7 @@ import WorkModeSection from './components/WorkModeSection'
 const IS_COMPACT = typeof window !== 'undefined' && window.location.hash.replace('#', '') === 'compact'
 
 export default function App(): React.ReactElement {
-  if (IS_COMPACT) return <CompactWindowApp />
+  if (IS_COMPACT) return <CompactGate />
   return <MainApp />
 }
 
