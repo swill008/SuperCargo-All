@@ -28,6 +28,13 @@ export interface OtherJobDraft {
   need: number
 }
 
+export interface OtherJobEdit {
+  title: string
+  kind: OtherJobKind
+  reward: number
+  steps: { id: string; location: string; item: string; need: number }[]
+}
+
 interface OtherJobsState {
   ready: boolean
   jobs: OtherJob[]
@@ -40,6 +47,7 @@ interface OtherJobsState {
   setStartLocation: (v: string) => void
   setGroupBy: (v: 'location' | 'job') => void
   addJob: (draft: OtherJobDraft) => void
+  applyEdit: (id: string, edit: OtherJobEdit) => void
   abandonJob: (id: string) => void
   completeJob: (id: string) => void
   toggleStep: (jobId: string, stepId: string) => void
@@ -52,6 +60,16 @@ let seq = 0
 function nid(prefix: string): string {
   seq += 1
   return `${prefix}-${Date.now().toString(36)}-${seq}`
+}
+
+function labelFor(kind: OtherJobKind, location: string, item: string, need: number): string {
+  const loc = location.trim()
+  const it = item.trim()
+  if (!it && loc) return `Go to ${loc}`
+  const verb = kind === 'collection' ? 'Bring' : 'Deliver'
+  if (it && loc) return `${verb} 0/${need} ${it} to ${loc}`
+  if (it) return `${verb} 0/${need} ${it}`
+  return loc || 'Objective'
 }
 
 function stepsFor(draft: OtherJobDraft): OtherStep[] {
@@ -166,6 +184,41 @@ export const useOtherJobs = create<OtherJobsState>((set, get) => ({
       source: 'manual'
     }
     set({ jobs: [...jobs, job], expandedId: job.id })
+    get().persist()
+  },
+
+  applyEdit: (id, edit) => {
+    set({
+      jobs: get().jobs.map((j) => {
+        if (j.id !== id) return j
+        const prevById = new Map(j.steps.map((s) => [s.id, s]))
+        const steps: OtherStep[] = edit.steps.map((row) => {
+          const prev = prevById.get(row.id)
+          const location = row.location.trim()
+          const item = row.item.trim()
+          const need = Math.max(1, Number(row.need) || 1)
+          const kind = item ? 'turnin' : 'go'
+          return {
+            id: prev?.id ?? nid('step'),
+            kind,
+            label: labelFor(edit.kind, location, item, need),
+            location,
+            item: item || undefined,
+            have: prev?.done ? need : 0,
+            need,
+            done: prev?.done ?? false
+          }
+        })
+        return {
+          ...j,
+          title: edit.title.trim() || j.title,
+          kind: edit.kind,
+          reward: Math.max(0, Number(edit.reward) || 0),
+          steps,
+          status: j.status === 'active' && steps.length > 0 && steps.every((s) => s.done) ? 'complete' : j.status
+        }
+      })
+    })
     get().persist()
   },
 
