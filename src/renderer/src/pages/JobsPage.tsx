@@ -37,6 +37,7 @@ export default function JobsPage(): React.ReactElement {
   const active = jobs.filter((j) => j.status === 'active')
   const finished = jobs.filter((j) => j.status !== 'active')
   const uex = useUexNames()
+  const openCapture = useStore((s) => s.openCapture)
 
   return (
     <div style={{ padding: PAGE_PADDING }}>
@@ -73,6 +74,7 @@ export default function JobsPage(): React.ReactElement {
           onSaveEdit={(edit) => { applyEdit(job.id, edit); setEditingId(null) }}
           onAbandon={() => abandonJob(job.id)}
           onComplete={() => completeJob(job.id)}
+          onImportOcr={() => openCapture(job.id)}
           onStep={(stepId) => toggleStep(job.id, stepId)}
         />
       ))}
