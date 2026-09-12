@@ -1,0 +1,98 @@
+/** Forms and styles for Other-mode Jobs. */
+import React, { useState } from 'react'
+import { C, F, GLOW } from '../theme'
+import { Btn } from '../components/ui'
+import Typeahead from '../components/Typeahead'
+import { type OtherJobDraft, type OtherJobEdit } from '../state/otherJobs'
+import { OTHER_KIND_LABEL, type OtherJob, type OtherJobKind } from '@shared/otherJob'
+
+const KINDS: OtherJobKind[] = ['delivery', 'collection', 'mining', 'salvage']
+
+function UexField({ label, value, options, placeholder, onChange }: {
+  label: string
+  value: string
+  options: string[]
+  placeholder?: string
+  onChange: (v: string) => void
+}): React.ReactElement {
+  return (
+    <Field label={label}>
+      <div style={{ border: `1px solid ${C.lineStrong}`, background: 'rgba(0,0,0,0.4)', padding: '0 8px' }}>
+        <Typeahead
+          value={value}
+          options={options}
+          freeText
+          maxResults={12}
+          menuMinWidth={520}
+          wrapMenu
+          placeholder={placeholder}
+          onChange={onChange}
+          onSelect={onChange}
+        />
+      </div>
+    </Field>
+  )
+}
+
+export function EditForm({ job, uex, onCancel, onSave }: {
+  job: OtherJob
+  uex: { locations: string[]; items: string[] }
+  onCancel: () => void
+  onSave: (edit: OtherJobEdit) => void
+}): React.ReactElement {
+  const [title, setTitle] = useState(job.title)
+  const [kind, setKind] = useState<OtherJobKind>(job.kind)
+  const [reward, setReward] = useState(job.reward)
+  const [steps, setSteps] = useState(job.steps.map((s) => ({
+    id: s.id, location: s.location, item: s.item ?? '', need: s.need || 1
+  })))
+  const [newLoc, setNewLoc] = useState('')
+  const [newItem, setNewItem] = useState('')
+  const [newNeed, setNewNeed] = useState(1)
+
+  const patchStep = (id: string, patch: Partial<(typeof steps)[0]>): void => {
+    setSteps((rows) => rows.map((r) => (r.id === id ? { ...r, ...patch } : r)))
+  }
+
+  const stepsForSave = (): OtherJobEdit['steps'] => {
+    if (!newLoc.trim() && !newItem.trim()) return steps
+    return [...steps, { id: `new-${steps.length}-${Date.now()}`, location: newLoc, item: newItem, need: newNeed }]
+  }
+
+  return (
+    <div style={{ padding: '0 0 16px 70px', overflow: 'visible' }}>
+      <div style={{ fontFamily: F.display, fontSize: 11, letterSpacing: '0.18em', color: C.acc, margin: '8px 0 12px' }}>EDIT {job.ref}</div>
+      <Field label="Title"><input value={title} onChange={(e) => setTitle(e.target.value)} style={inputStyle} /></Field>
+      <Field label="Kind">
+        <select value={kind} onChange={(e) => setKind(e.target.value as OtherJobKind)} style={inputStyle}>
+          {KINDS.map((k) => <option key={k} value={k}>{OTHER_KIND_LABEL[k]}</option>)}
+        </select>
+      </Field>
+      <Field label="Reward"><input type="number" min={0} value={reward} onChange={(e) => setReward(Number(e.target.value))} style={{ ...inputStyle, width: 160 }} /></Field>
+      {steps.map((row, i) => (
+        <div key={row.id} style={{ borderTop: `1px dotted ${C.lineFaint}`, paddingTop: 8, marginTop: 8 }}>
+          <div style={{ fontFamily: F.body, fontSize: 12, color: C.dim, marginBottom: 6 }}>Step {i + 1}</div>
+          <UexField label="Location" value={row.location} options={uex.locations} onChange={(v) => patchStep(row.id, { location: v })} />
+          <UexField label="Item" value={row.item} options={uex.items} onChange={(v) => patchStep(row.id, { item: v })} />
+          <Field label="Need"><input type="number" min={1} value={row.need} onChange={(e) => patchStep(row.id, { need: Number(e.target.value) })} style={{ ...inputStyle, width: 100 }} /></Field>
+          <Btn onClick={() => setSteps((rows) => rows.filter((r) => r.id !== row.id))} style={miniBtn}>REMOVE STEP</Btn>
+        </div>
+      ))}
+      <div style={{ borderTop: `1px dotted ${C.lineFaint}`, paddingTop: 8, marginTop: 12 }}>
+        <div style={{ fontFamily: F.body, fontSize: 12, color: C.dim, marginBottom: 6 }}>Add step (SAVE also keeps these fields)</div>
+        <UexField label="Location" value={newLoc} options={uex.locations} placeholder="Shubin Mining Facility SAL-5" onChange={setNewLoc} />
+        <UexField label="Item" value={newItem} options={uex.items} placeholder="Hadanite" onChange={setNewItem} />
+        <Field label="Need"><input type="number" min={1} value={newNeed} onChange={(e) => setNewNeed(Number(e.target.value))} style={{ ...inputStyle, width: 100 }} /></Field>
+        <Btn onClick={() => {
+          if (!newLoc.trim() && !newItem.trim()) return
+          setSteps((rows) => [...rows, { id: `new-${rows.length}-${Date.now()}`, location: newLoc, item: newItem, need: newNeed }])
+          setNewLoc(''); setNewItem(''); setNewNeed(1)
+        }} style={miniBtn}>ADD STEP</Btn>
+      </div>
+      <div style={{ display: 'flex', gap: 8, marginTop: 14 }}>
+        <Btn onClick={() => onSave({ title, kind, reward, steps: stepsForSave() })} style={outlineBtn}>SAVE</Btn>
+        <Btn onClick={onCancel} style={miniBtn}>CANCEL</Btn>
+      </div>
+    </div>
+  )
+}
