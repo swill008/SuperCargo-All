@@ -1,10 +1,13 @@
-/** Other-mode Next page (Manifest analogue). Groups open steps by location. */
+/** Other-mode Next page. Sorts open stops by UEX map distance from STARTING AT. */
 import React, { useMemo } from 'react'
 import { C, F } from '../theme'
 import PageHeader, { PAGE_PADDING } from '../components/PageHeader'
 import { Btn } from '../components/ui'
+import Typeahead from '../components/Typeahead'
+import { useStore } from '../state/store'
 import { useOtherJobs } from '../state/otherJobs'
 import { nextOpenStep, type OtherJob, type OtherStep } from '@shared/otherJob'
+import { compareByDistanceFrom } from '@shared/otherNext'
 
 interface OpenStop { job: OtherJob; step: OtherStep }
 
@@ -15,6 +18,8 @@ export default function NextPage(): React.ReactElement {
   const groupBy = useOtherJobs((s) => s.groupBy)
   const setGroupBy = useOtherJobs((s) => s.setGroupBy)
   const toggleStep = useOtherJobs((s) => s.toggleStep)
+  const locations = useStore((s) => s.locations) ?? []
+  const names = useMemo(() => locations.map((l) => l.name).filter(Boolean), [locations])
 
   const open = useMemo(() => {
     const rows: OpenStop[] = []
@@ -23,8 +28,16 @@ export default function NextPage(): React.ReactElement {
       const step = nextOpenStep(job)
       if (step) rows.push({ job, step })
     }
-    return rows
-  }, [jobs])
+    if (!startLocation.trim()) return rows
+    return [...rows].sort((a, b) =>
+      compareByDistanceFrom(
+        startLocation,
+        locations,
+        a.step.location || a.step.label,
+        b.step.location || b.step.label
+      )
+    )
+  }, [jobs, startLocation, locations])
 
   const groups = useMemo(() => {
     const map = new Map<string, OpenStop[]>()
@@ -44,7 +57,7 @@ export default function NextPage(): React.ReactElement {
     <div style={{ padding: PAGE_PADDING }}>
       <PageHeader
         title="NEXT"
-        subtitle={`${activeCount} jobs · ${open.length} open stops · Other mode`}
+        subtitle={`${activeCount} jobs \u00b7 ${open.length} open stops \u00b7 Other mode`}
         right={
           <div style={{ display: 'flex', border: `1px solid ${C.lineStrong}` }}>
             {(['location', 'job'] as const).map((id) => {
@@ -62,14 +75,29 @@ export default function NextPage(): React.ReactElement {
       <div style={{ display: 'flex', gap: 18, marginBottom: 22 }}>
         <Stat label="JOBS" value={String(activeCount)} />
         <Stat label="STOPS" value={String(open.length)} />
-        <Stat label="NEAREST" value={nearest?.step.location || nearest?.step.label || '—'} />
+        <Stat label="NEAREST" value={startLocation.trim() ? (nearest?.step.location || nearest?.step.label || '\u2014') : 'Set start'} />
       </div>
-      <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 18 }}>
-        <span style={{ fontFamily: F.display, fontSize: 11, letterSpacing: '0.16em', color: C.dim }}>STARTING AT</span>
-        <input value={startLocation} onChange={(e) => setStartLocation(e.target.value)} placeholder="where you are now" style={{
-          background: 'transparent', border: 0, borderBottom: `1px solid ${C.lineStrong}`,
-          color: C.text, fontFamily: F.body, fontSize: 14, padding: '4px 0', minWidth: 220
-        }} />
+      <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 18, flexWrap: 'wrap' }}>
+        <span style={{ fontFamily: F.display, fontSize: 11, letterSpacing: '0.16em', color: C.dim, flex: 'none' }}>STARTING AT</span>
+        <div style={{ flex: '1 1 240px', minWidth: 220, maxWidth: 380 }}>
+          <Typeahead
+            value={startLocation}
+            options={names}
+            freeText={false}
+            search
+            maxResults={12}
+            menuMinWidth={420}
+            wrapMenu
+            onSelect={setStartLocation}
+            placeholder="Where you are now (UEX list)"
+          />
+        </div>
+        {startLocation && (
+          <Btn onClick={() => setStartLocation('')} style={{
+            border: `1px solid ${C.lineStrong}`, background: 'transparent', color: C.dim,
+            fontFamily: F.display, fontSize: 11, letterSpacing: '0.12em', padding: '6px 10px', cursor: 'pointer'
+          }}>CLEAR</Btn>
+        )}
       </div>
       {groups.length === 0 && <div style={{ fontFamily: F.body, fontSize: 14, color: C.dim }}>No open stops. Add a job on the Jobs tab.</div>}
       {groups.map(([heading, rows]) => (
