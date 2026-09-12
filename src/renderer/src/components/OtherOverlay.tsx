@@ -1,8 +1,9 @@
 /**
  * Compact overlay used only when Work mode = Other.
  * Same window as the haul overlay; different body so we never show box math.
+ * Cycle arrows walk the open-stop list. Clicks need overlay click-through OFF.
  */
-import React, { useMemo } from 'react'
+import React, { useEffect, useMemo, useState } from 'react'
 import { C, F } from '../theme'
 import { useStore } from '../state/store'
 import { useOtherJobs } from '../state/otherJobs'
@@ -15,6 +16,7 @@ export default function OtherOverlay(): React.ReactElement {
   const settings = useStore((s) => s.settings)
   const scale = settings.overlayScale || 1
   const opacity = settings.overlayOpacity ?? 0.85
+  const [idx, setIdx] = useState(0)
 
   const open = useMemo(() => {
     return jobs
@@ -23,9 +25,16 @@ export default function OtherOverlay(): React.ReactElement {
       .filter((x): x is { job: (typeof jobs)[0]; step: NonNullable<ReturnType<typeof nextOpenStep>> } => !!x.step)
   }, [jobs])
 
-  const current = open[0]
-  const upcoming = open[1]
-  const total = Math.max(open.length, 1)
+  useEffect(() => {
+    if (idx >= open.length) setIdx(Math.max(0, open.length - 1))
+  }, [idx, open.length])
+
+  const current = open[idx]
+  const upcoming = open[idx + 1]
+  const total = open.length
+  const shown = current ? idx + 1 : 0
+  const canPrev = idx > 0
+  const canNext = idx < total - 1
 
   return (
     <div
@@ -39,20 +48,60 @@ export default function OtherOverlay(): React.ReactElement {
         fontFamily: F.body
       }}
     >
-      <div style={{ display: 'flex', justifyContent: 'space-between', gap: 8, marginBottom: 10 }}>
+      <div style={{ display: 'flex', justifyContent: 'space-between', gap: 8, marginBottom: 10, alignItems: 'center' }}>
         <div
           style={{
             fontFamily: F.display,
             fontSize: 13,
             letterSpacing: '0.08em',
             color: C.acc,
-            textTransform: 'uppercase'
+            textTransform: 'uppercase',
+            minWidth: 0,
+            flex: 1
           }}
         >
           {current?.step.location || current?.step.label || 'NO OPEN STOP'}
         </div>
-        <div style={{ fontFamily: F.display, fontSize: 11, color: C.dim, letterSpacing: '0.08em' }}>
-          STOP {current ? 1 : 0}/{total}
+        <div style={{ display: 'flex', alignItems: 'center', gap: 6, flexShrink: 0 }}>
+          <button
+            type="button"
+            disabled={!canPrev}
+            onClick={() => setIdx((n) => Math.max(0, n - 1))}
+            style={{
+              background: 'transparent',
+              border: `1px solid ${C.accBorder}`,
+              color: canPrev ? C.acc : C.ghost,
+              width: 22,
+              height: 22,
+              padding: 0,
+              cursor: canPrev ? 'pointer' : 'default',
+              fontFamily: F.display,
+              fontSize: 12
+            }}
+          >
+            {'\u2039'}
+          </button>
+          <div style={{ fontFamily: F.display, fontSize: 11, color: C.dim, letterSpacing: '0.08em' }}>
+            STOP {shown}/{Math.max(total, 1)}
+          </div>
+          <button
+            type="button"
+            disabled={!canNext}
+            onClick={() => setIdx((n) => Math.min(total - 1, n + 1))}
+            style={{
+              background: 'transparent',
+              border: `1px solid ${C.accBorder}`,
+              color: canNext ? C.acc : C.ghost,
+              width: 22,
+              height: 22,
+              padding: 0,
+              cursor: canNext ? 'pointer' : 'default',
+              fontFamily: F.display,
+              fontSize: 12
+            }}
+          >
+            {'\u203a'}
+          </button>
         </div>
       </div>
       <div style={{ fontFamily: F.display, fontSize: 12, letterSpacing: '0.16em', color: '#8fe9b0', marginBottom: 8 }}>
