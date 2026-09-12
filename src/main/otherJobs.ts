@@ -5,7 +5,8 @@
  */
 import * as fs from 'node:fs'
 import * as path from 'node:path'
-import { app } from 'electron'
+import { app, ipcMain } from 'electron'
+import { IPC } from '@shared/channels'
 import { EMPTY_OTHER_JOBS, type OtherJobsDoc } from '@shared/otherJob'
 
 const FILE = 'other-jobs.json'
@@ -31,4 +32,17 @@ export function saveOtherJobs(doc: OtherJobsDoc): void {
   } catch (e) {
     console.error('[other-jobs] failed to write:', e)
   }
+}
+
+let registered = false
+
+/** Called from loadSettings so we do not have to rewrite main/index.ts. */
+export function ensureOtherJobsIpc(): void {
+  if (registered) return
+  registered = true
+  ipcMain.handle(IPC.otherJobsLoad, () => loadOtherJobs())
+  ipcMain.handle(IPC.otherJobsSave, (_e, doc: OtherJobsDoc) => {
+    saveOtherJobs(doc)
+    return true
+  })
 }
