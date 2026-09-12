@@ -34,7 +34,7 @@ export interface OtherJobEdit {
   title: string
   kind: OtherJobKind
   reward: number
-  steps: { id: string; location: string; item: string; need: number }[]
+  steps: { id: string; location: string; item: string; need: number; label?: string }[]
 }
 
 interface OtherJobsState {
@@ -229,7 +229,7 @@ export const useOtherJobs = create<OtherJobsState>((set, get) => ({
           return {
             id: prev?.id ?? nid('step'),
             kind,
-            label: labelFor(edit.kind, location, item, need),
+            label: (row.label || '').trim() || labelFor(edit.kind, location, item, need),
             location,
             item: item || undefined,
             have: prev?.done ? need : 0,
@@ -237,8 +237,8 @@ export const useOtherJobs = create<OtherJobsState>((set, get) => ({
             done: prev?.done ?? false
           }
         })
-        const before = j.steps.map((s) => `${s.location}|${s.item || ''}|${s.need}`).join('\n')
-        const after = steps.map((s) => `${s.location}|${s.item || ''}|${s.need}`).join('\n')
+        const before = j.steps.map((s) => `${s.label}|${s.location}|${s.item || ''}|${s.need}`).join('\n')
+        const after = steps.map((s) => `${s.label}|${s.location}|${s.item || ''}|${s.need}`).join('\n')
         return {
           ...j,
           title: edit.title.trim() || j.title,
