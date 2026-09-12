@@ -11,6 +11,7 @@ import { EMPTY_OTHER_JOBS, type OtherJobsDoc } from '@shared/otherJob'
 import { scanOtherSessionLog } from './scanLog'
 import { loadCachedLocations } from './uex'
 import { loadOtherPlaces, refreshOtherPlaces } from './otherUex'
+import { wipeOtherOcrSession, saveOtherOcrShot, loadOtherOcrShot, hookOtherOcrSessionQuit } from './otherOcrSession'
 
 const FILE = 'other-jobs.json'
 
@@ -72,5 +73,9 @@ export function ensureOtherJobsIpc(): void {
     return { contracts, ended, objectivesByMission }
   })
   ipcMain.handle(IPC.otherPlacesGet, () => loadOtherPlaces())
+  ipcMain.handle(IPC.otherOcrShotSave, (_e, jobId: string, dataUrl: string) => saveOtherOcrShot(jobId, dataUrl))
+  ipcMain.handle(IPC.otherOcrShotGet, (_e, jobId: string) => loadOtherOcrShot(jobId))
+  wipeOtherOcrSession()
+  hookOtherOcrSessionQuit()
   void refreshOtherPlaces(loadCachedLocations()?.locations ?? [])
 }
