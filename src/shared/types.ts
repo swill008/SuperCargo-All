@@ -179,6 +179,10 @@ export interface AppSettings {
   overlayClickThrough: boolean
   /** open the overlay when the app launches */
   overlayStartWithApp?: boolean
+  /** after browsing overlay arrows, snap back to stop 1 */
+  overlayReturnToFirst?: boolean
+  /** seconds to wait before snap-back; 0–20 */
+  overlayReturnSeconds?: number
   /** last overlay window position; if set, wins over overlayCorner */
   overlayX?: number
   overlayY?: number

@@ -19,6 +19,8 @@ export default function OtherOverlay(): React.ReactElement {
   const haulLocs = useStore((s) => s.locations) ?? []
   const locations = useMemo(() => mergeLocations(haulLocs), [haulLocs])
   const opacity = settings.overlayOpacity ?? 0.85
+  const returnToFirst = settings.overlayReturnToFirst !== false
+  const returnSeconds = Math.max(0, Math.min(20, settings.overlayReturnSeconds ?? 8))
   const [idx, setIdx] = useState(0)
 
   const open = useMemo(
@@ -33,6 +35,12 @@ export default function OtherOverlay(): React.ReactElement {
   useEffect(() => {
     if (idx >= open.length) setIdx(Math.max(0, open.length - 1))
   }, [idx, open.length])
+
+  useEffect(() => {
+    if (!returnToFirst || idx <= 0) return
+    const timer = window.setTimeout(() => setIdx(0), returnSeconds * 1000)
+    return () => window.clearTimeout(timer)
+  }, [idx, returnToFirst, returnSeconds])
 
   const current = open[idx]
   const upcoming = open[idx + 1]

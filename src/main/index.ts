@@ -489,7 +489,12 @@ function registerIpc(): void {
       applyOverlay()
     }
     // opacity + scale are drawn in the overlay's own window, so push the new settings there
-    if (patch.overlayOpacity !== undefined || patch.overlayScale !== undefined) {
+    if (
+      patch.overlayOpacity !== undefined ||
+      patch.overlayScale !== undefined ||
+      patch.overlayReturnToFirst !== undefined ||
+      patch.overlayReturnSeconds !== undefined
+    ) {
       broadcast(IPC.evtSettings, settings, e.sender.id)
     }
     if (

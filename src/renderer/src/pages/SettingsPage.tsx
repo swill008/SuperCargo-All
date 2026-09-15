@@ -270,6 +270,33 @@ export default function SettingsPage(): React.ReactElement {
         />
       </div>
       <div style={rowStyle}>
+        <span style={keyStyle}>
+          Return to first stop
+          <span style={{ display: 'block', fontFamily: F.body, fontSize: 12, color: C.dim, marginTop: 2 }}>
+            After you browse with the arrows, snap back to the next action.
+          </span>
+        </span>
+        <Toggle
+          on={settings.overlayReturnToFirst !== false}
+          onClick={() => void updateSettings({ overlayReturnToFirst: settings.overlayReturnToFirst === false })}
+        />
+      </div>
+      <div style={rowStyle}>
+        <span style={keyStyle}>Snap-back delay</span>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
+          <input
+            type="range"
+            min={0}
+            max={20}
+            step={1}
+            value={settings.overlayReturnSeconds ?? 8}
+            onChange={(e) => void updateSettings({ overlayReturnSeconds: Number(e.target.value) })}
+            style={{ width: 200, accentColor: C.acc }}
+          />
+          <span style={{ fontFamily: F.mono, fontSize: 13, color: C.body }}>{settings.overlayReturnSeconds ?? 8}s</span>
+        </div>
+      </div>
+      <div style={rowStyle}>
         <span style={keyStyle}>Corner</span>
         <div style={{ display: 'flex', gap: 8 }}>
           {([['tl', '↖'], ['tr', '↗'], ['bl', '↙'], ['br', '↘']] as const).map(([id, glyph]) => {
