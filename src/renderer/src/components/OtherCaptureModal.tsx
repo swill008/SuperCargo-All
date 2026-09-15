@@ -169,7 +169,7 @@ export default function OtherCaptureModal(): React.ReactElement | null {
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '16px 20px', borderBottom: `1px solid ${C.lineStrong}` }}>
           <div>
             <div style={{ fontFamily: F.display, fontSize: 16, letterSpacing: '0.08em', color: C.text, textShadow: GLOW }}>IMPORT FROM OCR</div>
-            <div style={{ fontFamily: F.body, fontSize: 12, color: C.dim }}>{job.ref} \u00b7 {job.title}</div>
+            <div style={{ fontFamily: F.body, fontSize: 12, color: C.dim }}>{job.ref} {'\u00b7'} {job.title}</div>
           </div>
           <Btn onClick={reset} style={{ ...miniBtn, border: 0 }}>CLOSE</Btn>
         </div>

@@ -148,7 +148,7 @@ export default function OtherOverlay(): React.ReactElement {
           color: C.ghost
         }}
       >
-        SUPERCARGO \u00b7 OTHER MODE
+        SUPERCARGO {'\u00b7'} OTHER MODE
       </div>
     </div>
   )
