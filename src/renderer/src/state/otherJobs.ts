@@ -145,7 +145,7 @@ export const useOtherJobs = create<OtherJobsState>((set, get) => ({
       return
     }
     const doc = await window.supercargo.loadOtherJobs()
-    set({ ready: true, jobs: doc.jobs ?? [] })
+    set({ ready: true, jobs: doc.jobs ?? [], startLocation: doc.startLocation ?? '' })
     useOtherHistory.getState().load(doc)
 
     if (!listenersBound) {
@@ -190,12 +190,19 @@ export const useOtherJobs = create<OtherJobsState>((set, get) => ({
   },
 
   persist: () => {
-    const doc: OtherJobsDoc = { jobs: get().jobs, history: useOtherHistory.getState().history }
+    const doc: OtherJobsDoc = {
+      jobs: get().jobs,
+      history: useOtherHistory.getState().history,
+      startLocation: get().startLocation
+    }
     void window.supercargo.saveOtherJobs?.(doc)
   },
 
   setExpanded: (id) => set({ expandedId: id }),
-  setStartLocation: (v) => set({ startLocation: v }),
+  setStartLocation: (v) => {
+    set({ startLocation: v })
+    get().persist()
+  },
   setGroupBy: (v) => set({ groupBy: v }),
 
   addJob: (draft) => {
