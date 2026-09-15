@@ -6,8 +6,8 @@ import { Btn } from '../components/ui'
 import Typeahead from '../components/Typeahead'
 import { useStore } from '../state/store'
 import { useOtherJobs } from '../state/otherJobs'
-import { nextOpenStep, type OtherJob, type OtherStep } from '@shared/otherJob'
-import { compareByDistanceFrom, distanceFromStart, formatMapDistance } from '@shared/otherNext'
+import { type OtherJob, type OtherStep } from '@shared/otherJob'
+import { listOpenStops, distanceFromStart, formatMapDistance } from '@shared/otherNext'
 import { mergeLocations } from '../state/otherPlaces'
 
 interface OpenStop { job: OtherJob; step: OtherStep }
@@ -23,23 +23,10 @@ export default function NextPage(): React.ReactElement {
   const locations = useMemo(() => mergeLocations(haulLocs), [haulLocs])
   const names = useMemo(() => locations.map((l) => l.name).filter(Boolean), [locations])
 
-  const open = useMemo(() => {
-    const rows: OpenStop[] = []
-    for (const job of jobs) {
-      if (job.status !== 'active') continue
-      const step = nextOpenStep(job)
-      if (step) rows.push({ job, step })
-    }
-    if (!startLocation.trim()) return rows
-    return [...rows].sort((a, b) =>
-      compareByDistanceFrom(
-        startLocation,
-        locations,
-        a.step.location || a.step.label,
-        b.step.location || b.step.label
-      )
-    )
-  }, [jobs, startLocation, locations])
+  const open = useMemo(
+    () => listOpenStops(jobs, startLocation, locations),
+    [jobs, startLocation, locations]
+  )
 
   const groups = useMemo(() => {
     const map = new Map<string, OpenStop[]>()
@@ -59,7 +46,7 @@ export default function NextPage(): React.ReactElement {
     <div style={{ padding: PAGE_PADDING }}>
       <PageHeader
         title="NEXT"
-        subtitle={`${activeCount} jobs · ${open.length} open stops · Other mode`}
+        subtitle={`${activeCount} jobs \u00b7 ${open.length} open stops \u00b7 Other mode`}
         right={
           <div style={{ display: 'flex', border: `1px solid ${C.lineStrong}` }}>
             {(['location', 'job'] as const).map((id) => {
@@ -77,7 +64,7 @@ export default function NextPage(): React.ReactElement {
       <div style={{ display: 'flex', gap: 18, marginBottom: 22 }}>
         <Stat label="JOBS" value={String(activeCount)} />
         <Stat label="STOPS" value={String(open.length)} />
-        <Stat label="NEAREST" value={startLocation.trim() ? (nearest?.step.location || nearest?.step.label || '—') : 'Set start'} />
+        <Stat label="NEAREST" value={startLocation.trim() ? (nearest?.step.location || nearest?.step.label || '\u2014') : 'Set start'} />
       </div>
       <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 18, flexWrap: 'wrap' }}>
         <span style={{ fontFamily: F.display, fontSize: 11, letterSpacing: '0.16em', color: C.dim, flex: 'none' }}>STARTING AT</span>
@@ -91,7 +78,7 @@ export default function NextPage(): React.ReactElement {
             menuMinWidth={420}
             wrapMenu
             onSelect={setStartLocation}
-            placeholder="Type city or station — e.g. New Babbage"
+            placeholder="Type city or station \u2014 e.g. New Babbage"
           />
         </div>
         <span style={{ fontFamily: F.body, fontSize: 12, color: C.dim }}>Type to search the full UEX list. Open list is only the first matches.</span>
@@ -118,7 +105,7 @@ export default function NextPage(): React.ReactElement {
                 <div style={{ fontFamily: F.body, fontSize: 14, color: C.textBody }}>{step.label}</div>
                 <div style={{ fontFamily: F.mono, fontSize: 12, color: C.dim, marginTop: 2 }}>
                   {job.ref}
-                  {startLocation.trim() ? ` · ${formatMapDistance(distanceFromStart(startLocation, step.location || step.label, locations))}` : ''}
+                  {startLocation.trim() ? ` \u00b7 ${formatMapDistance(distanceFromStart(startLocation, step.location || step.label, locations))}` : ''}
                 </div>
               </div>
               <Btn onClick={() => toggleStep(job.id, step.id)} style={{

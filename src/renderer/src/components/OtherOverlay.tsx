@@ -7,33 +7,29 @@ import React, { useEffect, useMemo, useState } from 'react'
 import { C, F } from '../theme'
 import { useStore } from '../state/store'
 import { useOtherJobs } from '../state/otherJobs'
-import { nextOpenStep } from '@shared/otherJob'
+import { mergeLocations } from '../state/otherPlaces'
+import { listOpenStops } from '@shared/otherNext'
 
 const WHITE = '#eaf1f7'
 
 export default function OtherOverlay(): React.ReactElement {
   const jobs = useOtherJobs((s) => s.jobs)
+  const startLocation = useOtherJobs((s) => s.startLocation)
   const settings = useStore((s) => s.settings)
+  const haulLocs = useStore((s) => s.locations) ?? []
+  const locations = useMemo(() => mergeLocations(haulLocs), [haulLocs])
   const scale = settings.overlayScale || 1
   const opacity = settings.overlayOpacity ?? 0.85
   const [idx, setIdx] = useState(0)
 
-  const open = useMemo(() => {
-    return jobs
-      .filter((j) => j.status === 'active')
-      .map((j) => {
-        const step = nextOpenStep(j) ?? {
-          id: `${j.id}-pending`,
-          kind: 'go' as const,
-          label: j.steps.length ? (j.steps[0]?.label || j.title) : `${j.title} — no objective yet`,
-          location: j.steps[0]?.location || '',
-          have: 0,
-          need: 1,
-          done: false
-        }
-        return { job: j, step }
-      })
-  }, [jobs])
+  const open = useMemo(
+    () => listOpenStops(jobs, startLocation, locations),
+    [jobs, startLocation, locations]
+  )
+
+  useEffect(() => {
+    setIdx(0)
+  }, [startLocation])
 
   useEffect(() => {
     if (idx >= open.length) setIdx(Math.max(0, open.length - 1))
@@ -141,7 +137,7 @@ export default function OtherOverlay(): React.ReactElement {
           color: C.ghost
         }}
       >
-        SUPERCARGO · OTHER MODE
+        SUPERCARGO \u00b7 OTHER MODE
       </div>
     </div>
   )
