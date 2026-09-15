@@ -114,7 +114,7 @@ export default function CompactWindowApp(): React.ReactElement {
 
   return (
     <div style={{ position: 'fixed', inset: 0, background: 'transparent', fontFamily: F.display }}>
-      <div ref={contentRef} style={{ width: BASE_W, boxSizing: 'border-box', zoom: scale, display: 'flex', flexDirection: 'column', gap: 7, padding: 8 }}>
+      <div ref={contentRef} style={{ width: BASE_W, boxSizing: 'border-box', zoom: scale, display: 'flex', flexDirection: 'column', gap: 7, padding: 8, WebkitAppRegion: 'drag' } as React.CSSProperties}>
         {!ready ? null : !step ? (
           <Panel opacity={opacity}>
             <div style={{ padding: '12px 14px', fontSize: 13, color: C.dim, lineHeight: 1.5 }}>
