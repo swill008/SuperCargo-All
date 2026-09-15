@@ -44,9 +44,8 @@ export default function OtherOverlay(): React.ReactElement {
   return (
     <div
       style={{
-        width: '100%',
-        height: '100%',
-        flex: 1,
+        position: 'fixed',
+        inset: 3,
         boxSizing: 'border-box',
         padding: 10,
         background: `rgba(8,12,16,${opacity})`,
