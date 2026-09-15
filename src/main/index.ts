@@ -130,13 +130,24 @@ let compactHeight = COMPACT_H
 
 function positionCompact(): void {
   if (!compactWindow) return
-  // bounds not workArea, overlaps taskbar
-  const { bounds } = screen.getPrimaryDisplay()
   const margin = 10
   const scale = settings.overlayScale || 1
   const width = Math.round(COMPACT_W * scale)
   // already scaled by the renderer, don't scale again
+  const savedX = settings.overlayX
+  const savedY = settings.overlayY
+  const hasSaved = typeof savedX === 'number' && typeof savedY === 'number'
+  const display = hasSaved
+    ? screen.getDisplayNearestPoint({ x: savedX, y: savedY })
+    : screen.getPrimaryDisplay()
+  const { bounds } = display
   const height = Math.max(120, Math.min(compactHeight, bounds.height - margin * 2))
+  if (hasSaved) {
+    const x = Math.min(Math.max(bounds.x, savedX), bounds.x + bounds.width - width)
+    const y = Math.min(Math.max(bounds.y, savedY), bounds.y + bounds.height - height)
+    compactWindow.setBounds({ x, y, width, height })
+    return
+  }
   const corner = settings.overlayCorner || 'tr'
   const onLeft = corner === 'tl' || corner === 'bl'
   const onTop = corner === 'tl' || corner === 'tr'
@@ -168,7 +179,7 @@ function createCompactWindow(): void {
     backgroundColor: '#00000000',
     // resizable so setBounds sets height
     resizable: true,
-    movable: false,
+    movable: true,
     minimizable: false,
     maximizable: false,
     minWidth: COMPACT_W,
@@ -187,6 +198,16 @@ function createCompactWindow(): void {
     }
   })
   compactWindow.setAlwaysOnTop(true, 'screen-saver')
+  let moveTimer: ReturnType<typeof setTimeout> | undefined
+  compactWindow.on('moved', () => {
+    if (!compactWindow || compactWindow.isDestroyed()) return
+    const [x, y] = compactWindow.getPosition()
+    if (moveTimer) clearTimeout(moveTimer)
+    moveTimer = setTimeout(() => {
+      settings = { ...settings, overlayX: x, overlayY: y }
+      saveSettings(settings)
+    }, 200)
+  })
   compactWindow.webContents.setWindowOpenHandler(({ url }) => {
     shell.openExternal(url)
     return { action: 'deny' }
@@ -436,6 +457,10 @@ function registerIpc(): void {
 
     if (patch.alwaysOnTop !== undefined && mainWindow) {
       applyAlwaysOnTop(!!patch.alwaysOnTop)
+    }
+    if (patch.overlayCorner !== undefined) {
+      settings = { ...settings, overlayX: undefined, overlayY: undefined }
+      saveSettings(settings)
     }
     if (
       patch.overlayScale !== undefined ||
