@@ -9,6 +9,14 @@ import { splitLogAddress } from './logLocation'
 
 const norm = (s: string): string => s.toLowerCase().replace(/[^a-z0-9]+/g, ' ').trim()
 
+/** CIG pad addresses. Other-only; haul splitLogAddress stays stock. */
+function stripLagrangeFlavor(raw: string): string {
+  return raw
+    .replace(/\s+at\s+(?:the\s+)?[A-Za-z][\w']*'s\s+L[1-5]\s+Lagrange\s+point\.?$/i, '')
+    .replace(/\s+at\s+the\s+L[1-5]\s+Lagrange\s+of\s+.+$/i, '')
+    .trim()
+}
+
 export type OtherLocationSnap = {
   location: string
   locationRaw: string
@@ -29,7 +37,8 @@ export function snapOtherLocation(raw: string, locations: Location[]): OtherLoca
   }
 
   const { name: culled } = splitLogAddress(locationRaw)
-  const candidates = [locationRaw, culled].filter((s, i, a) => s && a.indexOf(s) === i)
+  const stripped = stripLagrangeFlavor(locationRaw)
+  const candidates = [locationRaw, culled, stripped].filter((s, i, a) => s && a.indexOf(s) === i)
 
   for (const cand of candidates) {
     const exact = locations.filter((l) => l.name.toLowerCase() === cand.toLowerCase())
@@ -80,6 +89,8 @@ export const OTHER_LOCATION_SNAP_CASES: Array<{
   { raw: 'Shubin Mining Facility SM0-18', expect: 'Shubin Mining Facility SM0-18', snapped: false },
   { raw: 'Shubin Mining Facility SAL-5', expect: 'Shubin Mining Facility SAL-5', snapped: false },
   { raw: 'MIC-L5 Modern Icarus Station', expect: 'MIC-L5 Modern Icarus Station', snapped: false },
+  { raw: "Red Crossroads Station at microTech's L4 Lagrange point", expect: 'MIC-L4 Red Crossroads Station', snapped: true },
+  { raw: 'MIC-L4 Red Crossroads Station', expect: 'MIC-L4 Red Crossroads Station', snapped: false },
   { raw: 'Rayari Cantwell', expect: 'Rayari Cantwell Research Outpost', snapped: true },
   { raw: 'Rayari Cantwell Research Outpost', expect: 'Rayari Cantwell Research Outpost', snapped: false },
   { raw: 'Shubin SM0-18', expect: 'Shubin Mining Facility SM0-18', snapped: true },
@@ -105,6 +116,7 @@ export const OTHER_LOCATION_SNAP_ROSTER: Location[] = [
   loc('Shubin Mining Facility SM0-18', 'Shubin SM0-18'),
   loc('Shubin Mining Facility SAL-5', 'Shubin SAL-5'),
   loc('MIC-L5 Modern Icarus Station', 'MIC-L5'),
+  loc('MIC-L4 Red Crossroads Station', 'MIC-L4'),
   loc('Rayari Cantwell Research Outpost', 'Rayari Cantwell'),
   loc('Rayari Deltana Research Outpost', 'Rayari Deltana')
 ]
