@@ -63,12 +63,13 @@ export function applyOcrObjectives(
 
 export function applyOcrRows(
   jobId: string,
-  payload: { reward?: number; rows: OtherOcrRow[] }
+  payload: { reward?: number; rows: OtherOcrRow[]; overwrite?: boolean }
 ): boolean {
   const store = useOtherJobs.getState()
   const job = store.jobs.find((j) => j.id === jobId)
   if (!job) return false
-  if (job.objectivesLocked || job.steps.length > 0) return false
+  const overwrite = !!payload.overwrite
+  if (!overwrite && (job.objectivesLocked || job.steps.length > 0)) return false
   const locations = mergeLocations(useStore.getState().locations)
 
   const steps: OtherStep[] = []
@@ -91,12 +92,23 @@ export function applyOcrRows(
     steps.push(step)
   }
 
-  const reward = job.reward > 0 ? job.reward : Math.max(0, Number(payload.reward) || 0)
-  if (steps.length === 0 && reward === job.reward) return false
+  const reward = overwrite
+    ? Math.max(0, Number(payload.reward) || 0)
+    : job.reward > 0 ? job.reward : Math.max(0, Number(payload.reward) || 0)
+  if (steps.length === 0) return false
 
   useOtherJobs.setState({
     jobs: store.jobs.map((j) =>
-      j.id === jobId ? { ...j, reward, steps: steps.length ? steps : j.steps, filledBy: 'ocr' as const } : j
+      j.id === jobId
+        ? {
+            ...j,
+            reward,
+            steps,
+            filledBy: 'ocr' as const,
+            objectivesLocked: overwrite ? false : j.objectivesLocked,
+            edited: overwrite ? false : j.edited
+          }
+        : j
     )
   })
   useOtherJobs.getState().persist()

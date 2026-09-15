@@ -46,6 +46,7 @@ export default function OtherCaptureModal(): React.ReactElement | null {
   const [rows, setRows] = useState<DraftRow[]>([])
   const [busy, setBusy] = useState(false)
   const [calibrating, setCalibrating] = useState(false)
+  const [overwrite, setOverwrite] = useState(false)
 
   useEffect(() => {
     if (!open || !autoRun || !jobId) return
@@ -100,6 +101,7 @@ export default function OtherCaptureModal(): React.ReactElement | null {
     setRows([])
     setBusy(false)
     setCalibrating(false)
+    setOverwrite(false)
     close()
   }
 
@@ -140,12 +142,13 @@ export default function OtherCaptureModal(): React.ReactElement | null {
 
   const confirm = (): void => {
     if (preview) saveSessionOcrShot(job.id, preview)
-    if (locked) {
+    if (locked && !overwrite) {
       reset()
       return
     }
     applyOcrRows(job.id, {
       reward,
+      overwrite: locked && overwrite,
       rows: rows.map(({ kind, label, location, item, have, need }) => ({
         kind, label, location, item, have, need
       }))
@@ -176,7 +179,16 @@ export default function OtherCaptureModal(): React.ReactElement | null {
         <div style={{ padding: 20 }}>
           {locked && (
             <div style={{ fontFamily: F.body, fontSize: 13, color: C.amber, marginBottom: 12 }}>
-              This job already has steps or was edited. This pass will not overwrite. Confirm just closes.
+              This job already has steps or was edited.
+              <label style={{ display: 'flex', alignItems: 'center', gap: 8, marginTop: 10, color: C.text, cursor: 'pointer' }}>
+                <input
+                  type="checkbox"
+                  checked={overwrite}
+                  onChange={(e) => setOverwrite(e.target.checked)}
+                  style={{ accentColor: C.acc }}
+                />
+                Overwrite existing objectives
+              </label>
             </div>
           )}
           <div style={{ fontFamily: F.body, fontSize: 13, color: C.dim, marginBottom: 12 }}>
@@ -185,7 +197,7 @@ export default function OtherCaptureModal(): React.ReactElement | null {
           <div style={{ display: 'flex', gap: 8, marginBottom: 14, flexWrap: 'wrap' }}>
             <Btn onClick={() => void capture()} style={outlineBtn} disabled={busy}>{busy ? 'WORKING\u2026' : 'CAPTURE'}</Btn>
             <Btn onClick={() => setCalibrating((v) => !v)} style={miniBtn}>{calibrating ? 'DONE, BACK TO CAPTURE' : 'ADJUST CAPTURE AREA'}</Btn>
-            <Btn onClick={confirm} style={outlineBtn} disabled={busy || locked || !rows.some((r) => r.label.trim() || r.location.trim() || r.item?.trim())}>CONFIRM</Btn>
+            <Btn onClick={confirm} style={outlineBtn} disabled={busy || (locked && !overwrite) || !rows.some((r) => r.label.trim() || r.location.trim() || r.item?.trim())}>CONFIRM</Btn>
             <Btn onClick={reset} style={miniBtn}>CANCEL</Btn>
           </div>
           {calibrating && (
