@@ -4,7 +4,6 @@
  * Confirm snaps location to a unique UEX roster name when one is obvious.
  */
 import { parseOtherObjectiveText, stepFromParse, stepKey } from '@shared/otherLog'
-import { snapLocationToUex } from '@shared/otherNext'
 import type { OtherOcrRow } from '@shared/otherOcrParse'
 import type { OtherStep } from '@shared/otherJob'
 import { useOtherJobs } from './otherJobs'
@@ -33,7 +32,7 @@ export function applyOcrObjectives(
   const steps: OtherStep[] = []
   for (const o of payload.objectives) {
     const item = (o.commodity || '').trim()
-    const dest = snapLocationToUex((o.destination || '').trim(), locations)
+    const dest = (o.destination || '').trim()
     const need = Math.max(1, Number(o.scuAmount) || 1)
     const raw = item && dest
       ? `Deliver 0/${need} SCU of ${item} to ${dest}`
@@ -44,7 +43,7 @@ export function applyOcrObjectives(
           : ''
     const parsed = parseOtherObjectiveText(raw)
     if (!parsed) continue
-    const step = stepFromParse(nid(), parsed)
+    const step = stepFromParse(nid(), parsed, locations)
     if (steps.some((s) => stepKey(s) === stepKey(step))) continue
     steps.push(step)
   }
@@ -74,20 +73,20 @@ export function applyOcrRows(
 
   const steps: OtherStep[] = []
   for (const row of payload.rows) {
-    const snapped = snapLocationToUex(row.location || '', locations)
-    const label = row.label || (row.item && snapped
-      ? `Deliver 0/${row.need || 1} ${row.item} to ${snapped}`
-      : snapped
-        ? `Go to ${snapped}`
+    const loc = row.location || ''
+    const label = row.label || (row.item && loc
+      ? `Deliver 0/${row.need || 1} ${row.item} to ${loc}`
+      : loc
+        ? `Go to ${loc}`
         : row.item || 'Objective')
     const step = stepFromParse(nid(), {
       kind: row.kind,
       label,
-      location: snapped,
+      location: loc,
       item: row.item,
       have: row.have || 0,
       need: Math.max(1, row.need || 1)
-    })
+    }, locations)
     if (steps.some((s) => stepKey(s) === stepKey(step))) continue
     steps.push(step)
   }

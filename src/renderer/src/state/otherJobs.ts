@@ -10,6 +10,7 @@ import {
   type OtherJobsDoc,
   type OtherStep
 } from '@shared/otherJob'
+import { useStore } from './store'
 import { useOtherHistory } from './otherHistory'
 import { requestAutoOcrIfEnabled } from './otherCapture'
 import {
@@ -127,7 +128,8 @@ function stepFromObjective(e: ObjectiveEvent): OtherStep | null {
         : e.destination || e.commodity || ''
   const parsed = parseOtherObjectiveText(raw)
   if (!parsed) return null
-  return stepFromParse(nid('step'), parsed)
+  const locations = useStore.getState().locations ?? []
+  return stepFromParse(nid('step'), parsed, locations)
 }
 
 let listenersBound = false

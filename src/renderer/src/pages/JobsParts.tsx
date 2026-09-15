@@ -61,7 +61,16 @@ export function JobRow({ job, uex, expanded, editing, onToggle, onEdit, onCancel
               <span style={{ flex: 1, minWidth: 0 }}>
                 <span style={{ display: 'block', fontFamily: F.body, fontSize: 14, color: step.done ? C.dim : C.textBody }}>{step.label}</span>
                 {step.location ? (
-                  <span style={{ display: 'block', fontFamily: F.body, fontSize: 12, color: C.dim, marginTop: 2 }}>{step.location}</span>
+                  <span
+                    title={step.locationSnapped && step.locationRaw ? `Log: ${step.locationRaw}` : undefined}
+                    style={{
+                      display: 'block',
+                      fontFamily: F.body,
+                      fontSize: 12,
+                      color: step.locationSnapped ? C.acc : C.dim,
+                      marginTop: 2
+                    }}
+                  >{step.location}</span>
                 ) : null}
               </span>
               {job.status === 'active' && (

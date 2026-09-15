@@ -73,11 +73,12 @@ export default function OtherOverlay(): React.ReactElement {
             }}>{shown}</span>
           )}
           <div
+            title={current?.step.locationSnapped && current.step.locationRaw ? `Log: ${current.step.locationRaw}` : undefined}
             style={{
               fontFamily: F.display,
               fontSize: 13,
               letterSpacing: '0.08em',
-              color: C.acc,
+              color: current?.step.locationSnapped ? C.acc : WHITE,
               textTransform: 'uppercase',
               minWidth: 0
             }}

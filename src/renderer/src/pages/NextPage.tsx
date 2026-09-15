@@ -97,12 +97,23 @@ export default function NextPage(): React.ReactElement {
               width: 22, height: 22, borderRadius: '50%', border: `1px solid ${C.acc}`, color: C.acc,
               fontFamily: F.display, fontSize: 12, display: 'inline-flex', alignItems: 'center', justifyContent: 'center', flex: 'none'
             }}>{gi + 1}</span>
-            <div style={{ fontFamily: F.display, fontSize: 16, color: C.acc }}>{heading}</div>
+            <div style={{ fontFamily: F.display, fontSize: 16, color: rows.some((r) => r.step.locationSnapped) ? C.acc : C.text }}>{heading}</div>
           </div>
           {rows.map(({ job, step }) => (
             <div key={step.id} style={{ display: 'grid', gridTemplateColumns: '1fr auto', gap: 12, alignItems: 'center', padding: '6px 0 2px 32px' }}>
               <div>
                 <div style={{ fontFamily: F.body, fontSize: 14, color: C.textBody }}>{step.label}</div>
+                {step.location ? (
+                  <div
+                    title={step.locationSnapped && step.locationRaw ? `Log: ${step.locationRaw}` : undefined}
+                    style={{
+                      fontFamily: F.body,
+                      fontSize: 12,
+                      color: step.locationSnapped ? C.acc : C.dim,
+                      marginTop: 2
+                    }}
+                  >{step.location}</div>
+                ) : null}
                 <div style={{ fontFamily: F.mono, fontSize: 12, color: C.dim, marginTop: 2 }}>
                   {job.ref}
                   {startLocation.trim() ? ` \u00b7 ${formatMapDistance(distanceFromStart(startLocation, step.location || step.label, locations))}` : ''}

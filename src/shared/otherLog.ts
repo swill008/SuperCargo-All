@@ -10,13 +10,17 @@
  *   Adagio ship salvage → Deliver N SCU / Deliver N component
  *   Go to X / Neutralize X
  */
+import type { Location } from './types'
 import { isHaulingGenerator } from './contract'
 import type { OtherJobKind, OtherStep, OtherStepKind } from './otherJob'
+import { snapOtherLocation } from './otherLocationSnap'
 
 export type OtherObjectiveParse = {
   kind: OtherStepKind
   label: string
   location: string
+  locationRaw?: string
+  locationSnapped?: boolean
   item?: string
   have: number
   need: number
@@ -95,12 +99,22 @@ export function parseOtherObjectiveText(raw: string): OtherObjectiveParse | null
   }
 }
 
-export function stepFromParse(id: string, parsed: OtherObjectiveParse): OtherStep {
+export function stepFromParse(id: string, parsed: OtherObjectiveParse, locations?: Location[]): OtherStep {
+  const skipSnap = /^Neutralize\s/i.test(parsed.label)
+  const snap = !skipSnap && locations
+    ? snapOtherLocation(parsed.location, locations)
+    : {
+        location: parsed.location,
+        locationRaw: parsed.locationRaw ?? parsed.location,
+        locationSnapped: parsed.locationSnapped ?? false
+      }
   return {
     id,
     kind: parsed.kind,
     label: parsed.label,
-    location: parsed.location,
+    location: snap.location,
+    locationRaw: snap.locationRaw,
+    locationSnapped: snap.locationSnapped,
     item: parsed.item,
     have: parsed.have,
     need: parsed.need,

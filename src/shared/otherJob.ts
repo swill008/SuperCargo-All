@@ -23,6 +23,10 @@ export interface OtherStep {
   kind: OtherStepKind
   label: string
   location: string
+  /** Objective span before a unique UEX snap. */
+  locationRaw?: string
+  /** True when location is a roster name different from locationRaw. */
+  locationSnapped?: boolean
   item?: string
   have: number
   need: number
