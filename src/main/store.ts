@@ -35,7 +35,8 @@ export const DEFAULT_SETTINGS: AppSettings = {
   overlayScale: 1,
   overlayCorner: 'tr',
   overlayClickThrough: false,
-  autoCheckUpdates: true,
+  // fork still publishes against AquatikJustice/SuperCargo; keep off until retargeted
+  autoCheckUpdates: false,
   onboarded: false,
   workMode: 'haul'
 }
@@ -64,7 +65,13 @@ function writeJson(file: string, value: unknown): void {
 
 export function loadSettings(): AppSettings {
   ensureOtherJobsIpc()
-  return readJson<AppSettings>(SETTINGS_FILE, DEFAULT_SETTINGS)
+  const loaded = readJson<AppSettings>(SETTINGS_FILE, DEFAULT_SETTINGS)
+  // saved true would still hit AquatikJustice releases. Keep auto-check off.
+  if (loaded.autoCheckUpdates) {
+    loaded.autoCheckUpdates = false
+    saveSettings(loaded)
+  }
+  return loaded
 }
 
 export function saveSettings(settings: AppSettings): void {
