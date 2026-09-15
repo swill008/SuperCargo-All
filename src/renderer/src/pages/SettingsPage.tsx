@@ -292,21 +292,6 @@ export default function SettingsPage(): React.ReactElement {
         </div>
       </div>
       <div style={rowStyle}>
-        <span style={keyStyle}>Size</span>
-        <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
-          <input
-            type="range"
-            min={0.9}
-            max={1.5}
-            step={0.05}
-            value={settings.overlayScale ?? 1}
-            onChange={(e) => void updateSettings({ overlayScale: Number(e.target.value) })}
-            style={{ width: 200, accentColor: C.acc }}
-          />
-          <span style={{ fontFamily: F.mono, fontSize: 13, color: C.body }}>{Math.round((settings.overlayScale ?? 1) * 100)}%</span>
-        </div>
-      </div>
-      <div style={rowStyle}>
         <span style={keyStyle}>
           Click-through
           <span style={{ display: 'block', fontFamily: F.body, fontSize: 12, color: C.dim, marginTop: 2 }}>
