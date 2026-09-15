@@ -15,6 +15,8 @@ const WHITE = '#eaf1f7'
 export default function OtherOverlay(): React.ReactElement {
   const jobs = useOtherJobs((s) => s.jobs)
   const startLocation = useOtherJobs((s) => s.startLocation)
+  const toggleStep = useOtherJobs((s) => s.toggleStep)
+  const abandonJob = useOtherJobs((s) => s.abandonJob)
   const settings = useStore((s) => s.settings)
   const haulLocs = useStore((s) => s.locations) ?? []
   const locations = useMemo(() => mergeLocations(haulLocs), [haulLocs])
@@ -128,13 +130,57 @@ export default function OtherOverlay(): React.ReactElement {
           </button>
         </div>
       </div>
-      <div style={{ fontFamily: F.display, fontSize: 12, letterSpacing: '0.16em', color: '#8fe9b0', marginBottom: 8 }}>
-        GO HERE
-      </div>
       {current ? (
         <div style={{ fontSize: 14, lineHeight: 1.45 }}>{current.step.label}</div>
       ) : (
         <div style={{ fontSize: 13, color: C.dim }}>Add an Other-mode job in the main window.</div>
+      )}
+      {current && (
+        <div
+          style={{
+            display: 'flex',
+            gap: 8,
+            marginTop: 12,
+            WebkitAppRegion: 'no-drag'
+          } as React.CSSProperties}
+        >
+          <button
+            type="button"
+            onClick={() => toggleStep(current.job.id, current.step.id)}
+            style={{
+              flex: 1,
+              background: C.acc,
+              border: 0,
+              color: '#111',
+              fontFamily: F.display,
+              fontSize: 11,
+              fontWeight: 700,
+              letterSpacing: '0.12em',
+              padding: '8px 10px',
+              cursor: 'pointer'
+            }}
+          >
+            {current.step.kind === 'go' ? 'GO HERE' : 'TURN IN'}
+          </button>
+          <button
+            type="button"
+            onClick={() => abandonJob(current.job.id)}
+            style={{
+              flex: 1,
+              background: 'transparent',
+              border: `1px solid ${C.accBorder}`,
+              color: C.acc,
+              fontFamily: F.display,
+              fontSize: 11,
+              fontWeight: 700,
+              letterSpacing: '0.12em',
+              padding: '8px 10px',
+              cursor: 'pointer'
+            }}
+          >
+            ABANDON
+          </button>
+        </div>
       )}
       {upcoming && (
         <div style={{ marginTop: 12, fontSize: 13, color: C.dim }}>then {upcoming.step.location || upcoming.step.label}</div>
