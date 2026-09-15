@@ -757,7 +757,8 @@ export const useStore = create<StoreState>((set, get) => {
         roster,
         locRoster,
         comRoster,
-        faceRoster
+        faceRoster,
+        compactIsOpen
       ] = await Promise.all([
         window.supercargo.getSettings(),
         window.supercargo.loadManifest(),
@@ -767,7 +768,8 @@ export const useStore = create<StoreState>((set, get) => {
         window.supercargo.getUexShips(),
         window.supercargo.getUexLocations(),
         window.supercargo.getUexCommodities(),
-        window.supercargo.getUexGridFaces()
+        window.supercargo.getUexGridFaces(),
+        window.supercargo.compactIsOpen()
       ])
       // faces before grids for reconcile
       if (faceRoster?.gridFaces) setGridFaces(faceRoster.gridFaces)
@@ -837,6 +839,7 @@ export const useStore = create<StoreState>((set, get) => {
         locationsSyncedAt: locRoster?.syncedAt ?? '',
         commodities: comRoster?.commodities ?? [],
         gridFacesSyncedAt: faceRoster?.syncedAt ?? '',
+        compactOpen: !!compactIsOpen,
         ready: true
       })
       // rebuild in the saved order, don't re-optimize

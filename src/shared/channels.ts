@@ -36,6 +36,7 @@ export const IPC = {
 
   compactShow: 'compact:show',
   compactHide: 'compact:hide',
+  compactIsOpen: 'compact:isOpen',
   compactResize: 'compact:resize',
   loadingStateSet: 'loading:set',
 

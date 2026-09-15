@@ -90,6 +90,7 @@ const api = {
 
   compactShow: (): Promise<void> => ipcRenderer.invoke(IPC.compactShow),
   compactHide: (): Promise<void> => ipcRenderer.invoke(IPC.compactHide),
+  compactIsOpen: (): Promise<boolean> => ipcRenderer.invoke(IPC.compactIsOpen),
   compactResize: (height: number): Promise<void> => ipcRenderer.invoke(IPC.compactResize, height),
   onCompactState: (cb: (s: { open: boolean }) => void): Unsubscribe =>
     on(IPC.evtCompactState, cb),

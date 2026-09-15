@@ -553,6 +553,9 @@ function registerIpc(): void {
 
   ipcMain.handle(IPC.compactShow, () => showCompact())
   ipcMain.handle(IPC.compactHide, () => hideCompact())
+  ipcMain.handle(IPC.compactIsOpen, () =>
+    !!(compactWindow && !compactWindow.isDestroyed() && compactWindow.isVisible())
+  )
   ipcMain.handle(IPC.compactResize, (_e, height: number) => {
     if (compactHasSavedSize()) return
     compactHeight = Math.round(height)
