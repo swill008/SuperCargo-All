@@ -38,6 +38,8 @@ export const DEFAULT_SETTINGS: AppSettings = {
   overlayStartWithApp: true,
   overlayReturnToFirst: true,
   overlayReturnSeconds: 8,
+  overlayShowAllObjectives: false,
+  overlayHideCompletedObjectives: true,
   // fork still publishes against AquatikJustice/SuperCargo; keep off until retargeted
   autoCheckUpdates: false,
   onboarded: false,

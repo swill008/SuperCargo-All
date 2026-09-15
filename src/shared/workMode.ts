@@ -54,5 +54,9 @@ declare module './types' {
     workMode?: WorkMode
     /** Other mode: auto-run OCR review when a new empty job is added. */
     otherAutoOcrOnImport?: boolean
+    /** Next + overlay list every objective on a job. Default off. */
+    overlayShowAllObjectives?: boolean
+    /** When showing all, drop done steps. Default on. */
+    overlayHideCompletedObjectives?: boolean
   }
 }

@@ -93,6 +93,8 @@ const DEFAULT_SETTINGS: AppSettings = {
   overlayStartWithApp: true,
   overlayReturnToFirst: true,
   overlayReturnSeconds: 8,
+  overlayShowAllObjectives: false,
+  overlayHideCompletedObjectives: true,
   autoCheckUpdates: false,
   // avoids a welcome-screen flash
   onboarded: true

@@ -493,7 +493,9 @@ function registerIpc(): void {
       patch.overlayOpacity !== undefined ||
       patch.overlayScale !== undefined ||
       patch.overlayReturnToFirst !== undefined ||
-      patch.overlayReturnSeconds !== undefined
+      patch.overlayReturnSeconds !== undefined ||
+      patch.overlayShowAllObjectives !== undefined ||
+      patch.overlayHideCompletedObjectives !== undefined
     ) {
       broadcast(IPC.evtSettings, settings, e.sender.id)
     }

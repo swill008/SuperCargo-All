@@ -297,6 +297,32 @@ export default function SettingsPage(): React.ReactElement {
         </div>
       </div>
       <div style={rowStyle}>
+        <span style={keyStyle}>
+          Show all objectives
+          <span style={{ display: 'block', fontFamily: F.body, fontSize: 12, color: C.dim, marginTop: 2 }}>
+            Next and overlay list every objective on a job. Off keeps one next stop per job.
+          </span>
+        </span>
+        <Toggle
+          on={!!settings.overlayShowAllObjectives}
+          onClick={() => void updateSettings({ overlayShowAllObjectives: !settings.overlayShowAllObjectives })}
+        />
+      </div>
+      <div style={rowStyle}>
+        <span style={keyStyle}>
+          Hide completed objectives
+          <span style={{ display: 'block', fontFamily: F.body, fontSize: 12, color: C.dim, marginTop: 2 }}>
+            Used when Show all is on. On hides finished steps from Next and the overlay.
+          </span>
+        </span>
+        <Toggle
+          on={settings.overlayHideCompletedObjectives !== false}
+          onClick={() => void updateSettings({
+            overlayHideCompletedObjectives: settings.overlayHideCompletedObjectives === false
+          })}
+        />
+      </div>
+      <div style={rowStyle}>
         <span style={keyStyle}>Corner</span>
         <div style={{ display: 'flex', gap: 8 }}>
           {([['tl', '↖'], ['tr', '↗'], ['bl', '↙'], ['br', '↘']] as const).map(([id, glyph]) => {

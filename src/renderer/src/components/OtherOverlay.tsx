@@ -26,9 +26,11 @@ export default function OtherOverlay(): React.ReactElement {
   const returnSeconds = Math.max(0, Math.min(20, settings.overlayReturnSeconds ?? 8))
   const [idx, setIdx] = useState(0)
 
+  const showAll = !!settings.overlayShowAllObjectives
+  const hideCompleted = settings.overlayHideCompletedObjectives !== false
   const open = useMemo(
-    () => listOpenStops(jobs, startLocation, locations),
-    [jobs, startLocation, locations]
+    () => listOpenStops(jobs, startLocation, locations, { showAll, hideCompleted }),
+    [jobs, startLocation, locations, showAll, hideCompleted]
   )
 
   useEffect(() => {
@@ -168,7 +170,7 @@ export default function OtherOverlay(): React.ReactElement {
             onClick={() => toggleStep(current.job.id, current.step.id)}
             style={{ ...miniBtn, color: C.text, flex: 'none' }}
           >
-            {current.step.kind === 'go' ? 'GO HERE' : 'TURN IN'}
+            {current.step.done ? 'UNDO' : current.step.kind === 'go' ? 'GO HERE' : 'TURN IN'}
           </button>
           <button
             type="button"

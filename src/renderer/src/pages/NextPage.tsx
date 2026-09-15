@@ -19,13 +19,15 @@ export default function NextPage(): React.ReactElement {
   const groupBy = useOtherJobs((s) => s.groupBy)
   const setGroupBy = useOtherJobs((s) => s.setGroupBy)
   const toggleStep = useOtherJobs((s) => s.toggleStep)
+  const showAll = !!useStore((s) => s.settings.overlayShowAllObjectives)
+  const hideCompleted = useStore((s) => s.settings.overlayHideCompletedObjectives) !== false
   const haulLocs = useStore((s) => s.locations) ?? []
   const locations = useMemo(() => mergeLocations(haulLocs), [haulLocs])
   const names = useMemo(() => locations.map((l) => l.name).filter(Boolean), [locations])
 
   const open = useMemo(
-    () => listOpenStops(jobs, startLocation, locations),
-    [jobs, startLocation, locations]
+    () => listOpenStops(jobs, startLocation, locations, { showAll, hideCompleted }),
+    [jobs, startLocation, locations, showAll, hideCompleted]
   )
 
   const groups = useMemo(() => {
@@ -122,7 +124,7 @@ export default function NextPage(): React.ReactElement {
               <Btn onClick={() => toggleStep(job.id, step.id)} style={{
                 border: 0, background: C.acc, color: '#111',
                 fontFamily: F.display, fontSize: 11, fontWeight: 700, letterSpacing: '0.12em', padding: '8px 14px', cursor: 'pointer'
-              }}>{step.kind === 'go' ? 'GO HERE' : 'TURN IN'}</Btn>
+              }}>{step.done ? 'UNDO' : step.kind === 'go' ? 'GO HERE' : 'TURN IN'}</Btn>
             </div>
           ))}
         </div>

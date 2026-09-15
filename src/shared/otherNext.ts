@@ -90,25 +90,72 @@ export interface OpenStopRow {
   step: OtherStep
 }
 
-/** Same list Next and overlay walk: active jobs, first unfinished step, nearest first. */
+export type ListOpenStopsOpts = {
+  /** Off = one unfinished step per job (stock). */
+  showAll?: boolean
+  /** Only used when showAll. Default true. */
+  hideCompleted?: boolean
+}
+
+function visibleSteps(job: OtherJob, hideCompleted: boolean): OtherStep[] {
+  if (hideCompleted) return job.steps.filter((s) => !s.done)
+  return job.steps
+}
+
+function sortJobsByFirstStep(
+  jobs: OtherJob[],
+  startLocation: string,
+  locations: Location[],
+  hideCompleted: boolean
+): OtherJob[] {
+  if (!startLocation.trim()) return jobs
+  return [...jobs].sort((a, b) => {
+    const sa = visibleSteps(a, hideCompleted)[0]
+    const sb = visibleSteps(b, hideCompleted)[0]
+    return compareByDistanceFrom(
+      startLocation,
+      locations,
+      sa?.location || sa?.label || '',
+      sb?.location || sb?.label || ''
+    )
+  })
+}
+
+/** Same list Next and overlay walk. */
 export function listOpenStops(
   jobs: OtherJob[],
   startLocation: string,
-  locations: Location[]
+  locations: Location[],
+  opts?: ListOpenStopsOpts
 ): OpenStopRow[] {
-  const rows: OpenStopRow[] = []
-  for (const job of jobs) {
-    if (job.status !== 'active') continue
-    const step = nextOpenStep(job)
-    if (step) rows.push({ job, step })
-  }
-  if (!startLocation.trim()) return rows
-  return [...rows].sort((a, b) =>
-    compareByDistanceFrom(
-      startLocation,
-      locations,
-      a.step.location || a.step.label,
-      b.step.location || b.step.label
+  const showAll = !!opts?.showAll
+  const hideCompleted = opts?.hideCompleted !== false
+  const active = jobs.filter((j) => j.status === 'active')
+
+  if (!showAll) {
+    const rows: OpenStopRow[] = []
+    for (const job of active) {
+      const step = nextOpenStep(job)
+      if (step) rows.push({ job, step })
+    }
+    if (!startLocation.trim()) return rows
+    return [...rows].sort((a, b) =>
+      compareByDistanceFrom(
+        startLocation,
+        locations,
+        a.step.location || a.step.label,
+        b.step.location || b.step.label
+      )
     )
-  )
+  }
+
+  const withSteps = active.filter((j) => visibleSteps(j, hideCompleted).length > 0)
+  const ordered = sortJobsByFirstStep(withSteps, startLocation, locations, hideCompleted)
+  const rows: OpenStopRow[] = []
+  for (const job of ordered) {
+    for (const step of visibleSteps(job, hideCompleted)) {
+      rows.push({ job, step })
+    }
+  }
+  return rows
 }
