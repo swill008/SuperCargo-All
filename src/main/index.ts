@@ -684,7 +684,7 @@ if (!gotLock) {
     registerIpc()
     autoDetectLogPath()
     createWindow()
-    showCompact()
+    if (settings.overlayStartWithApp !== false) showCompact()
     startWatcher()
     registerHotkey()
     prunePending()

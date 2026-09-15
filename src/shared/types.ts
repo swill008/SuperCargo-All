@@ -177,6 +177,8 @@ export interface AppSettings {
   overlayCorner: 'tl' | 'tr' | 'bl' | 'br'
   /** overlay ignores the mouse so clicks fall through to the game */
   overlayClickThrough: boolean
+  /** open the overlay when the app launches */
+  overlayStartWithApp?: boolean
   /** last overlay window position; if set, wins over overlayCorner */
   overlayX?: number
   overlayY?: number

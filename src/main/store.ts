@@ -35,6 +35,7 @@ export const DEFAULT_SETTINGS: AppSettings = {
   overlayScale: 1,
   overlayCorner: 'tr',
   overlayClickThrough: false,
+  overlayStartWithApp: true,
   // fork still publishes against AquatikJustice/SuperCargo; keep off until retargeted
   autoCheckUpdates: false,
   onboarded: false,

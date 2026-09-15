@@ -90,6 +90,7 @@ const DEFAULT_SETTINGS: AppSettings = {
   overlayScale: 1,
   overlayCorner: 'tr',
   overlayClickThrough: false,
+  overlayStartWithApp: true,
   autoCheckUpdates: false,
   // avoids a welcome-screen flash
   onboarded: true

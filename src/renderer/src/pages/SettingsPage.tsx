@@ -258,6 +258,18 @@ export default function SettingsPage(): React.ReactElement {
 
       <Section title="OVERLAY" />
       <div style={rowStyle}>
+        <span style={keyStyle}>
+          Start with program
+          <span style={{ display: 'block', fontFamily: F.body, fontSize: 12, color: C.dim, marginTop: 2 }}>
+            Show the overlay when SuperCargo launches.
+          </span>
+        </span>
+        <Toggle
+          on={settings.overlayStartWithApp !== false}
+          onClick={() => void updateSettings({ overlayStartWithApp: settings.overlayStartWithApp === false })}
+        />
+      </div>
+      <div style={rowStyle}>
         <span style={keyStyle}>Corner</span>
         <div style={{ display: 'flex', gap: 8 }}>
           {([['tl', '↖'], ['tr', '↗'], ['bl', '↙'], ['br', '↘']] as const).map(([id, glyph]) => {
