@@ -684,6 +684,7 @@ if (!gotLock) {
     registerIpc()
     autoDetectLogPath()
     createWindow()
+    showCompact()
     startWatcher()
     registerHotkey()
     prunePending()
