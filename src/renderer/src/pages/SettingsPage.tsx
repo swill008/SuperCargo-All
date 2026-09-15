@@ -281,7 +281,7 @@ export default function SettingsPage(): React.ReactElement {
         <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
           <input
             type="range"
-            min={0.4}
+            min={0}
             max={1}
             step={0.05}
             value={settings.overlayOpacity ?? 0.85}

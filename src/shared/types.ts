@@ -169,7 +169,7 @@ export interface AppSettings {
   /** 1 = 100% */
   uiZoom: number
 
-  /** 0.4..1; higher blocks the game's re-tracked mission text */
+  /** 0..1; higher blocks the game's re-tracked mission text */
   overlayOpacity: number
   /** overlay size multiplier, 1 = default */
   overlayScale: number
