@@ -9,6 +9,7 @@ import { useStore } from '../state/store'
 import { useOtherJobs } from '../state/otherJobs'
 import { mergeLocations } from '../state/otherPlaces'
 import { listOpenStops } from '@shared/otherNext'
+import { miniBtn } from '../pages/JobsPartsStyles'
 
 const WHITE = '#eaf1f7'
 
@@ -56,6 +57,8 @@ export default function OtherOverlay(): React.ReactElement {
       style={{
         position: 'fixed',
         inset: 3,
+        display: 'flex',
+        flexDirection: 'column',
         boxSizing: 'border-box',
         padding: 10,
         background: `rgba(8,12,16,${opacity})`,
@@ -135,56 +138,10 @@ export default function OtherOverlay(): React.ReactElement {
       ) : (
         <div style={{ fontSize: 13, color: C.dim }}>Add an Other-mode job in the main window.</div>
       )}
-      {current && (
-        <div
-          style={{
-            display: 'flex',
-            gap: 8,
-            marginTop: 12,
-            WebkitAppRegion: 'no-drag'
-          } as React.CSSProperties}
-        >
-          <button
-            type="button"
-            onClick={() => toggleStep(current.job.id, current.step.id)}
-            style={{
-              flex: 1,
-              background: C.acc,
-              border: 0,
-              color: '#111',
-              fontFamily: F.display,
-              fontSize: 11,
-              fontWeight: 700,
-              letterSpacing: '0.12em',
-              padding: '8px 10px',
-              cursor: 'pointer'
-            }}
-          >
-            {current.step.kind === 'go' ? 'GO HERE' : 'TURN IN'}
-          </button>
-          <button
-            type="button"
-            onClick={() => abandonJob(current.job.id)}
-            style={{
-              flex: 1,
-              background: 'transparent',
-              border: `1px solid ${C.accBorder}`,
-              color: C.acc,
-              fontFamily: F.display,
-              fontSize: 11,
-              fontWeight: 700,
-              letterSpacing: '0.12em',
-              padding: '8px 10px',
-              cursor: 'pointer'
-            }}
-          >
-            ABANDON
-          </button>
-        </div>
-      )}
       {upcoming && (
         <div style={{ marginTop: 12, fontSize: 13, color: C.dim }}>then {upcoming.step.location || upcoming.step.label}</div>
       )}
+      <div style={{ flex: 1 }} />
       <div
         style={{
           marginTop: 14,
@@ -196,6 +153,32 @@ export default function OtherOverlay(): React.ReactElement {
       >
         SUPERCARGO {'\u00b7'} OTHER MODE
       </div>
+      {current && (
+        <div
+          style={{
+            display: 'flex',
+            gap: 8,
+            marginTop: 10,
+            flex: 'none',
+            WebkitAppRegion: 'no-drag'
+          } as React.CSSProperties}
+        >
+          <button
+            type="button"
+            onClick={() => toggleStep(current.job.id, current.step.id)}
+            style={{ ...miniBtn, color: C.text, flex: 'none' }}
+          >
+            {current.step.kind === 'go' ? 'GO HERE' : 'TURN IN'}
+          </button>
+          <button
+            type="button"
+            onClick={() => abandonJob(current.job.id)}
+            style={{ ...miniBtn, color: C.text, flex: 'none' }}
+          >
+            ABANDON
+          </button>
+        </div>
+      )}
     </div>
   )
 }
