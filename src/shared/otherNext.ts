@@ -5,6 +5,7 @@
  */
 import type { Location } from './types'
 import { resolveLogLocation } from './logLocation'
+import { nextOpenStep, type OtherJob, type OtherStep } from './otherJob'
 
 export function findRosterLocation(raw: string, locations: Location[]): Location | undefined {
   const trimmed = raw.trim()
@@ -82,4 +83,32 @@ export function compareByDistanceFrom(
   if (da == null) return 1
   if (db == null) return -1
   return da - db
+}
+
+export interface OpenStopRow {
+  job: OtherJob
+  step: OtherStep
+}
+
+/** Same list Next and overlay walk: active jobs, first unfinished step, nearest first. */
+export function listOpenStops(
+  jobs: OtherJob[],
+  startLocation: string,
+  locations: Location[]
+): OpenStopRow[] {
+  const rows: OpenStopRow[] = []
+  for (const job of jobs) {
+    if (job.status !== 'active') continue
+    const step = nextOpenStep(job)
+    if (step) rows.push({ job, step })
+  }
+  if (!startLocation.trim()) return rows
+  return [...rows].sort((a, b) =>
+    compareByDistanceFrom(
+      startLocation,
+      locations,
+      a.step.location || a.step.label,
+      b.step.location || b.step.label
+    )
+  )
 }

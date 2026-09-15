@@ -70,6 +70,8 @@ export interface OtherHistoryEntry {
 export interface OtherJobsDoc {
   jobs: OtherJob[]
   history: OtherHistoryEntry[]
+  /** Shared with overlay so Next and overlay sort the same list. */
+  startLocation?: string
 }
 
 export const EMPTY_OTHER_JOBS: OtherJobsDoc = { jobs: [], history: [] }

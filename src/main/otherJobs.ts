@@ -26,7 +26,8 @@ export function loadOtherJobs(): OtherJobsDoc {
     const parsed = JSON.parse(raw) as Partial<OtherJobsDoc>
     return {
       jobs: Array.isArray(parsed.jobs) ? parsed.jobs : [],
-      history: Array.isArray(parsed.history) ? parsed.history : []
+      history: Array.isArray(parsed.history) ? parsed.history : [],
+      startLocation: typeof parsed.startLocation === 'string' ? parsed.startLocation : ''
     }
   } catch {
     return { jobs: [], history: [] }
@@ -72,7 +73,7 @@ export function ensureOtherJobsIpc(): void {
       }
     })
     if (changed) {
-      saveOtherJobs({ jobs, history: doc.history ?? [] })
+      saveOtherJobs({ jobs, history: doc.history ?? [], startLocation: doc.startLocation ?? '' })
       sendOtherJobsChanged()
     }
     return { contracts, ended, objectivesByMission }
