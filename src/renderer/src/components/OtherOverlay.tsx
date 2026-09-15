@@ -18,7 +18,6 @@ export default function OtherOverlay(): React.ReactElement {
   const settings = useStore((s) => s.settings)
   const haulLocs = useStore((s) => s.locations) ?? []
   const locations = useMemo(() => mergeLocations(haulLocs), [haulLocs])
-  const scale = settings.overlayScale || 1
   const opacity = settings.overlayOpacity ?? 0.85
   const [idx, setIdx] = useState(0)
 
@@ -45,7 +44,8 @@ export default function OtherOverlay(): React.ReactElement {
   return (
     <div
       style={{
-        width: Math.round(332 * scale),
+        width: '100%',
+        boxSizing: 'border-box',
         padding: 10,
         background: `rgba(8,12,16,${opacity})`,
         border: `1px solid ${C.accBorder}`,

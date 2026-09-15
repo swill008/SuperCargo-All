@@ -128,21 +128,44 @@ const COMPACT_W = 332
 const COMPACT_H = 432
 let compactHeight = COMPACT_H
 
+function compactHasSavedSize(): boolean {
+  return typeof settings.overlayW === 'number' && settings.overlayW > 0
+    && typeof settings.overlayH === 'number' && settings.overlayH > 0
+}
+
+function persistCompactBounds(): void {
+  if (!compactWindow || compactWindow.isDestroyed()) return
+  const b = compactWindow.getBounds()
+  settings = {
+    ...settings,
+    overlayX: b.x,
+    overlayY: b.y,
+    overlayW: b.width,
+    overlayH: b.height
+  }
+  saveSettings(settings)
+}
+
 function positionCompact(): void {
   if (!compactWindow) return
   const margin = 10
   const scale = settings.overlayScale || 1
-  const width = Math.round(COMPACT_W * scale)
-  // already scaled by the renderer, don't scale again
   const savedX = settings.overlayX
   const savedY = settings.overlayY
-  const hasSaved = typeof savedX === 'number' && typeof savedY === 'number'
-  const display = hasSaved
+  const hasSavedPos = typeof savedX === 'number' && typeof savedY === 'number'
+  const display = hasSavedPos
     ? screen.getDisplayNearestPoint({ x: savedX, y: savedY })
     : screen.getPrimaryDisplay()
   const { bounds } = display
-  const height = Math.max(120, Math.min(compactHeight, bounds.height - margin * 2))
-  if (hasSaved) {
+  const maxW = Math.max(200, bounds.width - margin * 2)
+  const maxH = Math.max(120, bounds.height - margin * 2)
+  const width = Math.round(
+    Math.min(maxW, compactHasSavedSize() ? settings.overlayW! : COMPACT_W * scale)
+  )
+  const height = Math.round(
+    Math.min(maxH, Math.max(120, compactHasSavedSize() ? settings.overlayH! : compactHeight))
+  )
+  if (hasSavedPos) {
     const x = Math.min(Math.max(bounds.x, savedX), bounds.x + bounds.width - width)
     const y = Math.min(Math.max(bounds.y, savedY), bounds.y + bounds.height - height)
     compactWindow.setBounds({ x, y, width, height })
@@ -162,9 +185,8 @@ function positionCompact(): void {
 // safe to call anytime
 function applyOverlay(): void {
   if (!compactWindow || compactWindow.isDestroyed()) return
-  const width = Math.round(COMPACT_W * (settings.overlayScale || 1))
-  compactWindow.setMinimumSize(width, 120)
-  compactWindow.setMaximumSize(width, 100000)
+  compactWindow.setMinimumSize(200, 120)
+  compactWindow.setMaximumSize(100000, 100000)
   compactWindow.setIgnoreMouseEvents(!!settings.overlayClickThrough, { forward: true })
   positionCompact()
 }
@@ -177,13 +199,11 @@ function createCompactWindow(): void {
     frame: false,
     transparent: true,
     backgroundColor: '#00000000',
-    // resizable so setBounds sets height
     resizable: true,
     movable: true,
     minimizable: false,
     maximizable: false,
-    minWidth: COMPACT_W,
-    maxWidth: COMPACT_W,
+    minWidth: 200,
     minHeight: 120,
     skipTaskbar: true,
     focusable: true,
@@ -198,16 +218,15 @@ function createCompactWindow(): void {
     }
   })
   compactWindow.setAlwaysOnTop(true, 'screen-saver')
-  let moveTimer: ReturnType<typeof setTimeout> | undefined
-  compactWindow.on('moved', () => {
+  let boundsTimer: ReturnType<typeof setTimeout> | undefined
+  const onBoundsChanged = (): void => {
     if (!compactWindow || compactWindow.isDestroyed()) return
-    const [x, y] = compactWindow.getPosition()
-    if (moveTimer) clearTimeout(moveTimer)
-    moveTimer = setTimeout(() => {
-      settings = { ...settings, overlayX: x, overlayY: y }
-      saveSettings(settings)
-    }, 200)
-  })
+    if (boundsTimer) clearTimeout(boundsTimer)
+    boundsTimer = setTimeout(() => persistCompactBounds(), 200)
+  }
+  compactWindow.on('moved', onBoundsChanged)
+  compactWindow.on('resized', onBoundsChanged)
+  compactWindow.on('resize', onBoundsChanged)
   compactWindow.webContents.setWindowOpenHandler(({ url }) => {
     shell.openExternal(url)
     return { action: 'deny' }
@@ -530,6 +549,7 @@ function registerIpc(): void {
   ipcMain.handle(IPC.compactShow, () => showCompact())
   ipcMain.handle(IPC.compactHide, () => hideCompact())
   ipcMain.handle(IPC.compactResize, (_e, height: number) => {
+    if (compactHasSavedSize()) return
     compactHeight = Math.round(height)
     positionCompact()
   })

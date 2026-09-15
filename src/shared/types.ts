@@ -180,6 +180,9 @@ export interface AppSettings {
   /** last overlay window position; if set, wins over overlayCorner */
   overlayX?: number
   overlayY?: number
+  /** last overlay window size; if set, wins over overlayScale box */
+  overlayW?: number
+  overlayH?: number
 
   /** orbit camera per ship, survives leaving the page and restarts */
   gridView?: Record<string, GridView>
