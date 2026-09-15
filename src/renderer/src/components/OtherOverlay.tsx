@@ -51,8 +51,9 @@ export default function OtherOverlay(): React.ReactElement {
         border: `1px solid ${C.accBorder}`,
         borderRadius: 8,
         color: WHITE,
-        fontFamily: F.body
-      }}
+        fontFamily: F.body,
+        WebkitAppRegion: 'drag'
+      } as React.CSSProperties}
     >
       <div style={{ display: 'flex', justifyContent: 'space-between', gap: 8, marginBottom: 10, alignItems: 'center' }}>
         <div style={{ display: 'flex', alignItems: 'center', gap: 8, minWidth: 0, flex: 1 }}>
@@ -75,7 +76,7 @@ export default function OtherOverlay(): React.ReactElement {
             {current?.step.location || current?.step.label || 'NO OPEN STOP'}
           </div>
         </div>
-        <div style={{ display: 'flex', alignItems: 'center', gap: 6, flexShrink: 0 }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 6, flexShrink: 0, WebkitAppRegion: 'no-drag' } as React.CSSProperties}>
           <button
             type="button"
             disabled={!canPrev}
@@ -137,7 +138,7 @@ export default function OtherOverlay(): React.ReactElement {
           color: C.ghost
         }}
       >
-        SUPERCARGO · OTHER MODE
+        SUPERCARGO \u00b7 OTHER MODE
       </div>
     </div>
   )
