@@ -157,7 +157,7 @@ export const useOtherJobs = create<OtherJobsState>((set, get) => ({
         const missionId = e.missionId
         window.setTimeout(() => {
           const job = get().jobs.find((j) => j.missionId === missionId || j.id === missionId)
-          if (job) requestAutoOcrIfEnabled(job.id, job.steps.length, job.objectivesLocked)
+          if (job) requestAutoOcrIfEnabled(job.id)
         }, 2000)
       })
       window.supercargo.onOtherSessionDrop?.(() => get().dropLogSession())

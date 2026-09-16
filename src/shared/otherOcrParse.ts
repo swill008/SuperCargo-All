@@ -27,11 +27,20 @@ export type OtherOcrParse = {
   rows: OtherOcrRow[]
 }
 
-function parseReward(text: string): number {
-  const m = text.match(/(\d[\d,]*)\s*aUEC/i)
-  if (!m) return 0
-  const n = Number(m[1].replace(/,/g, ''))
+function parseAmount(raw: string): number {
+  const n = Number(raw.replace(/,/g, ''))
   return Number.isFinite(n) && n > 0 ? n : 0
+}
+
+function parseReward(text: string): number {
+  const auec = text.match(/(\d[\d,]*)\s*aUEC/i)
+  if (auec) {
+    const n = parseAmount(auec[1])
+    if (n) return n
+  }
+  const labeled = text.match(/Reward\s*[:\s]+(\d[\d,]*)/i)
+  if (labeled) return parseAmount(labeled[1])
+  return 0
 }
 
 function clean(line: string): string {

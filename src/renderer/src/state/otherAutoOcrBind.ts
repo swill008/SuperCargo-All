@@ -1,7 +1,7 @@
 /**
- * Live accept auto-OCR is scheduled in otherJobs onOtherAccepted (2s delay).
- * This bind used to wrap addJob/ingestAccepted and double-fired the modal.
+ * Live accept auto-OCR is scheduled in otherJobs onOtherAccepted.
+ * Uses Settings ocrAutoCapture + ocrCaptureDelay. Do not wrap addJob.
  */
 export function bindOtherAutoOcr(): void {
-  /* live path lives on onOtherAccepted + requestAutoOcrIfEnabled */
+  /* requestAutoOcrIfEnabled on onOtherAccepted */
 }

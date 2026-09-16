@@ -40,7 +40,7 @@ export default function JobsPage(): React.ReactElement {
   const finished = jobs.filter((j) => j.status !== 'active')
   const uex = useUexNames()
   const openOtherCapture = useOtherCapture((s) => s.openFor)
-  const autoOcr = !!useStore((s) => s.settings.otherAutoOcrOnImport)
+  const autoOcr = !!useStore((s) => s.settings.ocrAutoCapture)
   const updateSettings = useStore((s) => s.updateSettings)
 
   return (
@@ -53,7 +53,7 @@ export default function JobsPage(): React.ReactElement {
             {finished.length > 0 && (
               <Btn onClick={() => void clearFinished()} style={miniBtn}>CLEAR FINISHED JOBS</Btn>
             )}
-            <Btn onClick={() => void updateSettings({ otherAutoOcrOnImport: !autoOcr })} style={autoOcr ? outlineBtn : miniBtn}>
+            <Btn onClick={() => void updateSettings({ ocrAutoCapture: !autoOcr })} style={autoOcr ? outlineBtn : miniBtn}>
               {autoOcr ? 'AUTO OCR ON' : 'AUTO OCR OFF'}
             </Btn>
             <Btn onClick={() => setAdding((v) => !v)} style={outlineBtn}>{adding ? 'CANCEL' : '+ ADD JOB'}</Btn>

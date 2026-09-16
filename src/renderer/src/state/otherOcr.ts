@@ -116,3 +116,16 @@ export function applyOcrRows(
   useOtherJobs.getState().persist()
   return true
 }
+
+/** Log jobs that already have steps: write payout only. */
+export function applyOcrRewardOnly(jobId: string, amount: number): boolean {
+  if (!(amount > 0)) return false
+  const store = useOtherJobs.getState()
+  const job = store.jobs.find((j) => j.id === jobId)
+  if (!job || job.reward > 0) return false
+  useOtherJobs.setState({
+    jobs: store.jobs.map((j) => (j.id === jobId ? { ...j, reward: amount } : j))
+  })
+  useOtherJobs.getState().persist()
+  return true
+}

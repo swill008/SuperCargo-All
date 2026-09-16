@@ -1,9 +1,11 @@
 /**
  * Other-mode OCR modal state. Separate from haul openCapture / CaptureModal.
+ * Auto-capture uses Settings ocrAutoCapture + ocrCaptureDelay (one engine).
  */
 import { create } from 'zustand'
 import { useStore } from './store'
 import { resolveWorkMode } from '@shared/workMode'
+import { runSilentAutoOcr } from './otherAutoOcrRun'
 
 interface OtherCaptureState {
   open: boolean
@@ -21,11 +23,11 @@ export const useOtherCapture = create<OtherCaptureState>((set) => ({
   close: () => set({ open: false, jobId: null, autoRun: false })
 }))
 
-/** Live add only. Opens the OCR window so you can see it finish, then auto-closes. */
-export function requestAutoOcrIfEnabled(jobId: string, stepsLength: number, locked?: boolean): void {
-  if (stepsLength > 0 || locked) return
+/** Live log accept. One delayed ocrRun; write path decided at fire time. */
+export function requestAutoOcrIfEnabled(jobId: string): void {
   const settings = useStore.getState().settings
   if (resolveWorkMode(settings.workMode) !== 'other') return
-  if (!settings.otherAutoOcrOnImport) return
-  useOtherCapture.getState().openFor(jobId, true)
+  if (!settings.ocrAutoCapture) return
+  const delayMs = Math.max(0, Number(settings.ocrCaptureDelay) || 0) * 1000
+  window.setTimeout(() => void runSilentAutoOcr(jobId), delayMs)
 }

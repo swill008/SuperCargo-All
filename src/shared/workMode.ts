@@ -52,8 +52,10 @@ export function isOtherMode(value: string | undefined | null): boolean {
 declare module './types' {
   interface AppSettings {
     workMode?: WorkMode
-    /** Other mode: auto-run OCR review when a new empty job is added. */
+    /** @deprecated Other auto-OCR uses settings.ocrAutoCapture */
     otherAutoOcrOnImport?: boolean
+    /** After log accept, write parsed aUEC onto the job when reward is 0. */
+    otherOcrIncludeAuec?: boolean
     /** Next + overlay list every objective on a job. Default off. */
     overlayShowAllObjectives?: boolean
     /** When showing all, drop done steps. Default on. */

@@ -512,9 +512,21 @@ export default function SettingsPage(): React.ReactElement {
         <div style={{ display: 'flex', alignItems: 'center', gap: 14 }}>
           <Toggle on={settings.ocrAutoCapture} onClick={() => void updateSettings({ ocrAutoCapture: !settings.ocrAutoCapture })} />
           <span style={{ fontFamily: F.body, fontSize: 12, color: C.dim }}>
-            Read the contract screen automatically when you accept one
+            Read the contract screen automatically when you accept one. Other mode uses this same switch.
           </span>
         </div>
+      </div>
+      <div style={rowStyle}>
+        <span style={keyStyle}>
+          Include aUEC
+          <span style={{ display: 'block', fontFamily: F.body, fontSize: 12, color: C.dim, marginTop: 2 }}>
+            On a log job that already has steps, the same auto-capture writes Reward only when the amount is greater than 0.
+          </span>
+        </span>
+        <Toggle
+          on={!!settings.otherOcrIncludeAuec}
+          onClick={() => void updateSettings({ otherOcrIncludeAuec: !settings.otherOcrIncludeAuec })}
+        />
       </div>
       <div style={rowStyle}>
         <span style={keyStyle}>Capture delay</span>
