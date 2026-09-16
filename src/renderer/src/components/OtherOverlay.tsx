@@ -137,10 +137,8 @@ export default function OtherOverlay(): React.ReactElement {
       </div>
       {current ? (
         <div style={{ fontSize: 14, lineHeight: 1.45 }}>
-          {current.job.reward > 0 ? (
-            <div>{current.job.reward.toLocaleString()} aUEC</div>
-          ) : null}
-          <div>{current.step.label}</div>
+          {current.job.reward > 0 ? `${current.job.reward.toLocaleString()} aUEC \u00b7 ` : ''}
+          {current.step.label}
         </div>
       ) : (
         <div style={{ fontSize: 13, color: C.dim }}>Add an Other-mode job in the main window.</div>
