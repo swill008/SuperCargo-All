@@ -9,7 +9,8 @@ import { useStore } from './store'
 import { applyOcrRows, applyOcrRewardOnly } from './otherOcr'
 import { saveSessionOcrShot } from './otherOcrShot'
 
-export async function runSilentAutoOcr(jobId: string): Promise<void> {
+export async function runSilentAutoOcr(jobId: string, stillLive?: () => boolean): Promise<void> {
+  const live = (): boolean => !stillLive || stillLive()
   const job = useOtherJobs.getState().jobs.find((j) => j.id === jobId)
   if (!job || job.objectivesLocked) return
   const includeAuec = !!useStore.getState().settings.otherOcrIncludeAuec
@@ -17,9 +18,10 @@ export async function runSilentAutoOcr(jobId: string): Promise<void> {
   if (!empty && !(includeAuec && job.reward === 0)) return
   try {
     const shot = await window.supercargo.ocrPreview?.()
+    if (!live()) return
     if (shot) saveSessionOcrShot(jobId, shot)
     const result = await window.supercargo.ocrRun()
-    if (!result?.ok) return
+    if (!live() || !result?.ok) return
     const parsed = parseOtherOcrText(result.rawText || '')
     const amount = Math.max(0, Number(result.reward) || 0) || parsed.reward || 0
     if (empty) {

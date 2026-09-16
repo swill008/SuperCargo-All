@@ -18,6 +18,7 @@ import JobsPage from './pages/JobsPage'
 import NextPage from './pages/NextPage'
 import CaptureModal from './components/CaptureModal'
 import OtherCaptureModal from './components/OtherCaptureModal'
+import OtherAutoOcrVeil from './components/OtherAutoOcrVeil'
 import HaulModeSwitchModal from './components/HaulModeSwitchModal'
 import ScanReviewModal from './components/ScanReviewModal'
 import CompactGate from './components/CompactGate'
@@ -111,6 +112,7 @@ function MainApp(): React.ReactElement {
       <Toast />
       <CaptureModal />
       <OtherCaptureModal />
+      <OtherAutoOcrVeil />
       <HaulModeSwitchModal />
       <ScanReviewModal />
       {ready && !onboarded && <Onboarding />}
