@@ -4,6 +4,7 @@
  * Item / location / counts are still extracted when the line matches.
  */
 import type { OtherObjectiveParse } from './otherLog'
+import { mergeCollectIntoDeliver } from './otherLog'
 
 const SKIP =
   /^(primary\s+)?(objectives?|details?|description|reputation|risk|reward|aUEC|max box|box size|pickup|drop-?off|contract|accepted|offered)$/i
@@ -15,6 +16,7 @@ export type OtherOcrRow = {
   kind: OtherObjectiveParse['kind']
   label: string
   location: string
+  pickupLocation?: string
   item?: string
   have: number
   need: number
@@ -162,7 +164,7 @@ export function parseOtherOcrText(rawText: string): OtherOcrParse {
     seen.add(key)
     rows.push(parsed)
   }
-  return { reward, rows }
+  return { reward, rows: mergeCollectIntoDeliver(rows) }
 }
 
 /** Orison Relief / count-less objective lines from Stacie's 2026-09-16 capture. */

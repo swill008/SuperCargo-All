@@ -60,6 +60,18 @@ export function JobRow({ job, uex, expanded, editing, onToggle, onEdit, onCancel
               <span style={{ color: step.done ? C.green : C.acc }}>{step.done ? '\u25c6' : '\u25c7'}</span>
               <span style={{ flex: 1, minWidth: 0 }}>
                 <span style={{ display: 'block', fontFamily: F.body, fontSize: 14, color: step.done ? C.dim : C.textBody }}>{step.label}</span>
+                {step.pickupLocation ? (
+                  <span
+                    title={step.pickupLocationSnapped && step.pickupLocationRaw ? `Log: ${step.pickupLocationRaw}` : undefined}
+                    style={{
+                      display: 'block',
+                      fontFamily: F.body,
+                      fontSize: 12,
+                      color: step.pickupLocationSnapped ? C.acc : C.dim,
+                      marginTop: 2
+                    }}
+                  >Collect: {step.pickupLocation}</span>
+                ) : null}
                 {step.location ? (
                   <span
                     title={step.locationSnapped && step.locationRaw ? `Log: ${step.locationRaw}` : undefined}
@@ -70,11 +82,11 @@ export function JobRow({ job, uex, expanded, editing, onToggle, onEdit, onCancel
                       color: step.locationSnapped ? C.acc : C.dim,
                       marginTop: 2
                     }}
-                  >{step.location}</span>
+                  >{step.pickupLocation ? `Deliver: ${step.location}` : step.location}</span>
                 ) : null}
               </span>
               {job.status === 'active' && (
-                <Btn onClick={() => onStep(step.id)} style={miniBtn}>{step.done ? 'UNDO' : 'DONE'}</Btn>
+                <Btn onClick={() => onStep(step.id)} style={miniBtn}>{step.done ? 'UNDO' : step.pickupLocation && !step.pickedUp ? 'GO HERE' : step.kind === 'turnin' ? 'TURN IN' : 'DONE'}</Btn>
               )}
             </div>
           ))}

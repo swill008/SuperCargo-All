@@ -21,6 +21,7 @@ export type OtherObjectiveParse = {
   location: string
   locationRaw?: string
   locationSnapped?: boolean
+  pickupLocation?: string
   item?: string
   have: number
   need: number
@@ -113,6 +114,37 @@ export function parseOtherObjectiveText(raw: string): OtherObjectiveParse | null
   }
 }
 
+const itemKey = (s?: string): string => (s || '').toLowerCase().replace(/[^a-z0-9]+/g, ' ').trim()
+
+/** Fold nested Collect X from A under Deliver X to B when the item matches. */
+export function mergeCollectIntoDeliver<T extends OtherObjectiveParse>(rows: T[]): T[] {
+  const used = new Set<number>()
+  const out: T[] = []
+  for (let i = 0; i < rows.length; i++) {
+    const row = rows[i]
+    if (row.kind === 'pickup') continue
+    if (row.kind === 'turnin' && itemKey(row.item)) {
+      const key = itemKey(row.item)
+      const cIdx = rows.findIndex((r, j) => !used.has(j) && r.kind === 'pickup' && itemKey(r.item) === key)
+      if (cIdx >= 0) {
+        used.add(cIdx)
+        const collect = rows[cIdx]
+        out.push({
+          ...row,
+          pickupLocation: collect.location,
+          label: `${collect.label.replace(/[.]+$/, '')}. ${row.label}`
+        })
+        continue
+      }
+    }
+    out.push(row)
+  }
+  rows.forEach((r, j) => {
+    if (r.kind === 'pickup' && !used.has(j)) out.push(r)
+  })
+  return out
+}
+
 export function stepFromParse(id: string, parsed: OtherObjectiveParse, locations?: Location[]): OtherStep {
   const skipSnap = /^Neutralize\s/i.test(parsed.label)
   const snap = !skipSnap && locations
@@ -122,6 +154,12 @@ export function stepFromParse(id: string, parsed: OtherObjectiveParse, locations
         locationRaw: parsed.locationRaw ?? parsed.location,
         locationSnapped: parsed.locationSnapped ?? false
       }
+  const pickRaw = parsed.pickupLocation || ''
+  const pick = pickRaw && !skipSnap && locations
+    ? snapOtherLocation(pickRaw, locations)
+    : pickRaw
+      ? { location: pickRaw, locationRaw: pickRaw, locationSnapped: false }
+      : null
   return {
     id,
     kind: parsed.kind,
@@ -129,6 +167,10 @@ export function stepFromParse(id: string, parsed: OtherObjectiveParse, locations
     location: snap.location,
     locationRaw: snap.locationRaw,
     locationSnapped: snap.locationSnapped,
+    pickupLocation: pick?.location,
+    pickupLocationRaw: pick?.locationRaw,
+    pickupLocationSnapped: pick?.locationSnapped,
+    pickedUp: pick ? false : undefined,
     item: parsed.item,
     have: parsed.have,
     need: parsed.need,

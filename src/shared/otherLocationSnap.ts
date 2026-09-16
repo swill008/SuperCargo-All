@@ -14,6 +14,7 @@ function stripLagrangeFlavor(raw: string): string {
   return raw
     .replace(/\s+at\s+(?:the\s+)?[A-Za-z][\w']*'s\s+L[1-5]\s+Lagrange\s+point\.?$/i, '')
     .replace(/\s+at\s+the\s+L[1-5]\s+Lagrange\s+of\s+.+$/i, '')
+    .replace(/^(?:an?\s+)?landing\s+pad\s+locker\s+in\s+/i, '')
     .trim()
 }
 
@@ -71,7 +72,8 @@ export function snapOtherLocation(raw: string, locations: Location[]): OtherLoca
     }
   }
 
-  return { location: locationRaw, locationRaw, locationSnapped: false }
+  const cleaned = stripped || locationRaw
+  return { location: cleaned, locationRaw, locationSnapped: false }
 }
 
 /** Real New Objective lines from Stacie's Game.logs (2026-09-12). */
@@ -99,7 +101,9 @@ export const OTHER_LOCATION_SNAP_CASES: Array<{
   { raw: 'Pyro System', expect: 'Pyro System', snapped: false },
   { raw: 'Patrol Coordinates', expect: 'Patrol Coordinates', snapped: false },
   { raw: 'Keeger Belt Wreck Site', expect: 'Keeger Belt Wreck Site', snapped: false },
-  { raw: 'Asteroid Mining Base', expect: 'Asteroid Mining Base', snapped: false }
+  { raw: 'Asteroid Mining Base', expect: 'Asteroid Mining Base', snapped: false },
+  { raw: 'a Landing Pad Locker in New Babbage', expect: 'New Babbage', snapped: false },
+  { raw: 'August Dunlow Spaceport', expect: 'August Dunlow Spaceport', snapped: false }
 ]
 
 const loc = (name: string, code: string): Location => ({
@@ -118,7 +122,8 @@ export const OTHER_LOCATION_SNAP_ROSTER: Location[] = [
   loc('MIC-L5 Modern Icarus Station', 'MIC-L5'),
   loc('MIC-L4 Red Crossroads Station', 'MIC-L4'),
   loc('Rayari Cantwell Research Outpost', 'Rayari Cantwell'),
-  loc('Rayari Deltana Research Outpost', 'Rayari Deltana')
+  loc('Rayari Deltana Research Outpost', 'Rayari Deltana'),
+  loc('August Dunlow Spaceport', 'August Dunlow Spaceport')
 ]
 
 export function checkOtherLocationSnapFixtures(): string[] {

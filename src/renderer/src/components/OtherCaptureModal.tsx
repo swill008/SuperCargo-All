@@ -149,8 +149,8 @@ export default function OtherCaptureModal(): React.ReactElement | null {
     applyOcrRows(job.id, {
       reward,
       overwrite: locked && overwrite,
-      rows: rows.map(({ kind, label, location, item, have, need }) => ({
-        kind, label, location, item, have, need
+      rows: rows.map(({ kind, label, location, pickupLocation, item, have, need }) => ({
+        kind, label, location, pickupLocation, item, have, need
       }))
     })
     reset()

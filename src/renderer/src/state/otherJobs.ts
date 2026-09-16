@@ -240,6 +240,10 @@ export const useOtherJobs = create<OtherJobsState>((set, get) => ({
             kind,
             label: (row.label || '').trim() || labelFor(edit.kind, location, item, need),
             location,
+            pickupLocation: prev?.pickupLocation,
+            pickupLocationRaw: prev?.pickupLocationRaw,
+            pickupLocationSnapped: prev?.pickupLocationSnapped,
+            pickedUp: prev?.pickedUp,
             item: item || undefined,
             have: prev?.done ? need : 0,
             need,
@@ -349,8 +353,11 @@ export const useOtherJobs = create<OtherJobsState>((set, get) => ({
         if (j.id !== jobId) return j
         const steps = j.steps.map((s) => {
           if (s.id !== stepId) return s
+          if (s.pickupLocation && !s.pickedUp && !s.done) {
+            return { ...s, pickedUp: true }
+          }
           const done = !s.done
-          return { ...s, done, have: done ? s.need : 0 }
+          return { ...s, done, pickedUp: done ? true : s.pickupLocation ? false : s.pickedUp, have: done ? s.need : 0 }
         })
         const allDone = steps.length > 0 && steps.every((s) => s.done)
         return { ...j, steps, status: allDone ? 'complete' : 'active' }

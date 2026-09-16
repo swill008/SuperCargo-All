@@ -8,7 +8,7 @@ import { C, F } from '../theme'
 import { useStore } from '../state/store'
 import { useOtherJobs } from '../state/otherJobs'
 import { mergeLocations } from '../state/otherPlaces'
-import { listOpenStops } from '@shared/otherNext'
+import { listOpenStops, stepActivePlace, stepActionLabel } from '@shared/otherNext'
 import { miniBtn } from '../pages/JobsPartsStyles'
 
 const WHITE = '#eaf1f7'
@@ -90,7 +90,7 @@ export default function OtherOverlay(): React.ReactElement {
               minWidth: 0
             }}
           >
-            {current?.step.location || current?.step.label || 'NO OPEN STOP'}
+            {current ? stepActivePlace(current.step) || current.step.label : 'NO OPEN STOP'}
           </div>
         </div>
         <div style={{ display: 'flex', alignItems: 'center', gap: 6, flexShrink: 0, WebkitAppRegion: 'no-drag' } as React.CSSProperties}>
@@ -170,7 +170,7 @@ export default function OtherOverlay(): React.ReactElement {
             onClick={() => toggleStep(current.job.id, current.step.id)}
             style={{ ...miniBtn, color: C.text, flex: 'none' }}
           >
-            {current.step.done ? 'UNDO' : current.step.kind === 'turnin' ? 'TURN IN' : 'GO HERE'}
+            {stepActionLabel(current.step)}
           </button>
           <button
             type="button"

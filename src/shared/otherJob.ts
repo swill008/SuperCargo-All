@@ -27,6 +27,10 @@ export interface OtherStep {
   locationRaw?: string
   /** True when location is a roster name different from locationRaw. */
   locationSnapped?: boolean
+  pickupLocation?: string
+  pickupLocationRaw?: string
+  pickupLocationSnapped?: boolean
+  pickedUp?: boolean
   item?: string
   have: number
   need: number

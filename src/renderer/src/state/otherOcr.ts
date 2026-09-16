@@ -3,7 +3,7 @@
  * This pass fills empty unlocked jobs only. Overwrite comes later.
  * Confirm snaps location to a unique UEX roster name when one is obvious.
  */
-import { parseOtherObjectiveText, stepFromParse, stepKey } from '@shared/otherLog'
+import { mergeCollectIntoDeliver, parseOtherObjectiveText, stepFromParse, stepKey } from '@shared/otherLog'
 import type { OtherOcrRow } from '@shared/otherOcrParse'
 import type { OtherStep } from '@shared/otherJob'
 import { useOtherJobs } from './otherJobs'
@@ -72,8 +72,9 @@ export function applyOcrRows(
   if (!overwrite && (job.objectivesLocked || job.steps.length > 0)) return false
   const locations = mergeLocations(useStore.getState().locations)
 
+  const incoming = mergeCollectIntoDeliver(payload.rows)
   const steps: OtherStep[] = []
-  for (const row of payload.rows) {
+  for (const row of incoming) {
     const loc = row.location || ''
     const label = row.label || (row.item && loc
       ? `Deliver 0/${row.need || 1} ${row.item} to ${loc}`
@@ -84,6 +85,7 @@ export function applyOcrRows(
       kind: row.kind,
       label,
       location: loc,
+      pickupLocation: row.pickupLocation,
       item: row.item,
       have: row.have || 0,
       need: Math.max(1, row.need || 1)

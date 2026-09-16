@@ -7,7 +7,7 @@ import Typeahead from '../components/Typeahead'
 import { useStore } from '../state/store'
 import { useOtherJobs } from '../state/otherJobs'
 import { type OtherJob, type OtherStep } from '@shared/otherJob'
-import { listOpenStops, distanceFromStart, formatMapDistance } from '@shared/otherNext'
+import { listOpenStops, distanceFromStart, formatMapDistance, stepActivePlace, stepActionLabel } from '@shared/otherNext'
 import { mergeLocations } from '../state/otherPlaces'
 
 interface OpenStop { job: OtherJob; step: OtherStep }
@@ -118,13 +118,13 @@ export default function NextPage(): React.ReactElement {
                 ) : null}
                 <div style={{ fontFamily: F.mono, fontSize: 12, color: C.dim, marginTop: 2 }}>
                   {job.ref}
-                  {startLocation.trim() ? ` \u00b7 ${formatMapDistance(distanceFromStart(startLocation, step.location || step.label, locations))}` : ''}
+                  {startLocation.trim() ? ` \u00b7 ${formatMapDistance(distanceFromStart(startLocation, stepActivePlace(step), locations))}` : ''}
                 </div>
               </div>
               <Btn onClick={() => toggleStep(job.id, step.id)} style={{
                 border: 0, background: C.acc, color: '#111',
                 fontFamily: F.display, fontSize: 11, fontWeight: 700, letterSpacing: '0.12em', padding: '8px 14px', cursor: 'pointer'
-              }}>{step.done ? 'UNDO' : step.kind === 'turnin' ? 'TURN IN' : 'GO HERE'}</Btn>
+              }}>{stepActionLabel(step)}</Btn>
             </div>
           ))}
         </div>

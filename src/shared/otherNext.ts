@@ -90,6 +90,18 @@ export interface OpenStopRow {
   step: OtherStep
 }
 
+/** Place the list should sort / show for this step's current phase. */
+export function stepActivePlace(step: OtherStep): string {
+  if (step.pickupLocation && !step.pickedUp && !step.done) return step.pickupLocation
+  return step.location || step.label || ''
+}
+
+export function stepActionLabel(step: OtherStep): string {
+  if (step.done) return 'UNDO'
+  if (step.pickupLocation && !step.pickedUp) return 'GO HERE'
+  return step.kind === 'turnin' ? 'TURN IN' : 'GO HERE'
+}
+
 export type ListOpenStopsOpts = {
   /** Off = one unfinished step per job (stock). */
   showAll?: boolean
@@ -115,8 +127,8 @@ function sortJobsByFirstStep(
     return compareByDistanceFrom(
       startLocation,
       locations,
-      sa?.location || sa?.label || '',
-      sb?.location || sb?.label || ''
+      sa ? stepActivePlace(sa) : '',
+      sb ? stepActivePlace(sb) : ''
     )
   })
 }
@@ -143,8 +155,8 @@ export function listOpenStops(
       compareByDistanceFrom(
         startLocation,
         locations,
-        a.step.location || a.step.label,
-        b.step.location || b.step.label
+        stepActivePlace(a.step),
+        stepActivePlace(b.step)
       )
     )
   }
