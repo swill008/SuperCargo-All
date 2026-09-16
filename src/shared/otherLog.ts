@@ -90,6 +90,20 @@ export function parseOtherObjectiveText(raw: string): OtherObjectiveParse | null
     }
   }
 
+  m = text.match(/^(?:Deliver|Bring|Turn\s*in)\s+(.+?)\s+to\s+(.+)$/i)
+  if (m) {
+    const item = m[1].trim()
+    const location = m[2].trim()
+    return { kind: 'turnin', label: text, location, item, have: 0, need: 1 }
+  }
+
+  m = text.match(/^(?:Collect|Recover)\s+(.+?)\s+from\s+(.+)$/i)
+  if (m) {
+    const item = m[1].trim()
+    const location = m[2].trim()
+    return { kind: 'pickup', label: text, location, item, have: 0, need: 1 }
+  }
+
   return {
     kind: 'go',
     label: text,

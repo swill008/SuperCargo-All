@@ -170,7 +170,7 @@ export default function OtherOverlay(): React.ReactElement {
             onClick={() => toggleStep(current.job.id, current.step.id)}
             style={{ ...miniBtn, color: C.text, flex: 'none' }}
           >
-            {current.step.done ? 'UNDO' : current.step.kind === 'go' ? 'GO HERE' : 'TURN IN'}
+            {current.step.done ? 'UNDO' : current.step.kind === 'turnin' ? 'TURN IN' : 'GO HERE'}
           </button>
           <button
             type="button"

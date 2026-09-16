@@ -124,7 +124,7 @@ export default function NextPage(): React.ReactElement {
               <Btn onClick={() => toggleStep(job.id, step.id)} style={{
                 border: 0, background: C.acc, color: '#111',
                 fontFamily: F.display, fontSize: 11, fontWeight: 700, letterSpacing: '0.12em', padding: '8px 14px', cursor: 'pointer'
-              }}>{step.done ? 'UNDO' : step.kind === 'go' ? 'GO HERE' : 'TURN IN'}</Btn>
+              }}>{step.done ? 'UNDO' : step.kind === 'turnin' ? 'TURN IN' : 'GO HERE'}</Btn>
             </div>
           ))}
         </div>

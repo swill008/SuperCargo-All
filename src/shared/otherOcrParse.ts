@@ -114,6 +114,20 @@ export function parseOtherOcrLine(raw: string): OtherOcrRow | null {
     })
   }
 
+  m = text.match(/(?:Deliver|Bring|Turn\s*in)\s+(.+?)\s+to\s+(.+)$/i)
+  if (m) {
+    const item = cleanExtractedItem(m[1])
+    const loc = cleanExtractedLoc(m[2])
+    return row('turnin', text, loc, { item: item || undefined, have: 0, need: 1 })
+  }
+
+  m = text.match(/(?:Collect|Recover)\s+(.+?)\s+from\s+(.+)$/i)
+  if (m) {
+    const item = cleanExtractedItem(m[1])
+    const loc = cleanExtractedLoc(m[2])
+    return row('pickup', text, loc, { item: item || undefined, have: 0, need: 1 })
+  }
+
   if (OBJECTIVE_START.test(text)) return row('go', text, '')
   return null
 }
@@ -149,4 +163,26 @@ export function parseOtherOcrText(rawText: string): OtherOcrParse {
     rows.push(parsed)
   }
   return { reward, rows }
+}
+
+/** Orison Relief / count-less objective lines from Stacie's 2026-09-16 capture. */
+export const OTHER_OCR_LINE_CASES: Array<{ raw: string; kind: OtherOcrRow['kind']; location: string; item?: string }> = [
+  { raw: 'Deliver Fresh Food to August Dunlow Spaceport.', kind: 'turnin', location: 'August Dunlow Spaceport', item: 'Fresh Food' },
+  { raw: 'Collect Fresh Food from a Landing Pad Locker in New Babbage.', kind: 'pickup', location: 'a Landing Pad Locker in New Babbage', item: 'Fresh Food' },
+  { raw: 'Deliver Medical Supplies to August Dunlow Spaceport.', kind: 'turnin', location: 'August Dunlow Spaceport', item: 'Medical Supplies' },
+  { raw: 'Collect Medical Supplies from a Landing Pad Locker in New Babbage.', kind: 'pickup', location: 'a Landing Pad Locker in New Babbage', item: 'Medical Supplies' },
+  { raw: 'Deliver 0/11 SCU of Aluminum to Everus Harbor', kind: 'turnin', location: 'Everus Harbor', item: 'Aluminum' }
+]
+
+export function checkOtherOcrLineFixtures(): string[] {
+  const failures: string[] = []
+  for (const c of OTHER_OCR_LINE_CASES) {
+    const got = parseOtherOcrLine(c.raw)
+    if (!got || got.kind !== c.kind || got.location !== c.location || (c.item && got.item !== c.item)) {
+      failures.push(
+        `"${c.raw}" → ${got?.kind}/${got?.item}/${got?.location} (want ${c.kind}/${c.item}/${c.location})`
+      )
+    }
+  }
+  return failures
 }
