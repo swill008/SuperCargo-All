@@ -146,41 +146,50 @@ export default function OtherOverlay(): React.ReactElement {
       <div style={{ flex: 1 }} />
       <div
         style={{
-          marginTop: 14,
-          fontFamily: F.display,
-          fontSize: 10,
-          letterSpacing: '0.16em',
-          color: C.ghost
+          display: 'flex',
+          alignItems: 'center',
+          gap: 8,
+          marginTop: 10,
+          flex: 'none'
         }}
       >
-        SUPERCARGO {'\u00b7'} OTHER MODE
-      </div>
-      {current && (
+        {current && (
+          <div
+            style={{
+              display: 'flex',
+              gap: 8,
+              WebkitAppRegion: 'no-drag'
+            } as React.CSSProperties}
+          >
+            <button
+              type="button"
+              onClick={() => toggleStep(current.job.id, current.step.id)}
+              style={{ ...miniBtn, color: C.text, flex: 'none' }}
+            >
+              {stepActionLabel(current.step)}
+            </button>
+            <button
+              type="button"
+              onClick={() => abandonJob(current.job.id)}
+              style={{ ...miniBtn, color: C.text, flex: 'none' }}
+            >
+              ABANDON
+            </button>
+          </div>
+        )}
         <div
           style={{
-            display: 'flex',
-            gap: 8,
-            marginTop: 10,
-            flex: 'none',
-            WebkitAppRegion: 'no-drag'
-          } as React.CSSProperties}
+            marginLeft: 'auto',
+            fontFamily: F.display,
+            fontSize: 10,
+            letterSpacing: '0.16em',
+            color: C.ghost,
+            textAlign: 'right'
+          }}
         >
-          <button
-            type="button"
-            onClick={() => toggleStep(current.job.id, current.step.id)}
-            style={{ ...miniBtn, color: C.text, flex: 'none' }}
-          >
-            {stepActionLabel(current.step)}
-          </button>
-          <button
-            type="button"
-            onClick={() => abandonJob(current.job.id)}
-            style={{ ...miniBtn, color: C.text, flex: 'none' }}
-          >
-            ABANDON
-          </button>
+          SUPERCARGO {'\u00b7'} OTHER MODE
         </div>
-      )}
+      </div>
     </div>
   )
 }
