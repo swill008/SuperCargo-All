@@ -1,5 +1,5 @@
 /** Other-mode Jobs page (Contracts analogue). Does not touch haul contracts. */
-import React, { useMemo, useState } from 'react'
+import React, { useEffect, useMemo, useState } from 'react'
 import { C, F } from '../theme'
 import PageHeader, { PAGE_PADDING } from '../components/PageHeader'
 import { Btn } from '../components/ui'
@@ -42,6 +42,25 @@ export default function JobsPage(): React.ReactElement {
   const openOtherCapture = useOtherCapture((s) => s.openFor)
   const autoOcr = !!useStore((s) => s.settings.ocrAutoCapture)
   const updateSettings = useStore((s) => s.updateSettings)
+
+  useEffect(() => {
+    const onEsc = (e: KeyboardEvent): void => {
+      if (e.key !== 'Escape') return
+      const cap = useOtherCapture.getState()
+      if (cap.open || cap.autoBusy) return
+      if (editingId) {
+        e.preventDefault()
+        setEditingId(null)
+        return
+      }
+      if (adding) {
+        e.preventDefault()
+        setAdding(false)
+      }
+    }
+    window.addEventListener('keydown', onEsc)
+    return () => window.removeEventListener('keydown', onEsc)
+  }, [adding, editingId])
 
   return (
     <div style={{ padding: PAGE_PADDING }}>

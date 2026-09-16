@@ -19,6 +19,8 @@ import NextPage from './pages/NextPage'
 import CaptureModal from './components/CaptureModal'
 import OtherCaptureModal from './components/OtherCaptureModal'
 import OtherAutoOcrVeil from './components/OtherAutoOcrVeil'
+import { useOtherCapture } from './state/otherCapture'
+import { useHaulModeSwitch } from './state/haulModeSwitch'
 import HaulModeSwitchModal from './components/HaulModeSwitchModal'
 import ScanReviewModal from './components/ScanReviewModal'
 import CompactGate from './components/CompactGate'
@@ -64,6 +66,41 @@ function MainApp(): React.ReactElement {
     if (workMode === 'other' && haulOnly) useStore.getState().setView('jobs' as 'manifest')
     if (workMode === 'haul' && otherOnly) useStore.getState().setView('manifest')
   }, [workMode, view])
+
+  useEffect(() => {
+    const onEsc = (e: KeyboardEvent): void => {
+      if (e.key !== 'Escape') return
+      const otherCap = useOtherCapture.getState()
+      if (otherCap.autoBusy) {
+        e.preventDefault()
+        otherCap.cancelAuto()
+        return
+      }
+      if (otherCap.open) {
+        e.preventDefault()
+        otherCap.close()
+        return
+      }
+      const haulSwitch = useHaulModeSwitch.getState()
+      if (haulSwitch.pending.length > 0) {
+        e.preventDefault()
+        haulSwitch.stayInOther()
+        return
+      }
+      const haul = useStore.getState()
+      if (haul.captureOpen) {
+        e.preventDefault()
+        haul.closeCapture()
+        return
+      }
+      if (haul.scanReviewOpen) {
+        e.preventDefault()
+        haul.closeScanReview()
+      }
+    }
+    window.addEventListener('keydown', onEsc)
+    return () => window.removeEventListener('keydown', onEsc)
+  }, [])
 
   useEffect(() => {
     const onKey = (e: KeyboardEvent): void => {

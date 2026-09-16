@@ -18,6 +18,15 @@ export default function OtherHistoryPage(): React.ReactElement {
   useEffect(() => {
     void window.supercargo.loadOtherJobs?.().then((doc) => useOtherHistory.getState().load(doc))
   }, [])
+  useEffect(() => {
+    const onEsc = (e: KeyboardEvent): void => {
+      if (e.key !== 'Escape' || !confirmClear) return
+      e.preventDefault()
+      setConfirmClear(false)
+    }
+    window.addEventListener('keydown', onEsc)
+    return () => window.removeEventListener('keydown', onEsc)
+  }, [confirmClear])
   const sorted = useMemo(
     () => [...history].sort((a, b) => b.archivedAt - a.archivedAt),
     [history]
