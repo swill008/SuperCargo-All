@@ -10,7 +10,7 @@ import OcrCalibrator from './OcrCalibrator'
 import { useStore } from '../state/store'
 import { useOtherJobs } from '../state/otherJobs'
 import { useOtherCapture } from '../state/otherCapture'
-import { applyOcrRows } from '../state/otherOcr'
+import { applyOcrRows, applyOcrRewardOnly } from '../state/otherOcr'
 import { saveSessionOcrShot } from '../state/otherOcrShot'
 import { mergeLocations } from '../state/otherPlaces'
 import { parseOtherOcrText, type OtherOcrRow } from '@shared/otherOcrParse'
@@ -47,6 +47,7 @@ export default function OtherCaptureModal(): React.ReactElement | null {
   const [busy, setBusy] = useState(false)
   const [calibrating, setCalibrating] = useState(false)
   const [overwrite, setOverwrite] = useState(false)
+  const [updateAuecOnly, setUpdateAuecOnly] = useState(false)
 
   useEffect(() => {
     if (!open || !autoRun || !jobId) return
@@ -102,6 +103,7 @@ export default function OtherCaptureModal(): React.ReactElement | null {
     setBusy(false)
     setCalibrating(false)
     setOverwrite(false)
+    setUpdateAuecOnly(false)
     close()
   }
 
@@ -140,8 +142,20 @@ export default function OtherCaptureModal(): React.ReactElement | null {
     setRows((list) => list.map((r) => (r.key === key ? { ...r, ...part } : r)))
   }
 
+  const hasRows = rows.some((r) => r.label.trim() || r.location.trim() || r.item?.trim())
+  const confirmDisabled = busy || (
+    updateAuecOnly && !overwrite
+      ? !(reward > 0)
+      : (locked && !overwrite) || !hasRows
+  )
+
   const confirm = (): void => {
     if (preview) saveSessionOcrShot(job.id, preview)
+    if (updateAuecOnly && !overwrite) {
+      applyOcrRewardOnly(job.id, reward)
+      reset()
+      return
+    }
     if (locked && !overwrite) {
       reset()
       return
@@ -184,7 +198,11 @@ export default function OtherCaptureModal(): React.ReactElement | null {
                 <input
                   type="checkbox"
                   checked={overwrite}
-                  onChange={(e) => setOverwrite(e.target.checked)}
+                  onChange={(e) => {
+                    const on = e.target.checked
+                    setOverwrite(on)
+                    if (on) setUpdateAuecOnly(false)
+                  }}
                   style={{ accentColor: C.acc }}
                 />
                 Overwrite existing objectives
@@ -197,7 +215,15 @@ export default function OtherCaptureModal(): React.ReactElement | null {
           <div style={{ display: 'flex', gap: 8, marginBottom: 14, flexWrap: 'wrap' }}>
             <Btn onClick={() => void capture()} style={outlineBtn} disabled={busy}>{busy ? 'WORKING\u2026' : 'CAPTURE'}</Btn>
             <Btn onClick={() => setCalibrating((v) => !v)} style={miniBtn}>{calibrating ? 'DONE, BACK TO CAPTURE' : 'ADJUST CAPTURE AREA'}</Btn>
-            <Btn onClick={confirm} style={outlineBtn} disabled={busy || (locked && !overwrite) || !rows.some((r) => r.label.trim() || r.location.trim() || r.item?.trim())}>CONFIRM</Btn>
+            <Btn
+              onClick={confirm}
+              disabled={confirmDisabled}
+              title={confirmDisabled ? '(disabled)' : undefined}
+              style={{
+                ...outlineBtn,
+                ...(confirmDisabled ? { color: C.dim, borderColor: C.line, background: 'transparent', cursor: 'not-allowed', opacity: 0.45 } : {})
+              }}
+            >CONFIRM</Btn>
             <Btn onClick={reset} style={miniBtn}>CANCEL</Btn>
           </div>
           {calibrating && (
@@ -209,6 +235,19 @@ export default function OtherCaptureModal(): React.ReactElement | null {
               <OcrCalibrator />
             </div>
           )}
+          <label style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 12, color: C.text, cursor: 'pointer', fontFamily: F.body, fontSize: 13 }}>
+            <input
+              type="checkbox"
+              checked={updateAuecOnly}
+              onChange={(e) => {
+                const on = e.target.checked
+                setUpdateAuecOnly(on)
+                if (on) setOverwrite(false)
+              }}
+              style={{ accentColor: C.acc }}
+            />
+            Update aUEC only
+          </label>
           {status && <div style={{ fontFamily: F.body, fontSize: 13, color: C.acc, marginBottom: 12 }}>{status}</div>}
           {preview && (
             <div style={{ marginBottom: 12 }}>
