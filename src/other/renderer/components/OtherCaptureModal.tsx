@@ -93,6 +93,8 @@ export default function OtherCaptureModal(): React.ReactElement | null {
   if (!open || !job) return null
 
   const locked = !!(job.objectivesLocked || job.steps.length > 0)
+  const fromLog = job.source === 'log'
+  const showOverwrite = fromLog || locked
 
   const reset = (): void => {
     setStatus('')
@@ -162,7 +164,7 @@ export default function OtherCaptureModal(): React.ReactElement | null {
     }
     applyOcrRows(job.id, {
       reward,
-      overwrite: locked && overwrite,
+      overwrite: overwrite && (locked || fromLog),
       rows: rows.map(({ kind, label, location, pickupLocation, item, have, need }) => ({
         kind, label, location, pickupLocation, item, have, need
       }))
@@ -191,9 +193,11 @@ export default function OtherCaptureModal(): React.ReactElement | null {
           <Btn onClick={reset} style={{ ...miniBtn, border: 0 }}>CLOSE</Btn>
         </div>
         <div style={{ padding: 20 }}>
-          {locked && (
+          {showOverwrite && (
             <div style={{ fontFamily: F.body, fontSize: 13, color: C.amber, marginBottom: 12 }}>
-              This job already has steps or was edited.
+              {locked
+                ? 'This job already has steps or was edited.'
+                : 'Log job. Capture the contract screen, then overwrite to write objectives.'}
               <label style={{ display: 'flex', alignItems: 'center', gap: 8, marginTop: 10, color: C.text, cursor: 'pointer' }}>
                 <input
                   type="checkbox"
