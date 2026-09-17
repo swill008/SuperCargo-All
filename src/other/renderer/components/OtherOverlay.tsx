@@ -149,11 +149,15 @@ export default function OtherOverlay(): React.ReactElement {
       {(upcoming || nextTravel) && (
         <div style={{ marginTop: 12, fontSize: 13, color: C.dim, lineHeight: 1.45 }}>
           {upcoming ? (
-            <div>Next Objective: {upcoming.step.label}</div>
+            <div>
+              <span style={{ color: C.acc }}>Next Objective</span>
+              <span>: {upcoming.step.label}</span>
+            </div>
           ) : null}
           {nextTravel ? (
             <div style={{ marginTop: upcoming ? 4 : 0 }}>
-              Next Location: {formatPlaceWithBodySystem(stepActivePlace(nextTravel.step) || nextTravel.step.label, locations)}
+              <span style={{ color: C.acc }}>Next Location</span>
+              <span>: {formatPlaceWithBodySystem(stepActivePlace(nextTravel.step) || nextTravel.step.label, locations)}</span>
             </div>
           ) : null}
         </div>
