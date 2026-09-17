@@ -7,6 +7,26 @@ import type { Location } from '@shared/types'
 import { resolveLogLocation } from '@shared/logLocation'
 import { nextOpenStep, type OtherJob, type OtherStep } from '@other/otherJob'
 
+function titleChip(raw: string): string {
+  const s = raw.trim()
+  if (!s) return s
+  if (s === s.toLowerCase()) return s.charAt(0).toUpperCase() + s.slice(1)
+  return s
+}
+
+/** Display-only: Name · Body [planet] · System [system]. Stored location stays the UEX name. */
+export function formatPlaceWithBodySystem(name: string, locations: Location[]): string {
+  const trimmed = name.trim()
+  if (!trimmed) return trimmed
+  const hit = findRosterLocation(trimmed, locations)
+  const parts = [trimmed]
+  const body = hit?.body?.trim()
+  const system = hit?.system?.trim()
+  if (body) parts.push(`Body [${titleChip(body)}]`)
+  if (system) parts.push(`System [${titleChip(system)}]`)
+  return parts.join(' \u00b7 ')
+}
+
 export function findRosterLocation(raw: string, locations: Location[]): Location | undefined {
   const trimmed = raw.trim()
   if (!trimmed || locations.length === 0) return undefined

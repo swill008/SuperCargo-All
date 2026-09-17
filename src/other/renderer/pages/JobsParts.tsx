@@ -1,8 +1,11 @@
 /** Job row for Other-mode Jobs page. */
-import React from 'react'
+import React, { useMemo } from 'react'
 import { C, F } from '@renderer/theme'
 import { Btn } from '@renderer/components/ui'
+import { useStore } from '@renderer/state/store'
 import { type OtherJobEdit } from '../state/otherJobs'
+import { mergeLocations } from '../state/otherPlaces'
+import { formatPlaceWithBodySystem } from '@other/otherNext'
 import { OTHER_KIND_LABEL, jobProgress, type OtherJob } from '@other/otherJob'
 import { EditForm } from './JobsPartsUi'
 import { miniBtn, tagStyle } from './JobsPartsStyles'
@@ -23,6 +26,8 @@ export function JobRow({ job, uex, expanded, editing, onToggle, onEdit, onCancel
   onStep: (id: string) => void
 }): React.ReactElement {
   const { done, total } = jobProgress(job)
+  const haulLocs = useStore((s) => s.locations) ?? []
+  const roster = useMemo(() => mergeLocations(haulLocs), [haulLocs])
   const statusColor = job.status === 'active' ? C.green : job.status === 'complete' ? C.dim : C.amber
   return (
     <div style={{ borderBottom: `1px solid ${C.lineSoft}` }}>
@@ -70,7 +75,7 @@ export function JobRow({ job, uex, expanded, editing, onToggle, onEdit, onCancel
                       color: step.pickupLocationSnapped ? C.acc : C.dim,
                       marginTop: 2
                     }}
-                  >Collect: {step.pickupLocation}</span>
+                  >Collect: {formatPlaceWithBodySystem(step.pickupLocation, roster)}</span>
                 ) : null}
                 {step.location ? (
                   <span
@@ -82,7 +87,7 @@ export function JobRow({ job, uex, expanded, editing, onToggle, onEdit, onCancel
                       color: step.locationSnapped ? C.acc : C.dim,
                       marginTop: 2
                     }}
-                  >{step.pickupLocation ? `Deliver: ${step.location}` : step.location}</span>
+                  >{step.pickupLocation ? `Deliver: ${formatPlaceWithBodySystem(step.location, roster)}` : formatPlaceWithBodySystem(step.location, roster)}</span>
                 ) : null}
               </span>
               {job.status === 'active' && (

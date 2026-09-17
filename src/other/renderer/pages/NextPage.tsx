@@ -7,7 +7,7 @@ import Typeahead from '@renderer/components/Typeahead'
 import { useStore } from '@renderer/state/store'
 import { useOtherJobs } from '../state/otherJobs'
 import { type OtherJob, type OtherStep } from '@other/otherJob'
-import { listOpenStops, distanceFromStart, formatMapDistance, stepActivePlace, stepActionLabel } from '@other/otherNext'
+import { listOpenStops, distanceFromStart, formatMapDistance, stepActivePlace, stepActionLabel, formatPlaceWithBodySystem } from '@other/otherNext'
 import { mergeLocations } from '../state/otherPlaces'
 
 interface OpenStop { job: OtherJob; step: OtherStep }
@@ -99,7 +99,9 @@ export default function NextPage(): React.ReactElement {
               width: 22, height: 22, borderRadius: '50%', border: `1px solid ${C.acc}`, color: C.acc,
               fontFamily: F.display, fontSize: 12, display: 'inline-flex', alignItems: 'center', justifyContent: 'center', flex: 'none'
             }}>{gi + 1}</span>
-            <div style={{ fontFamily: F.display, fontSize: 16, color: rows.some((r) => r.step.locationSnapped) ? C.acc : C.text }}>{heading}</div>
+            <div style={{ fontFamily: F.display, fontSize: 16, color: rows.some((r) => r.step.locationSnapped) ? C.acc : C.text }}>
+              {groupBy === 'job' ? heading : formatPlaceWithBodySystem(heading, locations)}
+            </div>
           </div>
           {rows.map(({ job, step }) => (
             <div key={step.id} style={{ display: 'grid', gridTemplateColumns: '1fr auto', gap: 12, alignItems: 'center', padding: '6px 0 2px 32px' }}>
@@ -114,7 +116,7 @@ export default function NextPage(): React.ReactElement {
                       color: step.locationSnapped ? C.acc : C.dim,
                       marginTop: 2
                     }}
-                  >{step.location}</div>
+                  >{formatPlaceWithBodySystem(step.location, locations)}</div>
                 ) : null}
                 <div style={{ fontFamily: F.mono, fontSize: 12, color: C.dim, marginTop: 2 }}>
                   {job.ref}

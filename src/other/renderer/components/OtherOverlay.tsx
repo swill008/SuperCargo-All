@@ -8,7 +8,7 @@ import { C, F } from '@renderer/theme'
 import { useStore } from '@renderer/state/store'
 import { useOtherJobs } from '../state/otherJobs'
 import { mergeLocations } from '../state/otherPlaces'
-import { listOpenStops, stepActivePlace, stepActionLabel } from '@other/otherNext'
+import { listOpenStops, stepActivePlace, stepActionLabel, formatPlaceWithBodySystem } from '@other/otherNext'
 import { miniBtn } from '../pages/JobsPartsStyles'
 
 const WHITE = '#eaf1f7'
@@ -90,7 +90,9 @@ export default function OtherOverlay(): React.ReactElement {
               minWidth: 0
             }}
           >
-            {current ? stepActivePlace(current.step) || current.step.label : 'NO OPEN STOP'}
+            {current
+              ? formatPlaceWithBodySystem(stepActivePlace(current.step) || current.step.label, locations)
+              : 'NO OPEN STOP'}
           </div>
         </div>
         <div style={{ display: 'flex', alignItems: 'center', gap: 6, flexShrink: 0, WebkitAppRegion: 'no-drag' } as React.CSSProperties}>
