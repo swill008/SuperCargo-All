@@ -53,6 +53,12 @@ export function parseOtherObjectiveText(raw: string): OtherObjectiveParse | null
     return { kind: 'go', label: `Go to ${location}`, location, have: 0, need: 1 }
   }
 
+  m = text.match(/^Travel\s+to\s+(.+?)(?:\s+and\b|$)/i)
+  if (m) {
+    const location = m[1].trim()
+    return { kind: 'go', label: text, location, have: 0, need: 1 }
+  }
+
   m = text.match(/^Neutralize\s+(.+)$/i)
   if (m) {
     const item = m[1].trim()

@@ -10,7 +10,7 @@ const SKIP =
   /^(primary\s+)?(objectives?|details?|description|reputation|risk|reward|aUEC|max box|box size|pickup|drop-?off|contract|accepted|offered)$/i
 
 const OBJECTIVE_START =
-  /^(?:Deliver|Bring|Collect|Recover|Turn\s*in|Go\s+to|Neutralize)\b/i
+  /^(?:Deliver|Bring|Collect|Recover|Turn\s*in|Go\s+to|Neutralize|Travel\s+to|Locate|Board|Investigate|Search|Find|Infiltrate|Escort|Protect|Defend|Destroy|Eliminate)\b/i
 
 export type OtherOcrRow = {
   kind: OtherObjectiveParse['kind']
@@ -83,6 +83,12 @@ export function parseOtherOcrLine(raw: string): OtherOcrRow | null {
   if (!text || text.length < 4 || SKIP.test(text)) return null
 
   let m = text.match(/Go\s+to\s+(.+)$/i)
+  if (m) return row('go', text, cleanExtractedLoc(m[1]))
+
+  m = text.match(/^Travel\s+to\s+(.+?)(?:\s+and\b|$)/i)
+  if (m) return row('go', text, cleanExtractedLoc(m[1]))
+
+  m = text.match(/^(?:Locate|Board|Investigate|Search(?:\s+for)?|Find|Infiltrate|Escort|Protect|Defend|Destroy|Eliminate)\s+(.+)$/i)
   if (m) return row('go', text, cleanExtractedLoc(m[1]))
 
   m = text.match(/Neutralize\s+(.+)$/i)
@@ -182,7 +188,8 @@ export const OTHER_OCR_LINE_CASES: Array<{ raw: string; kind: OtherOcrRow['kind'
   { raw: 'Collect Fresh Food from a Landing Pad Locker in New Babbage.', kind: 'pickup', location: 'a Landing Pad Locker in New Babbage', item: 'Fresh Food' },
   { raw: 'Deliver Medical Supplies to August Dunlow Spaceport.', kind: 'turnin', location: 'August Dunlow Spaceport', item: 'Medical Supplies' },
   { raw: 'Collect Medical Supplies from a Landing Pad Locker in New Babbage.', kind: 'pickup', location: 'a Landing Pad Locker in New Babbage', item: 'Medical Supplies' },
-  { raw: 'Deliver 0/11 SCU of Aluminum to Everus Harbor', kind: 'turnin', location: 'Everus Harbor', item: 'Aluminum' }
+  { raw: 'Deliver 0/11 SCU of Aluminum to Everus Harbor', kind: 'turnin', location: 'Everus Harbor', item: 'Aluminum' },
+  { raw: 'Travel to microTech and locate the infiltrated 890 Jump.', kind: 'go', location: 'microTech' }
 ]
 
 export function checkOtherOcrLineFixtures(): string[] {
