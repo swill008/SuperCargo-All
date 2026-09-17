@@ -53,6 +53,7 @@ interface OtherJobsState {
   setGroupBy: (v: 'location' | 'job') => void
   setListOrder: (v: 'distance' | 'manual') => void
   moveJob: (id: string, dir: -1 | 1) => void
+  placeJob: (id: string, beforeId: string) => void
   addJob: (draft: OtherJobDraft) => void
   applyEdit: (id: string, edit: OtherJobEdit) => void
   abandonJob: (id: string) => void
@@ -137,6 +138,12 @@ function stepFromObjective(e: ObjectiveEvent): OtherStep | null {
 }
 
 let listenersBound = false
+
+function activeJobOrder(s: { jobs: OtherJob[]; jobOrder: string[] }): string[] {
+  const active = s.jobs.filter((j) => j.status === 'active').map((j) => j.id)
+  const saved = s.jobOrder.filter((x) => active.includes(x))
+  return [...saved, ...active.filter((x) => !saved.includes(x))]
+}
 
 export const useOtherJobs = create<OtherJobsState>((set, get) => ({
   ready: false,
@@ -223,9 +230,7 @@ export const useOtherJobs = create<OtherJobsState>((set, get) => ({
     get().persist()
   },
   moveJob: (id, dir) => {
-    const active = get().jobs.filter((j) => j.status === 'active').map((j) => j.id)
-    const saved = get().jobOrder.filter((x) => active.includes(x))
-    const order = [...saved, ...active.filter((x) => !saved.includes(x))]
+    const order = activeJobOrder(get())
     const i = order.indexOf(id)
     const j = i + dir
     if (i < 0 || j < 0 || j >= order.length) return
@@ -233,6 +238,19 @@ export const useOtherJobs = create<OtherJobsState>((set, get) => ({
     const tmp = next[i]
     next[i] = next[j]
     next[j] = tmp
+    set({ jobOrder: next, listOrder: 'manual', groupBy: 'job' })
+    get().persist()
+  },
+  placeJob: (id, beforeId) => {
+    if (id === beforeId) return
+    const order = activeJobOrder(get())
+    const from = order.indexOf(id)
+    const to = order.indexOf(beforeId)
+    if (from < 0 || to < 0) return
+    const next = order.filter((x) => x !== id)
+    const insertAt = next.indexOf(beforeId)
+    if (insertAt < 0) return
+    next.splice(insertAt, 0, id)
     set({ jobOrder: next, listOrder: 'manual', groupBy: 'job' })
     get().persist()
   },

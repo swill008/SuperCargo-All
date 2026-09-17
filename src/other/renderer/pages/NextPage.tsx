@@ -1,5 +1,5 @@
 /** Other-mode Next page. Sorts open stops by UEX map distance from STARTING AT. */
-import React, { useMemo } from 'react'
+import React, { useMemo, useState } from 'react'
 import { C, F } from '@renderer/theme'
 import PageHeader, { PAGE_PADDING } from '@renderer/components/PageHeader'
 import { Btn } from '@renderer/components/ui'
@@ -22,6 +22,9 @@ export default function NextPage(): React.ReactElement {
   const setListOrder = useOtherJobs((s) => s.setListOrder)
   const jobOrder = useOtherJobs((s) => s.jobOrder)
   const moveJob = useOtherJobs((s) => s.moveJob)
+  const placeJob = useOtherJobs((s) => s.placeJob)
+  const [dragId, setDragId] = useState<string | null>(null)
+  const [overId, setOverId] = useState<string | null>(null)
   const toggleStep = useOtherJobs((s) => s.toggleStep)
   const showAll = !!useStore((s) => s.settings.overlayShowAllObjectives)
   const hideCompleted = useStore((s) => s.settings.overlayHideCompletedObjectives) !== false
@@ -110,7 +113,45 @@ export default function NextPage(): React.ReactElement {
       </div>
       {groups.length === 0 && <div style={{ fontFamily: F.body, fontSize: 14, color: C.dim }}>No open stops. Add a job on the Jobs tab.</div>}
       {groups.map(([heading, rows], gi) => (
-        <div key={heading} style={{ marginBottom: 14, border: `1px solid ${C.accBorder}`, background: C.accFill, padding: '12px 14px' }}>
+        <div
+          key={heading}
+          draggable={listOrder === 'manual' && groupBy === 'job'}
+          onDragStart={(e) => {
+            const id = rows[0]?.job.id
+            if (!id) return
+            setDragId(id)
+            e.dataTransfer.setData('text/plain', id)
+            e.dataTransfer.effectAllowed = 'move'
+          }}
+          onDragOver={(e) => {
+            if (listOrder !== 'manual' || groupBy !== 'job') return
+            e.preventDefault()
+            const id = rows[0]?.job.id
+            if (id) setOverId(id)
+          }}
+          onDragLeave={() => {
+            if (overId === rows[0]?.job.id) setOverId(null)
+          }}
+          onDrop={(e) => {
+            e.preventDefault()
+            const from = e.dataTransfer.getData('text/plain') || dragId
+            const to = rows[0]?.job.id
+            if (from && to) placeJob(from, to)
+            setDragId(null)
+            setOverId(null)
+          }}
+          onDragEnd={() => {
+            setDragId(null)
+            setOverId(null)
+          }}
+          style={{
+            marginBottom: 14,
+            border: `1px solid ${overId === rows[0]?.job.id ? C.acc : C.accBorder}`,
+            background: C.accFill,
+            padding: '12px 14px',
+            cursor: listOrder === 'manual' && groupBy === 'job' ? 'grab' : 'default'
+          }}
+        >
           <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 8 }}>
             <span style={{
               width: 22, height: 22, borderRadius: '50%', border: `1px solid ${C.acc}`, color: C.acc,
