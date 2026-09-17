@@ -9,6 +9,13 @@ export type OtherSessionScan = {
   objectivesByMission: Record<string, ScannedContract['objectives']>
 }
 
+/** Game launch or menu quit. Haul parseLine only sees Channel Disconnected + Player requested disconnect. */
+function isOtherSessionBreak(line: string): boolean {
+  if (/CDisciplineServiceExternal::Init/i.test(line)) return true
+  if (/Player requested disconnect/i.test(line)) return true
+  return false
+}
+
 export function scanOtherSessionLog(logPath: string): OtherSessionScan {
   let content: string
   try {
@@ -25,6 +32,10 @@ export function scanOtherSessionLog(logPath: string): OtherSessionScan {
 
   for (const line of content.split(/\r?\n/)) {
     if (!line) continue
+    if (isOtherSessionBreak(line)) {
+      active.clear()
+      continue
+    }
     const parsed = parseLine(line, markers)
     if (!parsed) continue
     switch (parsed.kind) {
