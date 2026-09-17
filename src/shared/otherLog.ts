@@ -27,15 +27,15 @@ export type OtherObjectiveParse = {
   need: number
 }
 
-/** Haul contracts must not become Other jobs. */
+/** Any logged generator may become an Other checklist job, including haul. */
 export function isOtherGenerator(generator: string | undefined | null): boolean {
-  if (!generator) return false
-  return !isHaulingGenerator(generator)
+  return !!generator
 }
 
 export function kindFromGenerator(generator: string, title = ''): OtherJobKind {
   const g = generator.toLowerCase()
   const t = title.toLowerCase()
+  if (isHaulingGenerator(generator) || /haul/.test(t)) return 'hauling'
   if (/salvage/.test(g) || /salvage/.test(t)) return 'salvage'
   if (/mining|resourcegathering/.test(g) && !/salvage/.test(g)) return 'mining'
   if (/recover|collector/.test(g) || /retriev|recover|ranta|collection/.test(t)) return 'collection'

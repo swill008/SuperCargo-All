@@ -14,7 +14,6 @@ import { useStore } from './store'
 import { useOtherHistory } from './otherHistory'
 import { requestAutoOcrIfEnabled } from './otherCapture'
 import {
-  isOtherGenerator,
   kindFromGenerator,
   parseOtherObjectiveText,
   stepFromParse,
@@ -268,8 +267,6 @@ export const useOtherJobs = create<OtherJobsState>((set, get) => ({
   },
 
   ingestAccepted: (e) => {
-    if (e.generator && !isOtherGenerator(e.generator)) return
-    if (!e.generator && /haul/i.test(e.title || '')) return
     if (get().jobs.find((j) => j.missionId === e.missionId)) return
     const kind = kindFromGenerator(e.generator || '', e.title || '')
     const jobs = get().jobs

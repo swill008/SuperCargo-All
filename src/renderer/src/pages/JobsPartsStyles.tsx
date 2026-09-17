@@ -6,7 +6,7 @@ import Typeahead from '../components/Typeahead'
 import { type OtherJobDraft } from '../state/otherJobs'
 import { OTHER_KIND_LABEL, type OtherJobKind } from '@shared/otherJob'
 
-const KINDS: OtherJobKind[] = ['delivery', 'collection', 'mining', 'salvage']
+const KINDS: OtherJobKind[] = ['delivery', 'collection', 'mining', 'salvage', 'hauling']
 
 export const outlineBtn: React.CSSProperties = {
   border: 0, background: C.acc, color: '#111',

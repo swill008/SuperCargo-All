@@ -17,6 +17,8 @@ import { prunePending } from './ocr/samples'
 import * as contractData from './contractData'
 import * as telemetry from './telemetry'
 import * as usageStats from './usageStats'
+import { sendOtherAccepted } from './otherIpc'
+import { resolveWorkMode } from '@shared/workMode'
 import * as boxReports from './boxReports'
 import appIcon from '../../resources/icon.png?asset'
 
@@ -441,9 +443,11 @@ function startWatcher(): void {
   watcher = new LogWatcher(logPath, channel)
   watcher.on('status', (s) => send(IPC.evtWatcherStatus, s))
   watcher.on('accepted', (e, isHauling) => {
+    if (resolveWorkMode(settings.workMode) === 'other') {
+      if (isHauling) sendOtherAccepted(e)
+      return
+    }
     if (isHauling) send(IPC.evtContractAccepted, contractData.enrichAccepted(e))
-
-    // hauling fires from renderer instead
     if (!isHauling && settings.contributeTrainingData) {
       scheduleAutoCapture(undefined)
     }

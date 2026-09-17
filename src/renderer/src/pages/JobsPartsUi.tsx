@@ -8,7 +8,7 @@ import { OTHER_KIND_LABEL, type OtherJob, type OtherJobKind } from '@shared/othe
 import { miniBtn, outlineBtn } from './JobsPartsStyles'
 import { OtherOcrShotView } from '../components/OtherOcrShotView'
 
-const KINDS: OtherJobKind[] = ['delivery', 'collection', 'mining', 'salvage']
+const KINDS: OtherJobKind[] = ['delivery', 'collection', 'mining', 'salvage', 'hauling']
 const inputStyle: React.CSSProperties = {
   background: 'rgba(0,0,0,0.4)', border: `1px solid ${C.lineStrong}`, color: C.text,
   fontFamily: F.body, fontSize: 13, padding: '5px 8px', width: '100%'

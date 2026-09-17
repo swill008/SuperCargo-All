@@ -32,12 +32,8 @@ let bound = false
 export const useHaulModeSwitch = create<HaulModeSwitchState>((set, get) => ({
   pending: [],
 
-  offer: (e) => {
-    if (resolveWorkMode(useStore.getState().settings.workMode) !== 'other') return
-    if (get().pending.some((p) => p.missionId === e.missionId)) return
-    set({
-      pending: [...get().pending, { missionId: e.missionId, title: e.title || 'Hauling contract' }]
-    })
+  offer: (_e) => {
+    /* Combined Other lists haul on Jobs. Prompt disabled; files kept for revert. */
   },
 
   stayInOther: () => {

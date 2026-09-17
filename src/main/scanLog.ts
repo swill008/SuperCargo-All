@@ -75,7 +75,7 @@ export type OtherSessionScan = {
   objectivesByMission: Record<string, ScannedContract['objectives']>
 }
 
-/** Active non-haul contracts still open in this Game.log. Other mode only. */
+/** Active contracts still open in this Game.log, including haul. Other mode only. */
 export function scanOtherSessionLog(logPath: string): OtherSessionScan {
   let content: string
   try {
@@ -96,9 +96,7 @@ export function scanOtherSessionLog(logPath: string): OtherSessionScan {
     if (!parsed) continue
     switch (parsed.kind) {
       case 'accepted':
-        if (!parsed.isHauling) {
-          active.set(parsed.event.missionId, { accepted: parsed.event, objectives: [] })
-        }
+        active.set(parsed.event.missionId, { accepted: parsed.event, objectives: [] })
         break
       case 'objective': {
         const list = objectivesByMission.get(parsed.event.missionId) ?? []

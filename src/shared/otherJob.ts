@@ -6,7 +6,7 @@
  * go to a place, pick up a named item, or turn in a count at one pad.
  */
 
-export type OtherJobKind = 'delivery' | 'collection' | 'mining' | 'salvage'
+export type OtherJobKind = 'delivery' | 'collection' | 'mining' | 'salvage' | 'hauling'
 
 export type OtherStepKind = 'go' | 'pickup' | 'turnin'
 
@@ -98,7 +98,8 @@ export const OTHER_KIND_LABEL: Record<OtherJobKind, string> = {
   delivery: 'DELIVERY',
   collection: 'COLLECTION',
   mining: 'MINING PO',
-  salvage: 'SALVAGE'
+  salvage: 'SALVAGE',
+  hauling: 'HAULING'
 }
 
 export function otherJobRef(index: number): string {
