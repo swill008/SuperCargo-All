@@ -357,6 +357,7 @@ export const useOtherJobs = create<OtherJobsState>((set, get) => ({
         j.status === 'active' && j.source !== 'manual' ? { ...j, status: 'abandoned' as const } : j
       )
     })
+    get().persist()
     void useOtherHistory.getState().reconcileFromLog()
   },
 
