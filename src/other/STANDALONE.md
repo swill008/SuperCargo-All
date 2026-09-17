@@ -11,6 +11,7 @@ After merging AquatikJustice/SuperCargo, restore:
 5. `src/preload/index.ts` — Other IPC methods (`loadOtherJobs`, `onOtherAccepted`, …).
 6. `electron.vite.config.ts` / tsconfig — `@other` → `src/other`.
 7. `BottomNav` / `CompactGate` — workMode branch (Jobs/Next vs Manifest).
+8. `src/renderer/src/state/store.ts` `scanSession` — skip when `workMode === 'other'` so Other restarts do not fill Manifest.
 
 Do not merge Other into packer, hold, CargoGridPage, or `manifest.json`.
 Tag: `StandAlone`.

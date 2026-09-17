@@ -1716,6 +1716,8 @@ export const useStore = create<StoreState>((set, get) => {
     },
 
     scanSession: async () => {
+      // StandAlone: do not hydrate Manifest from Game.log while Other mode is on.
+      if ((get().settings.workMode ?? 'haul') === 'other') return 0
       const { contracts: scanned, shares } = await window.supercargo.scanSession()
       if (!scanned.length && !shares.length) return 0
       const key = (o: { commodity: string; destination: string }): string =>
