@@ -11,6 +11,7 @@ import {
   type OtherStep
 } from '@shared/otherJob'
 import { useStore } from './store'
+import { resolveWorkMode } from '@shared/workMode'
 import { useOtherHistory } from './otherHistory'
 import { requestAutoOcrIfEnabled } from './otherCapture'
 import {
@@ -153,19 +154,17 @@ export const useOtherJobs = create<OtherJobsState>((set, get) => ({
       listenersBound = true
       window.supercargo.onOtherAccepted?.((e) => {
         get().ingestAccepted(e)
-        const missionId = e.missionId
-        window.setTimeout(() => {
-          const job = get().jobs.find((j) => j.missionId === missionId || j.id === missionId)
-          if (job) requestAutoOcrIfEnabled(job.id)
-        }, 2000)
+        const job = get().jobs.find((j) => j.missionId === e.missionId || j.id === e.missionId)
+        if (job) requestAutoOcrIfEnabled(job.id)
       })
       window.supercargo.onOtherSessionDrop?.(() => get().dropLogSession())
       window.supercargo.onObjective((e) => get().ingestObjective(e))
       window.supercargo.onContractEnded((e) => get().ingestEnded(e))
     }
 
-    const logPath = (await window.supercargo.getSettings()).gameLogPath
-    if (logPath && window.supercargo.scanOtherJobs) {
+    const saved = await window.supercargo.getSettings()
+    const logPath = saved.gameLogPath
+    if (resolveWorkMode(saved.workMode) === 'other' && logPath && window.supercargo.scanOtherJobs) {
       const scanned = await window.supercargo.scanOtherJobs(logPath)
       const contracts: ScannedContract[] = Array.isArray(scanned) ? scanned : scanned.contracts
       const live = new Set(contracts.map((c) => c.accepted.missionId))
