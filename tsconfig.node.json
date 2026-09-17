@@ -12,13 +12,15 @@
     "noUnusedLocals": true,
     "types": ["node"],
     "paths": {
-      "@shared/*": ["./src/shared/*"]
+      "@shared/*": ["./src/shared/*"],
+      "@other/*": ["./src/other/*"]
     }
   },
   "include": [
     "src/main/**/*.ts",
     "src/preload/**/*.ts",
     "src/shared/**/*.ts",
+    "src/other/**/*.ts",
     "electron.vite.config.ts"
   ]
 }

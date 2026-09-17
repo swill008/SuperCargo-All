@@ -4,7 +4,7 @@ import { useNarrow } from '../state/useViewport'
 import { C, F } from '../theme'
 import { Btn } from './ui'
 import { MADE_BY_COMMUNITY } from '@shared/legal'
-import { resolveWorkMode } from '@shared/workMode'
+import { resolveWorkMode } from '@other/workMode'
 
 type TabId = 'manifest' | 'contracts' | 'grid' | 'history' | 'settings' | 'jobs' | 'next'
 

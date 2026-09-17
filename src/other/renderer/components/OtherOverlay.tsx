@@ -4,11 +4,11 @@
  * Cycle arrows walk the open-stop list. Clicks need overlay click-through OFF.
  */
 import React, { useEffect, useMemo, useState } from 'react'
-import { C, F } from '../theme'
-import { useStore } from '../state/store'
+import { C, F } from '@renderer/theme'
+import { useStore } from '@renderer/state/store'
 import { useOtherJobs } from '../state/otherJobs'
 import { mergeLocations } from '../state/otherPlaces'
-import { listOpenStops, stepActivePlace, stepActionLabel } from '@shared/otherNext'
+import { listOpenStops, stepActivePlace, stepActionLabel } from '@other/otherNext'
 import { miniBtn } from '../pages/JobsPartsStyles'
 
 const WHITE = '#eaf1f7'

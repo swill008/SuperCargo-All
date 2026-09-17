@@ -1,12 +1,12 @@
 /** Overlay entry: Other mode uses the checklist card, Haul mode keeps stock SuperCargo. */
 import React, { useEffect } from 'react'
 import { useStore } from '../state/store'
-import { useOtherJobs } from '../state/otherJobs'
-import { useOtherHistory } from '../state/otherHistory'
-import { resolveWorkMode } from '@shared/workMode'
+import { useOtherJobs } from '@other/renderer/state/otherJobs'
+import { useOtherHistory } from '@other/renderer/state/otherHistory'
+import { resolveWorkMode } from '@other/workMode'
 import CompactWindowApp from './CompactWindowApp'
-import OtherOverlay from './OtherOverlay'
-import { loadOtherPlacesFromMain } from '../state/otherPlaces'
+import OtherOverlay from '@other/renderer/components/OtherOverlay'
+import { loadOtherPlacesFromMain } from '@other/renderer/state/otherPlaces'
 
 let jobsChangedBound = false
 

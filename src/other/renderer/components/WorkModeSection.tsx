@@ -1,9 +1,9 @@
 /** Settings control for the fork Work mode switch. */
 import React from 'react'
-import { C, F } from '../theme'
-import { Btn } from './ui'
-import { useStore } from '../state/store'
-import { WORK_MODE_LABELS, resolveWorkMode, type WorkMode } from '@shared/workMode'
+import { C, F } from '@renderer/theme'
+import { Btn } from '@renderer/components/ui'
+import { useStore } from '@renderer/state/store'
+import { WORK_MODE_LABELS, resolveWorkMode, type WorkMode } from '@other/workMode'
 
 export default function WorkModeSection(): React.ReactElement {
   const settings = useStore((s) => s.settings)

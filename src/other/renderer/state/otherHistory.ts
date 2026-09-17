@@ -5,7 +5,7 @@ import {
   type OtherJob,
   type OtherMovedBy,
   type OtherJobsDoc
-} from '@shared/otherJob'
+} from '@other/otherJob'
 import { useOtherJobs } from './otherJobs'
 import type { ScannedContract } from '@shared/types'
 

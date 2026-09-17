@@ -3,8 +3,8 @@
  * Label is the full cleaned objective sentence from Primary Objectives.
  * Item / location / counts are still extracted when the line matches.
  */
-import type { OtherObjectiveParse } from './otherLog'
-import { mergeCollectIntoDeliver } from './otherLog'
+import type { OtherObjectiveParse } from '@other/otherLog'
+import { mergeCollectIntoDeliver } from '@other/otherLog'
 
 const SKIP =
   /^(primary\s+)?(objectives?|details?|description|reputation|risk|reward|aUEC|max box|box size|pickup|drop-?off|contract|accepted|offered)$/i

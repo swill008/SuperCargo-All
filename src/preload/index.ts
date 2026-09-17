@@ -26,7 +26,7 @@ import type {
   DataSyncResult,
   BoxSizeReport
 } from '@shared/types'
-import type { OtherJobsDoc } from '@shared/otherJob'
+import type { OtherJobsDoc } from '@other/otherJob'
 
 type Unsubscribe = () => void
 

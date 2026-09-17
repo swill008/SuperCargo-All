@@ -3,9 +3,9 @@
  * Empty job → same applyOcrRows fill as Import.
  * Job with steps + Include aUEC → reward only when parsed amount > 0 and job reward is 0.
  */
-import { parseOtherOcrText } from '@shared/otherOcrParse'
+import { parseOtherOcrText } from '@other/otherOcrParse'
 import { useOtherJobs } from './otherJobs'
-import { useStore } from './store'
+import { useStore } from '@renderer/state/store'
 import { applyOcrRows, applyOcrRewardOnly } from './otherOcr'
 import { saveSessionOcrShot } from './otherOcrShot'
 

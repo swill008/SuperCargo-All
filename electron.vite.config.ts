@@ -7,7 +7,8 @@ const shared = resolve('src/shared')
 export default defineConfig({
   main: {
     plugins: [externalizeDepsPlugin()],
-    resolve: { alias: { '@shared': shared } },
+    resolve: { alias: { '@shared': shared,
+        '@other': resolve('src/other') } },
     build: {
       rollupOptions: {
         input: { index: resolve('src/main/index.ts') }
@@ -16,7 +17,8 @@ export default defineConfig({
   },
   preload: {
     plugins: [externalizeDepsPlugin()],
-    resolve: { alias: { '@shared': shared } },
+    resolve: { alias: { '@shared': shared,
+        '@other': resolve('src/other') } },
     build: {
       rollupOptions: {
         input: { index: resolve('src/preload/index.ts') }
@@ -28,7 +30,8 @@ export default defineConfig({
     resolve: {
       alias: {
         '@renderer': resolve('src/renderer/src'),
-        '@shared': shared
+        '@shared': shared,
+        '@other': resolve('src/other')
       }
     },
     plugins: [react()],

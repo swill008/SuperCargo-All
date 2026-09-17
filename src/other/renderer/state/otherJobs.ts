@@ -9,9 +9,9 @@ import {
   type OtherJobKind,
   type OtherJobsDoc,
   type OtherStep
-} from '@shared/otherJob'
-import { useStore } from './store'
-import { resolveWorkMode } from '@shared/workMode'
+} from '@other/otherJob'
+import { useStore } from '@renderer/state/store'
+import { resolveWorkMode } from '@other/workMode'
 import { useOtherHistory } from './otherHistory'
 import { requestAutoOcrIfEnabled } from './otherCapture'
 import {
@@ -19,7 +19,7 @@ import {
   parseOtherObjectiveText,
   stepFromParse,
   stepKey
-} from '@shared/otherLog'
+} from '@other/otherLog'
 import type { ContractAcceptedEvent, ContractEndedEvent, ObjectiveEvent, ScannedContract } from '@shared/types'
 
 export interface OtherJobDraft {

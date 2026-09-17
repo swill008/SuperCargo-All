@@ -3,11 +3,11 @@
  * This pass fills empty unlocked jobs only. Overwrite comes later.
  * Confirm snaps location to a unique UEX roster name when one is obvious.
  */
-import { mergeCollectIntoDeliver, parseOtherObjectiveText, stepFromParse, stepKey } from '@shared/otherLog'
-import type { OtherOcrRow } from '@shared/otherOcrParse'
-import type { OtherStep } from '@shared/otherJob'
+import { mergeCollectIntoDeliver, parseOtherObjectiveText, stepFromParse, stepKey } from '@other/otherLog'
+import type { OtherOcrRow } from '@other/otherOcrParse'
+import type { OtherStep } from '@other/otherJob'
 import { useOtherJobs } from './otherJobs'
-import { useStore } from './store'
+import { useStore } from '@renderer/state/store'
 import { mergeLocations } from './otherPlaces'
 
 let seq = 0

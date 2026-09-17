@@ -1,9 +1,9 @@
 /** Other-mode Jobs page (Contracts analogue). Does not touch haul contracts. */
 import React, { useEffect, useMemo, useState } from 'react'
-import { C, F } from '../theme'
-import PageHeader, { PAGE_PADDING } from '../components/PageHeader'
-import { Btn } from '../components/ui'
-import { useStore } from '../state/store'
+import { C, F } from '@renderer/theme'
+import PageHeader, { PAGE_PADDING } from '@renderer/components/PageHeader'
+import { Btn } from '@renderer/components/ui'
+import { useStore } from '@renderer/state/store'
 import { useOtherJobs, type OtherJobDraft } from '../state/otherJobs'
 import { useOtherHistory } from '../state/otherHistory'
 import { useOtherCapture } from '../state/otherCapture'

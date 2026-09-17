@@ -1,7 +1,7 @@
 /** HAUL MODE AUTO LOGIC SWITCH — prompt UI. Does not replace haul CaptureModal. */
 import React from 'react'
-import { C, F, GLOW } from '../theme'
-import { Btn } from './ui'
+import { C, F, GLOW } from '@renderer/theme'
+import { Btn } from '@renderer/components/ui'
 import { useHaulModeSwitch } from '../state/haulModeSwitch'
 import { miniBtn, outlineBtn } from '../pages/JobsPartsStyles'
 

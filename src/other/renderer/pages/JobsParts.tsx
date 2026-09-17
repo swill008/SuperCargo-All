@@ -1,9 +1,9 @@
 /** Job row for Other-mode Jobs page. */
 import React from 'react'
-import { C, F } from '../theme'
-import { Btn } from '../components/ui'
+import { C, F } from '@renderer/theme'
+import { Btn } from '@renderer/components/ui'
 import { type OtherJobEdit } from '../state/otherJobs'
-import { OTHER_KIND_LABEL, jobProgress, type OtherJob } from '@shared/otherJob'
+import { OTHER_KIND_LABEL, jobProgress, type OtherJob } from '@other/otherJob'
 import { EditForm } from './JobsPartsUi'
 import { miniBtn, tagStyle } from './JobsPartsStyles'
 export { AddForm, miniBtn, outlineBtn } from './JobsPartsStyles'

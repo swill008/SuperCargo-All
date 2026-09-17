@@ -3,8 +3,8 @@
  * Auto-capture uses Settings ocrAutoCapture + ocrCaptureDelay (one engine).
  */
 import { create } from 'zustand'
-import { useStore } from './store'
-import { resolveWorkMode } from '@shared/workMode'
+import { useStore } from '@renderer/state/store'
+import { resolveWorkMode } from '@other/workMode'
 import { runSilentAutoOcr } from './otherAutoOcrRun'
 
 interface OtherCaptureState {

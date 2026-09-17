@@ -10,10 +10,10 @@
  *   Adagio ship salvage → Deliver N SCU / Deliver N component
  *   Go to X / Neutralize X
  */
-import type { Location } from './types'
-import { isHaulingGenerator } from './contract'
-import type { OtherJobKind, OtherStep, OtherStepKind } from './otherJob'
-import { snapOtherLocation } from './otherLocationSnap'
+import type { Location } from '@shared/types'
+import { isHaulingGenerator } from '@shared/contract'
+import type { OtherJobKind, OtherStep, OtherStepKind } from '@other/otherJob'
+import { snapOtherLocation } from '@other/otherLocationSnap'
 
 export type OtherObjectiveParse = {
   kind: OtherStepKind

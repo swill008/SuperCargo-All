@@ -3,9 +3,9 @@
  * Unique UEX name only. Log and OCR both call this so one sentence
  * cannot become two different stops.
  */
-import type { Location } from './types'
-import { isSystemDestination } from './contract'
-import { splitLogAddress } from './logLocation'
+import type { Location } from '@shared/types'
+import { isSystemDestination } from '@shared/contract'
+import { splitLogAddress } from '@shared/logLocation'
 
 const norm = (s: string): string => s.toLowerCase().replace(/[^a-z0-9]+/g, ' ').trim()
 

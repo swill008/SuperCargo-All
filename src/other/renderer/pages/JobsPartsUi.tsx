@@ -1,10 +1,10 @@
 /** JOB GUI Reskin — compact Edit table (objective / location / item / need). */
 import React, { useEffect, useState } from 'react'
-import { C, F } from '../theme'
-import { Btn } from '../components/ui'
-import Typeahead from '../components/Typeahead'
+import { C, F } from '@renderer/theme'
+import { Btn } from '@renderer/components/ui'
+import Typeahead from '@renderer/components/Typeahead'
 import { type OtherJobEdit } from '../state/otherJobs'
-import { OTHER_KIND_LABEL, type OtherJob, type OtherJobKind } from '@shared/otherJob'
+import { OTHER_KIND_LABEL, type OtherJob, type OtherJobKind } from '@other/otherJob'
 import { miniBtn, outlineBtn } from './JobsPartsStyles'
 import { OtherOcrShotView } from '../components/OtherOcrShotView'
 

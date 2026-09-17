@@ -1,6 +1,6 @@
 /** Session OCR picture: thumbnail → 2x → 3x → dismiss. Edge-follow scroll while zoomed. */
 import React, { useEffect, useRef, useState } from 'react'
-import { C } from '../theme'
+import { C } from '@renderer/theme'
 
 const EDGE = 0.2
 const MAX_PX = 22

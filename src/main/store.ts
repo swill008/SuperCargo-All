@@ -4,7 +4,6 @@ import { app } from 'electron'
 import type { AppSettings, ManifestDoc, HistoryDoc } from '@shared/types'
 import { DEFAULT_SHIP } from '@shared/ships'
 import { newRunId, migrateRunId } from '@shared/run'
-import { ensureOtherJobsIpc } from './otherJobs'
 
 const SETTINGS_FILE = 'settings.json'
 const MANIFEST_FILE = 'manifest.json'
@@ -69,7 +68,6 @@ function writeJson(file: string, value: unknown): void {
 }
 
 export function loadSettings(): AppSettings {
-  ensureOtherJobsIpc()
   const loaded = readJson<AppSettings>(SETTINGS_FILE, DEFAULT_SETTINGS)
   // saved true would still hit AquatikJustice releases. Keep auto-check off.
   if (loaded.autoCheckUpdates) {

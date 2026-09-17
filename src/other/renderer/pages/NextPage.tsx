@@ -1,13 +1,13 @@
 /** Other-mode Next page. Sorts open stops by UEX map distance from STARTING AT. */
 import React, { useMemo } from 'react'
-import { C, F } from '../theme'
-import PageHeader, { PAGE_PADDING } from '../components/PageHeader'
-import { Btn } from '../components/ui'
-import Typeahead from '../components/Typeahead'
-import { useStore } from '../state/store'
+import { C, F } from '@renderer/theme'
+import PageHeader, { PAGE_PADDING } from '@renderer/components/PageHeader'
+import { Btn } from '@renderer/components/ui'
+import Typeahead from '@renderer/components/Typeahead'
+import { useStore } from '@renderer/state/store'
 import { useOtherJobs } from '../state/otherJobs'
-import { type OtherJob, type OtherStep } from '@shared/otherJob'
-import { listOpenStops, distanceFromStart, formatMapDistance, stepActivePlace, stepActionLabel } from '@shared/otherNext'
+import { type OtherJob, type OtherStep } from '@other/otherJob'
+import { listOpenStops, distanceFromStart, formatMapDistance, stepActivePlace, stepActionLabel } from '@other/otherNext'
 import { mergeLocations } from '../state/otherPlaces'
 
 interface OpenStop { job: OtherJob; step: OtherStep }

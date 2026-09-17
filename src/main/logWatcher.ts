@@ -3,7 +3,7 @@
 import { EventEmitter } from 'node:events'
 import * as fs from 'node:fs'
 import { parseLine, type MarkerEntry } from './logParser'
-import { sendOtherAccepted, sendOtherSessionDrop } from './otherIpc'
+import { sendOtherAccepted, sendOtherSessionDrop } from '@other/main/ipc'
 import type {
   ContractAcceptedEvent,
   ObjectiveEvent,

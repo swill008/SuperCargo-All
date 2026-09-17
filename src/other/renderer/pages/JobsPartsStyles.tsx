@@ -1,10 +1,10 @@
 /** Add form and shared styles for Other-mode Jobs. */
 import React from 'react'
-import { C, F } from '../theme'
-import { Btn } from '../components/ui'
-import Typeahead from '../components/Typeahead'
+import { C, F } from '@renderer/theme'
+import { Btn } from '@renderer/components/ui'
+import Typeahead from '@renderer/components/Typeahead'
 import { type OtherJobDraft } from '../state/otherJobs'
-import { OTHER_KIND_LABEL, type OtherJobKind } from '@shared/otherJob'
+import { OTHER_KIND_LABEL, type OtherJobKind } from '@other/otherJob'
 
 const KINDS: OtherJobKind[] = ['delivery', 'collection', 'mining', 'salvage', 'hauling']
 

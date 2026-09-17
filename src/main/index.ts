@@ -17,14 +17,14 @@ import { prunePending } from './ocr/samples'
 import * as contractData from './contractData'
 import * as telemetry from './telemetry'
 import * as usageStats from './usageStats'
-import { sendOtherAccepted } from './otherIpc'
-import { resolveWorkMode } from '@shared/workMode'
+import { ensureOtherIpc, routeAccepted } from '@other/main/register'
 import * as boxReports from './boxReports'
 import appIcon from '../../resources/icon.png?asset'
 
 let mainWindow: BrowserWindow | null = null
 let compactWindow: BrowserWindow | null = null
 let watcher: LogWatcher | null = null
+ensureOtherIpc()
 let settings: AppSettings = loadSettings()
 
 function isExternalUrl(url: string): boolean {
@@ -443,11 +443,9 @@ function startWatcher(): void {
   watcher = new LogWatcher(logPath, channel)
   watcher.on('status', (s) => send(IPC.evtWatcherStatus, s))
   watcher.on('accepted', (e, isHauling) => {
-    if (resolveWorkMode(settings.workMode) === 'other') {
-      if (isHauling) sendOtherAccepted(e)
-      return
-    }
-    if (isHauling) send(IPC.evtContractAccepted, contractData.enrichAccepted(e))
+    const dest = routeAccepted(e, isHauling, settings)
+    if (dest === 'other') return
+    if (dest === 'haul') send(IPC.evtContractAccepted, contractData.enrichAccepted(e))
     if (!isHauling && settings.contributeTrainingData) {
       scheduleAutoCapture(undefined)
     }

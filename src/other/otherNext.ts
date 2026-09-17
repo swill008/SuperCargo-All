@@ -3,9 +3,9 @@
  * Uses the UEX location roster and resolveLogLocation.
  * Does not call planRoute / packer / hold.
  */
-import type { Location } from './types'
-import { resolveLogLocation } from './logLocation'
-import { nextOpenStep, type OtherJob, type OtherStep } from './otherJob'
+import type { Location } from '@shared/types'
+import { resolveLogLocation } from '@shared/logLocation'
+import { nextOpenStep, type OtherJob, type OtherStep } from '@other/otherJob'
 
 export function findRosterLocation(raw: string, locations: Location[]): Location | undefined {
   const trimmed = raw.trim()

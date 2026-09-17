@@ -49,7 +49,7 @@ export function isOtherMode(value: string | undefined | null): boolean {
 }
 
 // Merge onto upstream AppSettings without rewriting types.ts.
-declare module './types' {
+declare module '@shared/types' {
   interface AppSettings {
     workMode?: WorkMode
     /** @deprecated Other auto-OCR uses settings.ocrAutoCapture */

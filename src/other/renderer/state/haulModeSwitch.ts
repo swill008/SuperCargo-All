@@ -11,8 +11,7 @@
  * Stay: removeContract + dismissScanItem. Switch: workMode haul + Manifest.
  */
 import { create } from 'zustand'
-import { resolveWorkMode } from '@shared/workMode'
-import { useStore } from './store'
+import { useStore } from '@renderer/state/store'
 import type { ContractAcceptedEvent } from '@shared/types'
 
 export type PendingHaulSwitch = {

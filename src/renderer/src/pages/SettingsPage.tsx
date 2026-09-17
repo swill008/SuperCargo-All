@@ -4,6 +4,7 @@ import { C, F, GLOW, ZOOM_MIN, ZOOM_MAX, ZOOM_STEP, ZOOM_DEFAULT, clampZoom } fr
 import PageHeader, { PAGE_PADDING } from '../components/PageHeader'
 import { Btn } from '../components/ui'
 import OcrCalibrator from '../components/OcrCalibrator'
+import OtherSettingsBlock from '@other/renderer/settingsBlock'
 import PrivacyPolicy from '../components/PrivacyPolicy'
 import type { DisplayInfo, ContractDataStatus, DataSyncResult } from '@shared/types'
 import {
@@ -512,21 +513,9 @@ export default function SettingsPage(): React.ReactElement {
         <div style={{ display: 'flex', alignItems: 'center', gap: 14 }}>
           <Toggle on={settings.ocrAutoCapture} onClick={() => void updateSettings({ ocrAutoCapture: !settings.ocrAutoCapture })} />
           <span style={{ fontFamily: F.body, fontSize: 12, color: C.dim }}>
-            Read the contract screen automatically when you accept one. Other mode uses this same switch.
+            Read the contract screen automatically when you accept one
           </span>
         </div>
-      </div>
-      <div style={rowStyle}>
-        <span style={keyStyle}>
-          Include aUEC
-          <span style={{ display: 'block', fontFamily: F.body, fontSize: 12, color: C.dim, marginTop: 2 }}>
-            On a log job that already has steps, the same auto-capture writes Reward only when the amount is greater than 0.
-          </span>
-        </span>
-        <Toggle
-          on={!!settings.otherOcrIncludeAuec}
-          onClick={() => void updateSettings({ otherOcrIncludeAuec: !settings.otherOcrIncludeAuec })}
-        />
       </div>
       <div style={rowStyle}>
         <span style={keyStyle}>Capture delay</span>
@@ -543,6 +532,7 @@ export default function SettingsPage(): React.ReactElement {
           <span style={{ fontFamily: F.mono, fontSize: 13, color: C.body }}>{settings.ocrCaptureDelay.toFixed(1)} s</span>
         </div>
       </div>
+      <OtherSettingsBlock rowStyle={rowStyle} keyStyle={keyStyle} Toggle={Toggle} />
 
       <Section title="CONTRIBUTE TRAINING DATA" />
       <div style={rowStyle}>

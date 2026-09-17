@@ -3,7 +3,7 @@
  * Esc cancels the pending shot so results are not applied.
  */
 import React, { useEffect } from 'react'
-import { C, F, GLOW } from '../theme'
+import { C, F, GLOW } from '@renderer/theme'
 import { useOtherCapture } from '../state/otherCapture'
 
 export default function OtherAutoOcrVeil(): React.ReactElement | null {

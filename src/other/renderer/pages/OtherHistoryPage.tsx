@@ -1,15 +1,15 @@
 /** Other-mode History. Does not read haul history.json. */
 import React, { useEffect, useMemo, useState } from 'react'
 import { useOtherHistory } from '../state/otherHistory'
-import { Btn } from '../components/ui'
+import { Btn } from '@renderer/components/ui'
 import {
   OTHER_KIND_LABEL,
   OTHER_MOVED_LABEL,
   OTHER_OUTCOME_LABEL,
   type OtherHistoryEntry
-} from '@shared/otherJob'
-import { C, F } from '../theme'
-import PageHeader, { PAGE_PADDING } from '../components/PageHeader'
+} from '@other/otherJob'
+import { C, F } from '@renderer/theme'
+import PageHeader, { PAGE_PADDING } from '@renderer/components/PageHeader'
 
 export default function OtherHistoryPage(): React.ReactElement {
   const history = useOtherHistory((s) => s.history)

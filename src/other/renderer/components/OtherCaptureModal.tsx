@@ -3,17 +3,17 @@
  * Engine only: window.supercargo.ocrRun / ocrPreview.
  */
 import React, { useEffect, useMemo, useState } from 'react'
-import { C, F, GLOW } from '../theme'
-import { Btn } from './ui'
-import Typeahead from './Typeahead'
-import OcrCalibrator from './OcrCalibrator'
-import { useStore } from '../state/store'
+import { C, F, GLOW } from '@renderer/theme'
+import { Btn } from '@renderer/components/ui'
+import Typeahead from '@renderer/components/Typeahead'
+import OcrCalibrator from '@renderer/components/OcrCalibrator'
+import { useStore } from '@renderer/state/store'
 import { useOtherJobs } from '../state/otherJobs'
 import { useOtherCapture } from '../state/otherCapture'
 import { applyOcrRows, applyOcrRewardOnly } from '../state/otherOcr'
 import { saveSessionOcrShot } from '../state/otherOcrShot'
 import { mergeLocations } from '../state/otherPlaces'
-import { parseOtherOcrText, type OtherOcrRow } from '@shared/otherOcrParse'
+import { parseOtherOcrText, type OtherOcrRow } from '@other/otherOcrParse'
 import { miniBtn, outlineBtn } from '../pages/JobsPartsStyles'
 import { OtherOcrShotView } from './OtherOcrShotView'
 
