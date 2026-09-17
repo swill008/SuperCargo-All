@@ -8,7 +8,7 @@ import { C, F } from '@renderer/theme'
 import { useStore } from '@renderer/state/store'
 import { useOtherJobs } from '../state/otherJobs'
 import { mergeLocations } from '../state/otherPlaces'
-import { listOpenStops, stepActivePlace, stepActionLabel, formatPlaceWithBodySystem } from '@other/otherNext'
+import { listOpenStops, stepActivePlace, stepActionLabel, formatPlaceWithBodySystem, findNextTravelStop } from '@other/otherNext'
 import { miniBtn } from '../pages/JobsPartsStyles'
 
 const WHITE = '#eaf1f7'
@@ -49,6 +49,7 @@ export default function OtherOverlay(): React.ReactElement {
 
   const current = open[idx]
   const upcoming = open[idx + 1]
+  const nextTravel = findNextTravelStop(open, idx)
   const total = open.length
   const shown = current ? idx + 1 : 0
   const canPrev = idx > 0
@@ -145,8 +146,17 @@ export default function OtherOverlay(): React.ReactElement {
       ) : (
         <div style={{ fontSize: 13, color: C.dim }}>Add an Other-mode job in the main window.</div>
       )}
-      {upcoming && (
-        <div style={{ marginTop: 12, fontSize: 13, color: C.dim }}>then {upcoming.step.location || upcoming.step.label}</div>
+      {(upcoming || nextTravel) && (
+        <div style={{ marginTop: 12, fontSize: 13, color: C.dim, lineHeight: 1.45 }}>
+          {upcoming ? (
+            <div>Next Objective: {upcoming.step.label}</div>
+          ) : null}
+          {nextTravel ? (
+            <div style={{ marginTop: upcoming ? 4 : 0 }}>
+              Next Location: {formatPlaceWithBodySystem(stepActivePlace(nextTravel.step) || nextTravel.step.label, locations)}
+            </div>
+          ) : null}
+        </div>
       )}
       <div style={{ flex: 1 }} />
       <div

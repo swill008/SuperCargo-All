@@ -27,6 +27,23 @@ export function formatPlaceWithBodySystem(name: string, locations: Location[]): 
   return parts.join(' \u00b7 ')
 }
 
+function placeTravelKey(step: OtherStep): string {
+  return (stepActivePlace(step) || step.label).toLowerCase().replace(/[^a-z0-9]+/g, ' ').trim()
+}
+
+/** First later open stop whose place name differs from the current stop. */
+export function findNextTravelStop<T extends { step: OtherStep }>(open: T[], fromIdx: number): T | undefined {
+  const cur = open[fromIdx]
+  if (!cur) return undefined
+  const key = placeTravelKey(cur.step)
+  if (!key) return open[fromIdx + 1]
+  for (let i = fromIdx + 1; i < open.length; i++) {
+    const next = placeTravelKey(open[i].step)
+    if (next && next !== key) return open[i]
+  }
+  return undefined
+}
+
 export function findRosterLocation(raw: string, locations: Location[]): Location | undefined {
   const trimmed = raw.trim()
   if (!trimmed || locations.length === 0) return undefined
