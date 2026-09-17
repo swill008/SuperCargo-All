@@ -45,24 +45,16 @@ export const useOtherHistory = create<OtherHistoryState>((set, get) => ({
     void window.supercargo.saveOtherJobs?.(doc)
   },
   clearFinished: async () => {
-    const logPath = (await window.supercargo.getSettings()).gameLogPath
-    let live = new Set<string>()
-    if (logPath && window.supercargo.scanOtherJobs) {
-      const scanned = await window.supercargo.scanOtherJobs(logPath)
-      const contracts: ScannedContract[] = Array.isArray(scanned) ? scanned : scanned.contracts
-      live = new Set(contracts.map((c) => c.accepted.missionId))
-    }
     const keep: OtherJob[] = []
     const archived: OtherHistoryEntry[] = []
     for (const j of useOtherJobs.getState().jobs) {
-      const logOpen = !!j.missionId && live.has(j.missionId)
-      if (j.status !== 'active' && !logOpen) archived.push(toHistory(j, 'manual'))
+      if (j.status !== 'active') archived.push(toHistory(j, 'manual'))
       else keep.push(j)
     }
     if (!archived.length) return
     useOtherJobs.setState({ jobs: keep })
     set({ history: [...archived, ...get().history] })
-    get().persist()
+    useOtherJobs.getState().persist()
   },
   clearAll: () => {
     set({ history: [] })
