@@ -28,9 +28,11 @@ export default function OtherOverlay(): React.ReactElement {
 
   const showAll = !!settings.overlayShowAllObjectives
   const hideCompleted = settings.overlayHideCompletedObjectives !== false
+  const listOrder = useOtherJobs((s) => s.listOrder)
+  const jobOrder = useOtherJobs((s) => s.jobOrder)
   const open = useMemo(
-    () => listOpenStops(jobs, startLocation, locations, { showAll, hideCompleted }),
-    [jobs, startLocation, locations, showAll, hideCompleted]
+    () => listOpenStops(jobs, startLocation, locations, { showAll, hideCompleted, listOrder, jobOrder }),
+    [jobs, startLocation, locations, showAll, hideCompleted, listOrder, jobOrder]
   )
 
   useEffect(() => {

@@ -44,11 +44,15 @@ interface OtherJobsState {
   expandedId: string | null
   startLocation: string
   groupBy: 'location' | 'job'
+  listOrder: 'distance' | 'manual'
+  jobOrder: string[]
   init: () => Promise<void>
   persist: () => void
   setExpanded: (id: string | null) => void
   setStartLocation: (v: string) => void
   setGroupBy: (v: 'location' | 'job') => void
+  setListOrder: (v: 'distance' | 'manual') => void
+  moveJob: (id: string, dir: -1 | 1) => void
   addJob: (draft: OtherJobDraft) => void
   applyEdit: (id: string, edit: OtherJobEdit) => void
   abandonJob: (id: string) => void
@@ -140,6 +144,8 @@ export const useOtherJobs = create<OtherJobsState>((set, get) => ({
   expandedId: null,
   startLocation: '',
   groupBy: 'location',
+  listOrder: 'distance',
+  jobOrder: [],
 
   init: async () => {
     if (!window.supercargo.loadOtherJobs) {
@@ -147,7 +153,13 @@ export const useOtherJobs = create<OtherJobsState>((set, get) => ({
       return
     }
     const doc = await window.supercargo.loadOtherJobs()
-    set({ ready: true, jobs: doc.jobs ?? [], startLocation: doc.startLocation ?? '' })
+    set({
+      ready: true,
+      jobs: doc.jobs ?? [],
+      startLocation: doc.startLocation ?? '',
+      listOrder: doc.listOrder === 'manual' ? 'manual' : 'distance',
+      jobOrder: Array.isArray(doc.jobOrder) ? doc.jobOrder : []
+    })
     useOtherHistory.getState().load(doc)
 
     if (!listenersBound) {
@@ -193,7 +205,9 @@ export const useOtherJobs = create<OtherJobsState>((set, get) => ({
     const doc: OtherJobsDoc = {
       jobs: get().jobs,
       history: useOtherHistory.getState().history,
-      startLocation: get().startLocation
+      startLocation: get().startLocation,
+      listOrder: get().listOrder,
+      jobOrder: get().jobOrder
     }
     void window.supercargo.saveOtherJobs?.(doc)
   },
@@ -204,6 +218,24 @@ export const useOtherJobs = create<OtherJobsState>((set, get) => ({
     get().persist()
   },
   setGroupBy: (v) => set({ groupBy: v }),
+  setListOrder: (v) => {
+    set({ listOrder: v, groupBy: v === 'manual' ? 'job' : get().groupBy })
+    get().persist()
+  },
+  moveJob: (id, dir) => {
+    const active = get().jobs.filter((j) => j.status === 'active').map((j) => j.id)
+    const saved = get().jobOrder.filter((x) => active.includes(x))
+    const order = [...saved, ...active.filter((x) => !saved.includes(x))]
+    const i = order.indexOf(id)
+    const j = i + dir
+    if (i < 0 || j < 0 || j >= order.length) return
+    const next = [...order]
+    const tmp = next[i]
+    next[i] = next[j]
+    next[j] = tmp
+    set({ jobOrder: next, listOrder: 'manual', groupBy: 'job' })
+    get().persist()
+  },
 
   addJob: (draft) => {
     const jobs = get().jobs

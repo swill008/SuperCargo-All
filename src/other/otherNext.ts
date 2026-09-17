@@ -144,6 +144,17 @@ export type ListOpenStopsOpts = {
   showAll?: boolean
   /** Only used when showAll. Default true. */
   hideCompleted?: boolean
+  listOrder?: 'distance' | 'manual'
+  jobOrder?: string[]
+}
+
+export function sortJobsByManualOrder(jobs: OtherJob[], jobOrder: string[]): OtherJob[] {
+  const idx = new Map(jobOrder.map((id, i) => [id, i]))
+  return [...jobs].sort((a, b) => {
+    const ia = idx.has(a.id) ? idx.get(a.id)! : jobOrder.length + jobs.indexOf(a)
+    const ib = idx.has(b.id) ? idx.get(b.id)! : jobOrder.length + jobs.indexOf(b)
+    return ia - ib
+  })
 }
 
 function visibleSteps(job: OtherJob, hideCompleted: boolean): OtherStep[] {
@@ -179,15 +190,17 @@ export function listOpenStops(
 ): OpenStopRow[] {
   const showAll = !!opts?.showAll
   const hideCompleted = opts?.hideCompleted !== false
+  const manual = opts?.listOrder === 'manual'
   const active = jobs.filter((j) => j.status === 'active')
 
   if (!showAll) {
     const rows: OpenStopRow[] = []
-    for (const job of active) {
+    const pool = manual ? sortJobsByManualOrder(active, opts?.jobOrder ?? []) : active
+    for (const job of pool) {
       const step = nextOpenStep(job)
       if (step) rows.push({ job, step })
     }
-    if (!startLocation.trim()) return rows
+    if (manual || !startLocation.trim()) return rows
     return [...rows].sort((a, b) =>
       compareByDistanceFrom(
         startLocation,
@@ -199,7 +212,9 @@ export function listOpenStops(
   }
 
   const withSteps = active.filter((j) => visibleSteps(j, hideCompleted).length > 0)
-  const ordered = sortJobsByFirstStep(withSteps, startLocation, locations, hideCompleted)
+  const ordered = manual
+    ? sortJobsByManualOrder(withSteps, opts?.jobOrder ?? [])
+    : sortJobsByFirstStep(withSteps, startLocation, locations, hideCompleted)
   const rows: OpenStopRow[] = []
   for (const job of ordered) {
     for (const step of visibleSteps(job, hideCompleted)) {

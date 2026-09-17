@@ -18,6 +18,10 @@ export default function NextPage(): React.ReactElement {
   const setStartLocation = useOtherJobs((s) => s.setStartLocation)
   const groupBy = useOtherJobs((s) => s.groupBy)
   const setGroupBy = useOtherJobs((s) => s.setGroupBy)
+  const listOrder = useOtherJobs((s) => s.listOrder)
+  const setListOrder = useOtherJobs((s) => s.setListOrder)
+  const jobOrder = useOtherJobs((s) => s.jobOrder)
+  const moveJob = useOtherJobs((s) => s.moveJob)
   const toggleStep = useOtherJobs((s) => s.toggleStep)
   const showAll = !!useStore((s) => s.settings.overlayShowAllObjectives)
   const hideCompleted = useStore((s) => s.settings.overlayHideCompletedObjectives) !== false
@@ -26,8 +30,8 @@ export default function NextPage(): React.ReactElement {
   const names = useMemo(() => locations.map((l) => l.name).filter(Boolean), [locations])
 
   const open = useMemo(
-    () => listOpenStops(jobs, startLocation, locations, { showAll, hideCompleted }),
-    [jobs, startLocation, locations, showAll, hideCompleted]
+    () => listOpenStops(jobs, startLocation, locations, { showAll, hideCompleted, listOrder, jobOrder }),
+    [jobs, startLocation, locations, showAll, hideCompleted, listOrder, jobOrder]
   )
 
   const groups = useMemo(() => {
@@ -50,6 +54,18 @@ export default function NextPage(): React.ReactElement {
         title="NEXT"
         subtitle={`${activeCount} jobs \u00b7 ${open.length} open stops \u00b7 Other mode`}
         right={
+          <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', justifyContent: 'flex-end' }}>
+          <div style={{ display: 'flex', border: `1px solid ${C.lineStrong}` }}>
+            {(['distance', 'manual'] as const).map((id) => {
+              const on = listOrder === id
+              return (
+                <Btn key={id} onClick={() => setListOrder(id)} style={{
+                  border: 0, background: on ? C.acc : 'transparent', color: on ? '#111' : C.ghost,
+                  fontFamily: F.display, fontSize: 12, fontWeight: 700, letterSpacing: '0.14em', padding: '7px 12px', cursor: 'pointer'
+                }}>{id === 'distance' ? 'DISTANCE' : 'MANUAL'}</Btn>
+              )
+            })}
+          </div>
           <div style={{ display: 'flex', border: `1px solid ${C.lineStrong}` }}>
             {(['location', 'job'] as const).map((id) => {
               const on = groupBy === id
@@ -60,6 +76,7 @@ export default function NextPage(): React.ReactElement {
                 }}>{id.toUpperCase()}</Btn>
               )
             })}
+          </div>
           </div>
         }
       />
@@ -99,9 +116,21 @@ export default function NextPage(): React.ReactElement {
               width: 22, height: 22, borderRadius: '50%', border: `1px solid ${C.acc}`, color: C.acc,
               fontFamily: F.display, fontSize: 12, display: 'inline-flex', alignItems: 'center', justifyContent: 'center', flex: 'none'
             }}>{gi + 1}</span>
-            <div style={{ fontFamily: F.display, fontSize: 16, color: rows.some((r) => r.step.locationSnapped) ? C.acc : C.text }}>
+            <div style={{ fontFamily: F.display, fontSize: 16, color: rows.some((r) => r.step.locationSnapped) ? C.acc : C.text, flex: 1 }}>
               {groupBy === 'job' ? heading : formatPlaceWithBodySystem(heading, locations)}
             </div>
+            {listOrder === 'manual' && groupBy === 'job' && rows[0] ? (
+              <span style={{ display: 'flex', gap: 4, flex: 'none' }}>
+                <Btn onClick={() => moveJob(rows[0].job.id, -1)} style={{
+                  border: `1px solid ${C.lineStrong}`, background: 'transparent', color: C.text,
+                  fontFamily: F.display, fontSize: 11, padding: '4px 8px', cursor: 'pointer'
+                }}>UP</Btn>
+                <Btn onClick={() => moveJob(rows[0].job.id, 1)} style={{
+                  border: `1px solid ${C.lineStrong}`, background: 'transparent', color: C.text,
+                  fontFamily: F.display, fontSize: 11, padding: '4px 8px', cursor: 'pointer'
+                }}>DOWN</Btn>
+              </span>
+            ) : null}
           </div>
           {rows.map(({ job, step }) => (
             <div key={step.id} style={{ display: 'grid', gridTemplateColumns: '1fr auto', gap: 12, alignItems: 'center', padding: '6px 0 2px 32px' }}>

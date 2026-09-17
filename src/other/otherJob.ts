@@ -80,6 +80,10 @@ export interface OtherJobsDoc {
   history: OtherHistoryEntry[]
   /** Shared with overlay so Next and overlay sort the same list. */
   startLocation?: string
+  /** distance = UEX from STARTING AT. manual = jobOrder. */
+  listOrder?: 'distance' | 'manual'
+  /** Active job ids, first = first contract in Next / overlay. */
+  jobOrder?: string[]
 }
 
 export const EMPTY_OTHER_JOBS: OtherJobsDoc = { jobs: [], history: [] }
