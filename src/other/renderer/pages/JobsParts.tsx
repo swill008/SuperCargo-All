@@ -21,6 +21,7 @@ export function JobRow({ job, uex, expanded, editing, onToggle, onEdit, onCancel
   onCancelEdit: () => void
   onSaveEdit: (edit: OtherJobEdit) => void
   onAbandon: () => void
+  onRestore: () => void
   onComplete: () => void
   onImportOcr: () => void
   onStep: (id: string) => void
@@ -102,6 +103,9 @@ export function JobRow({ job, uex, expanded, editing, onToggle, onEdit, onCancel
                 <Btn onClick={onComplete} style={miniBtn}>COMPLETE</Btn>
                 <Btn onClick={onAbandon} style={miniBtn}>ABANDON</Btn>
               </>
+            )}
+            {job.status !== 'active' && (
+              <Btn onClick={onRestore} style={miniBtn}>RESTORE</Btn>
             )}
             <Btn onClick={onImportOcr} style={miniBtn}>IMPORT FROM OCR</Btn>
           </div>

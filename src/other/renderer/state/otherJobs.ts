@@ -57,6 +57,7 @@ interface OtherJobsState {
   addJob: (draft: OtherJobDraft) => void
   applyEdit: (id: string, edit: OtherJobEdit) => void
   abandonJob: (id: string) => void
+  restoreJob: (id: string) => void
   completeJob: (id: string) => void
   toggleStep: (jobId: string, stepId: string) => void
   ingestAccepted: (e: ContractAcceptedEvent) => void
@@ -380,6 +381,14 @@ export const useOtherJobs = create<OtherJobsState>((set, get) => ({
 
   abandonJob: (id) => {
     set({ jobs: get().jobs.map((j) => (j.id === id ? { ...j, status: 'abandoned' as const, objectivesLocked: true } : j)) })
+    get().persist()
+  },
+  restoreJob: (id) => {
+    set({
+      jobs: get().jobs.map((j) =>
+        j.id === id && j.status !== 'active' ? { ...j, status: 'active' as const } : j
+      )
+    })
     get().persist()
   },
 

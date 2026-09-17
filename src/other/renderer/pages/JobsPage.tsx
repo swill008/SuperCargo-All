@@ -30,6 +30,7 @@ export default function JobsPage(): React.ReactElement {
   const addJob = useOtherJobs((s) => s.addJob)
   const applyEdit = useOtherJobs((s) => s.applyEdit)
   const abandonJob = useOtherJobs((s) => s.abandonJob)
+  const restoreJob = useOtherJobs((s) => s.restoreJob)
   const completeJob = useOtherJobs((s) => s.completeJob)
   const toggleStep = useOtherJobs((s) => s.toggleStep)
   const clearFinished = useOtherHistory((s) => s.clearFinished)
@@ -99,6 +100,7 @@ export default function JobsPage(): React.ReactElement {
           onCancelEdit={() => setEditingId(null)}
           onSaveEdit={(edit) => { applyEdit(job.id, edit); setEditingId(null) }}
           onAbandon={() => abandonJob(job.id)}
+          onRestore={() => restoreJob(job.id)}
           onComplete={() => completeJob(job.id)}
           onImportOcr={() => openOtherCapture(job.id)}
           onStep={(stepId) => toggleStep(job.id, stepId)}
