@@ -61,8 +61,10 @@ export function parseContractTitle(raw: string): ParsedTitle {
   return { rank, haulType, pickup }
 }
 
-export function isHaulingGenerator(generator: string): boolean {
-  return /haul/i.test(generator)
+// event hauls use a generator that never says haul
+export function isHaulingContract(generator: string, contractName: string, title: string): boolean {
+  if (generator || contractName) return /haul/i.test(generator) || /haul/i.test(contractName)
+  return /haul/i.test(title)
 }
 
 // in-game names where the humanized generator isn't right

@@ -1,4 +1,4 @@
-import { parseContractTitle, isHaulingGenerator, cleanTitle, hasBlueprintMarker } from '@shared/contract'
+import { parseContractTitle, isHaulingContract, cleanTitle, hasBlueprintMarker } from '@shared/contract'
 import type {
   ContractAcceptedEvent,
   ObjectiveEvent,
@@ -108,8 +108,7 @@ export function parseLine(line: string, markers: Map<string, MarkerEntry>): Pars
       markerDropoffs: byIndex(marker?.dropoffs),
       markerPickups: byIndex(marker?.pickups)
     }
-    // no marker yet, use title
-    const isHauling = generator ? isHaulingGenerator(generator) : /haul/i.test(rawTitle)
+    const isHauling = isHaulingContract(generator, event.contractName, rawTitle)
     return { kind: 'accepted', event, isHauling }
   }
 
