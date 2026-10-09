@@ -931,6 +931,20 @@
       ]
     },
     {
+      "name": "RSI Constellation Centaurus",
+      "scu": 240,
+      "uexId": 0,
+      "containerSizes": [
+        1,
+        2,
+        4,
+        8,
+        16,
+        24,
+        32
+      ]
+    },
+    {
       "name": "RSI Constellation Phoenix",
       "scu": 80,
       "uexId": 47,

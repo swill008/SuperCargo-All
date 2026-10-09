@@ -1,6 +1,6 @@
 {
   "source": "SuperCargo grid-markup tool (npm run markup) - authored bay faces, ship frame, and layout fixes",
-  "syncedAt": "2026-07-11",
+  "syncedAt": "2026-10-09",
   "gridFaces": [
     {
       "ship": "Drake Ironclad",
@@ -4035,6 +4035,21 @@
       "offGrid": {
         "on": false
       }
+    },
+    {
+      "ship": "RSI Constellation Centaurus",
+      "bays": [
+        {
+          "id": "main",
+          "name": "Main",
+          "x": 0,
+          "y": 0,
+          "z": 0,
+          "w": 6,
+          "l": 10,
+          "h": 4
+        }
+      ]
     }
   ]
 }
