@@ -529,6 +529,12 @@ export type BayDir = 'x+' | 'x-' | 'y+' | 'y-' | 'z+' | 'z-'
 export interface BayMarkup {
   id: string
   faces?: Partial<Record<BayDir, BayFaceKind>>
+  /** bay label; only needed on a ship the build has no entry for, else the generated name stands */
+  name?: string
+  /** largest box this bay accepts; absent = no cap */
+  maxSize?: number
+  /** false = reference only, packer never auto-fills it (lift pads, secure vaults) */
+  autoLoad?: boolean
   /** which combined hold this bay belongs to, bays sharing a group pack as one room; absent = use generated */
   group?: number
   /** position/size override correcting the generated layout; absent = use generated. */
