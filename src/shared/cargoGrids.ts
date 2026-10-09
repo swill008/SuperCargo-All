@@ -246,7 +246,7 @@ function deriveFloor(faces?: Partial<Record<BayDir, BayFaceKind>>): BayDir | und
   return (Object.keys(faces) as BayDir[]).find((d) => faces[d] === 'floor')
 }
 
-const bayLabel = (id: string): string => id.replace(/-/g, ' ').replace(/\b[a-z]/g, (c) => c.toUpperCase())
+export const bayLabel = (id: string): string => id.replace(/-/g, ' ').replace(/\b[a-z]/g, (c) => c.toUpperCase())
 
 // a ship with no built-in entry: markup is the whole hold, not a correction to
 // one, so a new ship goes out as synced data instead of waiting for a release
