@@ -1695,9 +1695,9 @@
             "z+": "exit",
             "z-": "exit",
             "x-": "wall",
-            "y+": "wall",
             "x+": "wall",
-            "y-": "floor"
+            "y-": "floor",
+            "y+": "wall"
           },
           "x": -2.5,
           "z": -4
@@ -4042,14 +4042,73 @@
         {
           "id": "main",
           "name": "Main",
-          "x": 0,
+          "x": -3,
           "y": 0,
-          "z": 0,
+          "z": -5,
           "w": 6,
           "l": 10,
-          "h": 4
+          "h": 4,
+          "faces": {
+            "y+": "aisle",
+            "y-": "floor",
+            "z+": "exit",
+            "z-": "exit",
+            "x+": "wall",
+            "x-": "wall"
+          }
         }
-      ]
+      ],
+      "anchored": true,
+      "offGrid": {
+        "on": true,
+        "l": 9,
+        "w": 6,
+        "h": 4,
+        "x": -12,
+        "y": 0,
+        "z": -4.5
+      }
+    },
+    {
+      "ship": "RSI Constellation Taurus",
+      "bays": [
+        {
+          "id": "main",
+          "x": -2,
+          "z": -10,
+          "faces": {
+            "y-": "floor",
+            "z+": "exit",
+            "z-": "exit",
+            "x+": "wall",
+            "x-": "wall",
+            "y+": "wall"
+          }
+        },
+        {
+          "id": "tail",
+          "x": -1,
+          "z": 7,
+          "faces": {
+            "y-": "floor",
+            "z+": "exit",
+            "z-": "exit",
+            "x+": "wall",
+            "x-": "wall",
+            "y+": "aisle"
+          }
+        }
+      ],
+      "anchored": true,
+      "offGrid": {
+        "on": true,
+        "w": 4,
+        "l": 9,
+        "h": 2,
+        "x": -8,
+        "y": 0,
+        "z": -5.5
+      }
     }
   ]
 }
