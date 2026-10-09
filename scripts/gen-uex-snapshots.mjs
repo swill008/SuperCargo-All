@@ -56,7 +56,7 @@ const TRADE_URL = `${RAW}/trade_locations.json`
 const norm = (s) => String(s || '').toLowerCase().replace(/[^a-z0-9]+/g, '')
 const stripCode = (s) => s.replace(/^[A-Z]{2,4}-[A-Z0-9]{1,4}\s+/, '')
 
-// hand-added ships (uexId 0) ride along until UEX lists them, under either Mk spelling
+// keep hand-added ships until UEX lists them
 function keepHandAdded(fresh) {
   const prev = path.join(OUT_DIR, 'ships.json')
   if (!fs.existsSync(prev)) return fresh

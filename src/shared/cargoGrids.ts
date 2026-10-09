@@ -179,7 +179,7 @@ export function setGridFaces(ships: ShipMarkup[]): void {
   ANCHORED = anchored
 }
 
-// 4.10.2 relabeled the Connies "Mk IV", so accept either spelling
+// 4.10.2 renamed the Connies "Mk IV"
 function canonShip(ship: string): string {
   if (CARGO_GRIDS[ship] || MARKUP[ship]) return ship
   const bare = ship.replace(/ Mk I?V /, ' ')
@@ -248,12 +248,11 @@ function deriveFloor(faces?: Partial<Record<BayDir, BayFaceKind>>): BayDir | und
 
 export const bayLabel = (id: string): string => id.replace(/-/g, ' ').replace(/\b[a-z]/g, (c) => c.toUpperCase())
 
-// a ship with no built-in entry: markup is the whole hold, not a correction to
-// one, so a new ship goes out as synced data instead of waiting for a release
+// so a new ship needs no release
 function baysFromMarkup(bays: Record<string, BayInfo>): CargoGrid[] {
   const out: CargoGrid[] = []
   for (const [id, m] of Object.entries(bays)) {
-    // no size authored, nothing to pack into
+    // unsized, nothing to pack into
     if (m.hidden || m.w === undefined || m.l === undefined || m.h === undefined) continue
     out.push({
       id,
