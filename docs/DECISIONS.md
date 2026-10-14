@@ -198,6 +198,9 @@ Marked **NOT DOING**: decided against, or left out on purpose.
   other windows, not only six overlay keys; ships in R1 1.0.1. Found on the user's first run of the 1.0.0 installer:
   the overlay kept the Haul card after switching to Other until "show all objectives" was toggled.
 
+- Overlay bottom row wraps when narrow (2026-10-14, "option a"): buttons keep size and gap, the label drops to its own
+  line first, AFK wraps instead of overlapping ABANDON. Ships in R1 1.0.1.
+
 ## 9. Reference data (ships, places, cargo grids, contract box sizes)
 
 - Reference data keeps coming from the original author's repo, "since I still use thier program"; the

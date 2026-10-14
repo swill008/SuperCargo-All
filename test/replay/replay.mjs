@@ -683,8 +683,8 @@ async function memSetVia(port, re, place) {
 const goStep = (id, place) => ({ id, kind: 'go', label: `Deliver Scrap to ${place}`, location: place, have: 0, need: 1, done: false })
 // a fixed (Lorville) or read (Covalex 'planet') start; the jobs are seeded, more can arrive through e.append
 // `files` ({ 'other-matches.json': doc, ... }) are written into the data folder before the app starts
-async function memLaunch(name, { jobs = [], read = false, typed = 'Lorville', files = {} } = {}) {
-  const e = setup(name, { otherStartMode: read ? 'auto' : 'fixed' }, {
+async function memLaunch(name, { jobs = [], read = false, typed = 'Lorville', files = {}, settings = {} } = {}) {
+  const e = setup(name, { otherStartMode: read ? 'auto' : 'fixed', ...settings }, {
     jobs: jobs.map((j) => logJob(mission(), j)),
     history: [],
     listOrder: 'distance',
@@ -1218,6 +1218,29 @@ const overlayHeader = (port) =>
         ellipsis: cs ? cs.textOverflow === 'ellipsis' && cs.whiteSpace === 'nowrap' : null,
         stop
       }
+    })()`
+  )
+
+// overlay-footer-narrow: the footer row's buttons and brand label, by test id (old code: by text)
+const overlayFooter = (port) =>
+  cdpEval(
+    port,
+    'overlay',
+    `(() => {
+      const byId = (id) => document.querySelector('[data-testid="' + id + '"]')
+      const btns = [...document.querySelectorAll('button')]
+      const brand = byId('overlay-brand') ?? [...document.querySelectorAll('div,span')].find((x) => x.children.length === 0 && /SUPERCARGO\\s*\\u00b7\\s*OTHER MODE/.test(x.textContent))
+      const row = byId('overlay-footer') ?? brand?.parentElement
+      const abandon = byId('overlay-btn-abandon') ?? btns.find((b) => b.textContent.trim() === 'ABANDON')
+      const afk = byId('overlay-btn-afk') ?? btns.find((b) => /^AFK$/.test(b.textContent.trim()))
+      const step = byId('overlay-btn-step') ?? (abandon ? btns[btns.indexOf(abandon) - 1] : null)
+      const card = row?.parentElement
+      const box = (el) => {
+        if (!el) return null
+        const r = el.getBoundingClientRect()
+        return { text: el.textContent.trim(), l: Math.round(r.left * 10) / 10, r: Math.round(r.right * 10) / 10, t: Math.round(r.top * 10) / 10, b: Math.round(r.bottom * 10) / 10, sw: el.scrollWidth, cw: el.clientWidth }
+      }
+      return { winW: window.innerWidth, ids: !!byId('overlay-footer'), step: box(step), abandon: box(abandon), afk: box(afk), brand: box(brand), card: box(card) }
     })()`
   )
 
@@ -3995,6 +4018,41 @@ const scenarios = {
       ['rep range in the jobs list: "+100–500 REP"', RANGE.test(main), `line=${short(lineWith(main, /REP/), 300)}`],
       ['overlay rep, where shown, uses the range form', repShown.every((v) => !/\+100 REP/.test(v.text) || RANGE.test(v.text)) && repShown.filter((v) => /\+100/.test(v.text)).every((v) => RANGE.test(v.text)), `lines=${short(repShown.map((v) => lineWith(v.text, /REP/)), 300)}`]
     ]
+  },
+  // overlay footer at narrow widths: the row wraps; buttons keep full size and an 8 px gap; the brand label never
+  // clips (user bug: ABANDON slid under AFK and the label showed "SU"; at 332 px ABANDON and AFK touched)
+  'overlay-footer-narrow': async () => {
+    const run = async (w) => {
+      const { port, stop } = await memLaunch(`overlay-footer-narrow-${w}`, {
+        jobs: [{ title: 'Scrap Haul', steps: [goStep('s1', 'Port Tressler')] }],
+        settings: { overlayW: w, overlayH: 432, overlayX: 10, overlayY: 10 }
+      })
+      let v = null
+      let err = ''
+      try {
+        v = await until(() => overlayFooter(port).then((x) => (x?.abandon && x.afk && x.step && x.brand ? x : null)), 15000)
+      } catch (x) {
+        err = String(x?.message ?? x)
+      }
+      await stop()
+      const bs = v ? [v.step, v.abandon, v.afk].filter(Boolean) : []
+      const overlap = (a, b) => a.l < b.r - 0.5 && b.l < a.r - 0.5 && a.t < b.b - 0.5 && b.t < a.b - 0.5
+      const pairs = []
+      for (let i = 0; i < bs.length; i++) for (let j = i + 1; j < bs.length; j++) pairs.push([bs[i], bs[j]])
+      const sameLine = pairs.filter(([a, b]) => Math.abs(a.t - b.t) < 2)
+      const gap = (a, b) => (a.l < b.l ? b.l - a.r : a.l - b.r)
+      const where = (x) => (x ? `${x.text}[${x.l}-${x.r} x ${x.t}-${x.b} sw=${x.sw} cw=${x.cw}]` : 'missing')
+      const tag = `${w} px:`
+      return [
+        [`${tag} overlay footer found (3 buttons + brand label)`, bs.length === 3 && !!v?.brand, `win=${v?.winW} ids=${v?.ids} ${err}`],
+        [`${tag} no two buttons overlap`, bs.length === 3 && pairs.every(([a, b]) => !overlap(a, b)), short(bs.map(where), 400)],
+        [`${tag} buttons on the same line are >= 6 px apart`, bs.length === 3 && sameLine.every(([a, b]) => gap(a, b) >= 6), `gaps=${short(sameLine.map(([a, b]) => `${a.text}|${b.text}=${Math.round(gap(a, b) * 10) / 10}`))}`],
+        [`${tag} button text not cut (scrollWidth <= clientWidth)`, bs.length === 3 && bs.every((b) => b.sw <= b.cw), short(bs.map((b) => `${b.text} ${b.sw}/${b.cw}`))],
+        [`${tag} brand label not clipped and inside the card`, !!v?.brand && !!v.card && v.brand.sw <= v.brand.cw && v.brand.l >= v.card.l - 0.5 && v.brand.r <= v.card.r + 0.5, `brand=${where(v?.brand)} card=${where(v?.card)}`],
+        [`${tag} every button inside the overlay's visible width`, bs.length === 3 && bs.every((b) => b.l >= -0.5 && b.r <= v.winW + 0.5), `win=${v?.winW} ${short(bs.map(where), 400)}`]
+      ]
+    }
+    return (await Promise.all([run(332), run(260)])).flat()
   }
 }
 

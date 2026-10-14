@@ -33,3 +33,5 @@ with a push: + CI (~10 min, in the background); a release: + ~4 min.
 | 2026-10-14 | Release 1.0.1 files agent | agent | 10 min | <1 min | 22:07 |
 | 2026-10-14 | Overlay-follows-mode e2e + 2 flaky checks made to wait (1 agent) | agent | 15 min | 3 min | 22:07-22:10 |
 | 2026-10-14 | Quick tests (typecheck + all check scripts) | test | ~1 min | 1 min | 22:10-22:11 |
+| 2026-10-14 | Overlay footer wrap (footer agent) | agent | 2-6 min | 1 min | 22:11-22:12 |
+| 2026-10-14 | Overlay footer e2e incl. old-code proof (e2e agent) | agent | ~6 min | 2 min | 22:11-22:13 |

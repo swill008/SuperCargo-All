@@ -525,40 +525,41 @@ export default function OtherOverlay(): React.ReactElement {
         </div>
       ) : null}
       <div
+        data-testid="overlay-footer"
         style={{
           display: 'flex',
+          flexWrap: 'wrap',
           alignItems: 'center',
-          gap: 8,
+          columnGap: 8,
+          rowGap: 6,
           marginTop: 10,
           flex: 'none'
         }}
       >
+        {/* Buttons never shrink; when the row is narrow the brand label wraps first, then AFK. */}
         {current && (
-          <div
-            style={{
-              display: 'flex',
-              gap: 8,
-              WebkitAppRegion: 'no-drag'
-            } as React.CSSProperties}
-          >
+          <>
             <button
               type="button"
+              data-testid="overlay-btn-step"
               onClick={() => toggleStep(current.job.id, current.step.id)}
-              style={{ ...miniBtn, color: C.text, flex: 'none' }}
+              style={{ ...miniBtn, color: C.text, flex: 'none', WebkitAppRegion: 'no-drag' } as React.CSSProperties}
             >
               {stepActionLabel(current.step)}
             </button>
             <button
               type="button"
+              data-testid="overlay-btn-abandon"
               onClick={() => abandonJob(current.job.id)}
-              style={{ ...miniBtn, color: C.text, flex: 'none' }}
+              style={{ ...miniBtn, color: C.text, flex: 'none', WebkitAppRegion: 'no-drag' } as React.CSSProperties}
             >
               ABANDON
             </button>
-          </div>
+          </>
         )}
         <button
           type="button"
+          data-testid="overlay-btn-afk"
           onClick={toggleAfk}
           title="AFK: presses keys in Star Citizen for you every cycle (Windows). Click again to stop."
           style={{
@@ -571,8 +572,11 @@ export default function OtherOverlay(): React.ReactElement {
           AFK
         </button>
         <div
+          data-testid="overlay-brand"
           style={{
             marginLeft: 'auto',
+            flex: '1 0 auto',
+            whiteSpace: 'nowrap',
             fontFamily: F.display,
             fontSize: 10,
             letterSpacing: '0.16em',
