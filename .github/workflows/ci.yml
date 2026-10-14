@@ -22,7 +22,8 @@ jobs:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
       - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
         with:
-          node-version: 20
+          # 22: replay.mjs uses Node's built-in WebSocket (Node 20 has none, which failed every CDP scenario)
+          node-version: 22
           cache: npm
       - run: npm ci
       - run: npm run typecheck
@@ -39,6 +40,13 @@ jobs:
         run: node test/replay/replay.mjs
       - name: Replay real-log fixtures
         run: node test/replay/run_all.mjs
+      # where the disk space went, so a "no space left on device" run names the folder
+      - name: Disk use on failure
+        if: failure()
+        run: |
+          df -h / /tmp; df -i /
+          du -xsh /tmp/* ~/.config ~/.cache ~/.npm 2>/dev/null | sort -h | tail -20
+          du -sh /tmp/sc-replay-*/*/.config /tmp/sc-replay-*/*/.cache /tmp/sc-replay-*/*/SuperCargo-OtherModes 2>/dev/null | sort -h | tail -20
       - name: Upload replay data
         if: failure()
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
@@ -46,4 +54,5 @@ jobs:
           name: replay-data
           path: /tmp/sc-replay-*
           if-no-files-found: ignore
+          include-hidden-files: true
           retention-days: 7
