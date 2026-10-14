@@ -12,7 +12,8 @@ const require = createRequire(import.meta.url)
 const yaml = require('js-yaml')
 const esbuild = require('esbuild')
 const root = path.resolve(path.dirname(new URL(import.meta.url).pathname.replace(/^\/([A-Za-z]:)/, '$1')), '../..')
-const read = (rel) => fs.readFileSync(path.join(root, rel), 'utf8')
+// line endings normalised: the release runs on a Windows checkout (CRLF), and '.' in these patterns never matches \r
+const read = (rel) => fs.readFileSync(path.join(root, rel), 'utf8').replace(/\r\n/g, '\n')
 
 let failed = 0
 let passed = 0
