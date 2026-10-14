@@ -1710,7 +1710,8 @@ const scenarios = {
     const id = mission()
     const solo = mission()
     e.append(L.shared('900000000042', id), L.marker(id, 'VisitingIasi', 'Iasi_EliminateAll_Medium'), L.accept(id, 'Bounty Hunt'), L.accept(solo, 'Patrol'))
-    await sleep(3000)
+    // wait for both jobs to be saved (a slow CI runner can take longer than a fixed sleep)
+    await until(() => findJob(e.jobs(), id)?.sharedBy && findJob(e.jobs(), solo), 15000)
     await stop()
     const doc = e.jobs()
     return [
@@ -1997,14 +1998,25 @@ const scenarios = {
       const e = setup(`start-mode-${mode}`, { otherStartMode: mode }, { jobs: [logJob(mission(), { steps: [step] })], history: [], startLocation: typed, startTypedAt: iso(ago(600)), listOrder: 'distance' })
       const out = path.join(e.data, `diag-${mode}.txt`)
       const port = await freePort()
-      const stop = await launch(e, [`--export-diagnostics=${out}`, ...cdpArgs(port)])
+      const iport = await freePort()
+      const stop = await launch(e, [...cdpArgs(port), ...inspectArgs(iport)])
       e.append(L.arrive('1510935576'), L.inventory('RR_CRU_L1'))
-      const text = await waitForFile(out)
+      // the clue must be saved before the export reads it (a fixed-time export can run first on a slow runner)
+      await until(() => e.jobs()?.where?.name === want, 15000)
       let overlay = ''
       // AUTO waits for the clue to reach the overlay too: the card can show Port Tressler from the typed start first
       const shown = (t) => /Port Tressler/.test(t) && (mode !== 'auto' || t.includes(want) || /CRU-L1/.test(t))
       try {
         overlay = (await until(() => windowText(port, 'overlay').then((t) => (shown(t) ? t : '')), 15000)) || (await windowText(port, 'overlay'))
+      } catch {
+        // checked below
+      }
+      // export through the button path once the overlay shows the result, so the SNAPSHOT is read after it too
+      let text = null
+      try {
+        await stubSaveDialog(iport, out)
+        const res = await cdpEval(port, 'main', `window.supercargo.diagExport(${JSON.stringify({ includeImages: false })})`, 40000)
+        text = fs.readFileSync(res?.path ?? out, 'utf8')
       } catch {
         // checked below
       }
@@ -2321,7 +2333,9 @@ const scenarios = {
     const e = setup('init-once', {}, { jobs: [], history: [], lastLogEventAt: iso(ago(60)) })
     e.append(L.logStarted(ago(120)), L.accept(id, 'Bounty Hunt', ago(30)))
     const stop = await launch(e)
-    await sleep(2000)
+    // wait for the start-up scan to apply the accept, then a little longer so a repeated init would show
+    await until(() => findJob(e.jobs(), id)?.status === 'active' && /\[main\] startup scan result/.test(e.log() ?? ''), 15000)
+    await sleep(1500)
     await stop()
     const log = e.log()
     const inits = count(log, /\bother\s+\[main\] init loaded/g)
