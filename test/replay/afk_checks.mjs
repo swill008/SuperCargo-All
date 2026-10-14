@@ -98,7 +98,7 @@ check('where', 'due after a minute', A.afkWhereDue(T0, T0 + 60000))
 check('where', 'delay ~2 s', A.AFK_WHERE_DELAY_MS === 2000)
 
 // helper script text (can't run here): pull the String.raw block out of afk.ts
-const src = fs.readFileSync(path.join(root, 'src/other/main/afk.ts'), 'utf8')
+const src = fs.readFileSync(path.join(root, 'src/other/main/afk.ts'), 'utf8').replace(/\r\n/g, '\n') // a Windows checkout has CRLF
 const m = src.match(/AFK_HELPER_PS1 = String\.raw`([\s\S]*?)`\n/)
 check('helper', 'script found', !!m)
 if (m) {
