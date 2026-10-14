@@ -15,11 +15,15 @@ import {
   type OtherStep
 } from '@other/otherJob'
 import { calibrateZone, resolveMarker, type BodyRadiusLookup, type CalibrateResult, type MarkerPos } from '@other/otherMarkers'
-import { findRosterLocation, nearestRosterPlace, stepActivePlace } from '@other/otherNext'
-import { resolvePlaceText } from '@other/otherResolve'
+import { findRosterLocation, foldPlaceName, nearestRosterPlace, stepActivePlace } from '@other/otherNext'
+import { resolvePlaceText, resolveStopPlace } from '@other/otherResolve'
+import { PROOF_METERS, PROOF_WINDOW_MS, type MemoryWhere } from '@other/otherMemory'
+import { memoryLookup, startMemorySeenReporter } from './otherMemoryStore'
 import { setBodyRadiusLookup } from '@other/otherGeo'
 import { bodyRadiusFromTable } from '@other/otherBodies'
 import { bodiesTable } from './otherBodiesStore'
+// site-code table for the resolver, in every window that resolves stops (main and overlay)
+import './otherGameDataStore'
 import { ACCURACY, type Where, type WhereRunResult, type WhereSource } from '@other/otherWhere'
 import { loadOtherPlacesFromMain, mergeLocations } from './otherPlaces'
 import type { OtherLogEvent } from '@other/otherEvents'
@@ -322,6 +326,61 @@ function reportLearned(step: OtherStep, pos: { x: number; y: number; z: number }
     point: { x: pos.x, y: pos.y, z: pos.z }
   })
   dlog.info('other', 'learned place reported', { ref, name, near: near.name, meters: Math.round(near.meters), body })
+}
+
+/** Objective Complete lines already used as proof this run (a rescan replays them) */
+const proofSent = new Set<string>()
+/** where sources that show where you were (M2) */
+const PROOF_SOURCES: ReadonlySet<WhereSource> = new Set<WhereSource>(['displayinfo', 'map', 'inventory'])
+const PROOF_MIN_ACCURACY = 7
+
+/**
+ * M2 proof from the game: the step was just completed, so the latest position read (when it is a real read,
+ * accuracy >= 7, within PROOF_WINDOW_MS of the event) shows where its place was. The resolver's chosen place
+ * within PROOF_METERS of that point (or a name-only read naming it) -> confirmed; else wrong, with where you were.
+ * Main window only (the reducer never runs in the overlay). No read near the event time -> no proof.
+ */
+function proveStep(prev: Where | null, step: OtherStep, job: OtherJob, at: string, settings: AppSettings): void {
+  const mid = job.missionId
+  if (!prev || !PROOF_SOURCES.has(prev.source) || (prev.accuracy ?? 0) < PROOF_MIN_ACCURACY) {
+    decide('proof: no read', mid, { ref: job.ref, step: stepKey(step), where: prev ? { source: prev.source, accuracy: prev.accuracy, at: prev.at } : null })
+    return
+  }
+  const gap = Math.abs(whenMs(at) - whenMs(prev.at))
+  if (!Number.isFinite(gap) || gap > PROOF_WINDOW_MS) {
+    decide('proof: read too far from event', mid, { ref: job.ref, step: stepKey(step), gapMs: Number.isFinite(gap) ? gap : null, readAt: prev.at, at })
+    return
+  }
+  const locations = mergeLocations(useStore.getState().locations)
+  const m = resolveStopPlace(step, { locations, useMarker: otherSetting(settings, 'otherMarkerDistance'), memory: memoryLookup }, job)
+  if (m.status === 'exact' || !m.memoryKey || !m.text.trim()) {
+    decide('proof: skipped', mid, { ref: job.ref, step: stepKey(step), status: m.status, text: m.text })
+    return
+  }
+  const place = m.match?.name ?? m.site?.name ?? null
+  const near = nearestRosterPlace(prev.point, locations)
+  const actual: MemoryWhere = prev.point
+    ? { name: near?.name ?? prev.name ?? null, meters: near ? Math.round(near.meters) : null, at: prev.at }
+    : { name: prev.name, meters: null, at: prev.at }
+  let ok: boolean
+  let meters: number | null = null
+  if (prev.point && m.point) {
+    meters = Math.round(Math.hypot(prev.point.x - m.point.x, prev.point.y - m.point.y, prev.point.z - m.point.z))
+    ok = meters <= PROOF_METERS
+  } else if (prev.name && place) {
+    ok = foldPlaceName(prev.name) === foldPlaceName(place)
+  } else {
+    decide('proof: nothing to compare', mid, { ref: job.ref, step: stepKey(step), place, readPoint: !!prev.point, placePoint: !!m.point })
+    return
+  }
+  const once = `${job.id}\n${stepKey(step)}\n${at}`
+  if (proofSent.has(once)) return
+  proofSent.add(once)
+  const context = m.memoryKey.includes('@') ? m.site?.name : undefined
+  window.supercargo?.otherMemoryProof?.({ key: m.memoryKey, text: m.text, ...(context ? { context } : {}), place, ok, actual })
+  const data = { ref: job.ref, step: stepKey(step), key: m.memoryKey, text: m.text, place, status: m.status, ok, meters, read: { source: prev.source, accuracy: prev.accuracy, at: prev.at, name: prev.name }, actual }
+  decide(ok ? 'proof: confirmed' : 'proof: wrong', mid, data)
+  dlog.info('other', ok ? 'match proof: confirmed' : 'match proof: wrong', data)
 }
 
 function placeSteps(d: Draft, ctx: Ctx, jobId?: string): void {
@@ -707,6 +766,8 @@ function reduce(d: Draft, e: OtherLogEvent, ctx: Ctx): void {
       })
       if (s.done) break
       dlog.info('other', 'step ticked from log', { ref: hit.job.ref, stepKey: stepKey(s) })
+      // M2: the read before this event's own clue shows where the step's place was
+      proveStep(d.where, s, hit.job, e.at, ctx.settings)
       // B2: the place of the step as it was before the tick
       {
         const place = stepActivePlace(s).trim()
@@ -980,6 +1041,8 @@ export const useOtherJobs = create<OtherJobsState>((set, get) => {
     }
     if (!passive && !mainBound) {
       mainBound = true
+      // M1: only the main window reports non-exact stops to the match memory
+      startMemorySeenReporter()
       window.supercargo.onOtherAction?.((a) => {
         dlog.info('other', 'overlay action', a)
         if (a.type === 'toggleStep') get().toggleStep(a.jobId, a.stepId)

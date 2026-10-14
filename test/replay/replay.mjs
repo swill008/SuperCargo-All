@@ -410,7 +410,7 @@ const labelMeters = (label) => {
 }
 
 // --export-diagnostics <file>: the app writes it ~6 s after the main window loads
-const DIAG_SECTIONS = ['SUMMARY', 'SETTINGS', 'SNAPSHOT', 'MATCHES', 'UNKNOWN LINES', 'DECISIONS', 'PERF', 'USAGE', 'ERRORS', 'DEBUG LOG', 'LOG EXCERPT']
+const DIAG_SECTIONS = ['SUMMARY', 'SETTINGS', 'SNAPSHOT', 'MATCHES', 'MATCH MEMORY', 'UNKNOWN LINES', 'DECISIONS', 'PERF', 'USAGE', 'ERRORS', 'DEBUG LOG', 'LOG EXCERPT']
 async function waitForFile(file, ms = 20000) {
   const t0 = Date.now()
   while (Date.now() - t0 < ms) {
@@ -634,6 +634,157 @@ const short = (v, n = 400) => JSON.stringify(v ?? null)?.slice(0, n)
 // the matchWord tags, as innerText shows them (the overlay upper-cases some text: match either case)
 const TAG = { corrected: /≈\s*corrected/i, marker: /📍\s*game marker/i, none: /✗\s*not found/i, unsure: /\?\s*not sure/i }
 const NON_EXACT_TAG = /≈\s*corrected|📍\s*game marker|\?\s*guess|⚠\s*mismatch|\?\s*not sure|✗\s*not found/i
+
+// CONTRACT9 (match memory, M1-M8). The app keeps userData/other-matches.json ({entries, changes}); the main window
+// reports non-exact stops ("seen", debounced 5 s), Objective Complete with a fresh read near it is a game proof, the
+// tag on a stop opens MatchFix (✓ Right / ✗ Wrong → pick / Forget), Settings → LEARNED PLACES lists entries + Undo.
+const SHUBIN = 'Shubin Mining Facility on Lyria'
+const SAL2 = 'Shubin Mining Facility SAL-2'
+const memFile = (e) => {
+  try {
+    return JSON.parse(fs.readFileSync(path.join(e.data, 'other-matches.json'), 'utf8'))
+  } catch {
+    return null
+  }
+}
+const memEntry = (doc, re) => (doc?.entries ?? []).find((x) => re.test(String(x.text)))
+const memGet = (port) => cdpEval(port, 'main', 'window.supercargo.otherMemoryGet()')
+// wait for the seen reporter to log the stop, then set its place the way ✓ Right / pick does (IPC, main owns the file)
+async function memSetVia(port, re, place) {
+  const ent = await until(() => memGet(port).then((d) => memEntry(d, re) ?? null), 15000)
+  if (!ent) throw new Error(`memory: no seen entry for ${re}`)
+  return cdpEval(port, 'main', `window.supercargo.otherMemorySet(${JSON.stringify({ key: ent.key, text: ent.text, ...(ent.context ? { context: ent.context } : {}), place })})`)
+}
+const goStep = (id, place) => ({ id, kind: 'go', label: `Deliver Scrap to ${place}`, location: place, have: 0, need: 1, done: false })
+// a fixed (Lorville) or read (Covalex 'planet') start; the jobs are seeded, more can arrive through e.append
+async function memLaunch(name, { jobs = [], read = false } = {}) {
+  const e = setup(name, { otherStartMode: read ? 'auto' : 'fixed' }, {
+    jobs: jobs.map((j) => logJob(mission(), j)),
+    history: [],
+    listOrder: 'distance',
+    ...(read ? { lastLogEventAt: iso(ago(30)) } : { startLocation: 'Lorville', startTypedAt: iso(ago(60)) })
+  })
+  const textFile = path.join(e.home, 'where-text.json')
+  if (read) fs.writeFileSync(textFile, JSON.stringify({ zone2: serverTimeNow(COVALEX_READS.planet), zone1: '' }))
+  const port = await freePort()
+  const iport = await freePort()
+  const stop = await launch(e, [...cdpArgs(port), ...inspectArgs(iport)], read ? { SC_WHERE_TEXT_FILE: textFile } : {})
+  return { e, port, iport, stop, textFile }
+}
+// a fresh WHERE AM I read (the 'planet' read at Covalex S1DC06, ServerTime now) saved as the doc's where
+async function memRead(e, port, textFile) {
+  fs.writeFileSync(textFile, JSON.stringify({ zone2: serverTimeNow(COVALEX_READS.planet), zone1: '' }))
+  const before = e.jobs()?.where?.at
+  await cdpEval(port, 'main', 'window.supercargo.otherWhereRun()')
+  return until(() => {
+    const w = e.jobs()?.where
+    return w?.name === COVALEX && w.source !== 'typed' && w.at !== before ? w : null
+  })
+}
+// Next tab text once it matches re
+async function nextText(port, re, ms = 10000) {
+  await clickButton(port, 'main', /^NEXT$/)
+  return (await until(() => windowText(port, 'main').then((t) => (re.test(t) ? t : '')), ms)) || (await windowText(port, 'main'))
+}
+async function exportNow(e, port, iport, name) {
+  const out = path.join(e.data, `${name}.txt`)
+  await stubSaveDialog(iport, out)
+  const res = await cdpEval(port, 'main', `window.supercargo.diagExport({ note: '', includeImages: false })`, 40000)
+  return fs.readFileSync(res?.path ?? out, 'utf8')
+}
+// M5 through the real UI in a window: click the stop's tag (a button whose text matches tagRe), then ✗ Wrong, type
+// `search` in the picker and click the option naming `place`. Returns which steps found their element.
+const uiWrongPick = (port, which, tagRe, search, place) =>
+  cdpEval(
+    port,
+    which,
+    `(async () => {
+      const sleep = (ms) => new Promise((r) => setTimeout(r, ms))
+      const vis = (el) => !!(el.offsetWidth || el.offsetHeight || el.getClientRects().length)
+      const find = (sel, re) => [...document.querySelectorAll(sel)].filter((x) => vis(x) && re.test(x.textContent.trim())).sort((a, b) => a.textContent.length - b.textContent.length)[0]
+      const out = {}
+      const tag = find('button, [role="button"]', ${tagRe})
+      out.tag = !!tag
+      if (!tag) return out
+      tag.click()
+      await sleep(400)
+      const wrong = find('button', /Wrong/i)
+      out.wrong = !!wrong
+      if (!wrong) return out
+      wrong.click()
+      await sleep(400)
+      const inputs = [...document.querySelectorAll('input')].filter(vis)
+      const inp = document.activeElement?.tagName === 'INPUT' ? document.activeElement : inputs[inputs.length - 1]
+      out.input = !!inp
+      if (inp) {
+        const set = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value').set
+        set.call(inp, ${JSON.stringify(search)})
+        inp.dispatchEvent(new Event('input', { bubbles: true }))
+        await sleep(400)
+      }
+      const opt = find('button, [role="option"], li', new RegExp(${JSON.stringify(place.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'))}))
+      out.option = !!opt
+      if (opt) opt.click()
+      await sleep(600)
+      return out
+    })()`
+  )
+const MEM_TAG = { user: /✓\s*you set/i, learned: /✓\s*learned/i, disputed: /⚠\s*the game disagrees/i }
+
+// CONTRACT9 ADDENDUM 2 S (data source switches): setting otherSourceStarmap (default on); Settings → OTHER MODE →
+// DATA SOURCES has one row per source with its counts and a switch (UEX always on, "base list").
+const J82_PICKUP_STEP = {
+  id: 's1',
+  kind: 'turnin',
+  label: 'Collect Scrap from Covalex Distribution Center S1DCO06 on Hurston. Deliver Scrap to Security Compound',
+  location: 'Security Compound',
+  pickupLocation: 'Covalex Distribution Center S1DCO06 on Hurston',
+  pickedUp: false,
+  item: 'Scrap',
+  have: 0,
+  need: 1,
+  done: false,
+  position: { x: 12851198309.646416, y: 18566.685364, z: 672945.839535 }
+}
+const settingsGet = (port) => cdpEval(port, 'main', 'window.supercargo.getSettings()')
+// Settings tab text once DATA SOURCES shows
+async function sourcesText(port) {
+  await clickButton(port, 'main', /^SETTINGS$/)
+  return (await until(() => windowText(port, 'main').then((t) => (/DATA SOURCES/i.test(t) && /starmap/i.test(t) ? t : '')), 10000)) || (await windowText(port, 'main'))
+}
+// click the switch in the DATA SOURCES row for the starmap positions (the smallest element naming "Starmap" that holds
+// a checkbox / switch / button), then wait for the setting to read `on`. Returns which steps worked.
+async function sourcesToggle(port, on) {
+  const ui = await cdpEval(
+    port,
+    'main',
+    `(() => {
+      const vis = (el) => !!(el.offsetWidth || el.offsetHeight || el.getClientRects().length)
+      const ctl = (el) => el.querySelector('input[type="checkbox"], [role="switch"], button')
+      // the DATA SOURCES switch by its accessible name first; else the smallest row naming "Starmap" with a control
+      const sw = [...document.querySelectorAll('[role="switch"]')].find((x) => vis(x) && /wiki game data|starmap/i.test(x.getAttribute('aria-label') ?? ''))
+      const row = sw ? sw.parentElement : [...document.querySelectorAll('div, li, tr, label, section')].filter((x) => vis(x) && /starmap/i.test(x.textContent) && ctl(x)).sort((a, b) => a.textContent.length - b.textContent.length)[0]
+      if (!row) return { row: false }
+      const c = sw ?? ctl(row)
+      if (c.disabled) return { row: true, control: true, disabled: true }
+      c.click()
+      return { row: true, control: true, clicked: true }
+    })()`
+  )
+  const s = await until(() => settingsGet(port).then((x) => (x?.otherSourceStarmap === on ? x : null)), 8000)
+  return { ...ui, setting: s?.otherSourceStarmap ?? null }
+}
+// "UEX: 745 places, 610 with coordinates" / "Starmap … adds 312 places, fills coordinates for 128" -> numbers
+const sourceCounts = (all) => {
+  const t = (all ?? '').slice(Math.max(0, (all ?? '').search(/DATA SOURCES/i)))
+  return {
+    uex: Number(/UEX[\s\S]{0,120}?([\d,]+)\s*places/i.exec(t)?.[1]?.replace(/,/g, '') ?? NaN),
+    uexCoords: Number(/UEX[\s\S]{0,120}?([\d,]+)\s*with coordinates/i.exec(t)?.[1]?.replace(/,/g, '') ?? NaN),
+    starmapAdds: Number(/Starmap[\s\S]{0,160}?adds\s*([\d,]+)\s*places/i.exec(t)?.[1]?.replace(/,/g, '') ?? NaN),
+    starmapFills: Number(/Starmap[\s\S]{0,160}?fills coordinates for\s*([\d,]+)/i.exec(t)?.[1]?.replace(/,/g, '') ?? NaN)
+  }
+}
+const STARMAP_EV = /from starmap data/i
 
 const scenarios = {
   // #1 both windows ingest the same accept
@@ -2045,7 +2196,8 @@ const scenarios = {
       ['Next tab: not "at HDPC-Farnesway" (the pickup is not the parent)', r.next.length > 0 && !/Security Compound\s*·\s*at HDPC-Farnesway/i.test(r.next), `next=${short(lineWith(r.next, /Security Compound/i))}`],
       ['table row: status marker, source marker', row?.match?.status === 'marker' && row.match.source === 'marker', `match=${short(row?.match, 500)}`],
       ['table row: site HDPC-Cassillo from marker (near = same)', site?.name === 'HDPC-Cassillo' && site.from === 'marker' && row.match.near?.name === 'HDPC-Cassillo', `site=${short(site)} near=${short(row?.match?.near)}`],
-      ['table row: confidence 8, has a distance', row?.match?.confidence === 8 && row?.distance > 0, `confidence=${row?.match?.confidence} distance=${row?.distance}`],
+      // 8 from the marker; +2 when the wiki game data confirms HDPC-Cassillo has a Security Compound (batch 8 W4)
+      ['table row: confidence 8 (10 with game data), has a distance', [8, 10].includes(row?.match?.confidence) && row?.distance > 0, `confidence=${row?.match?.confidence} distance=${row?.distance}`],
       ['## MATCHES lists Security Compound as marker', m?.status === 'marker', `matches=${short(matches, 500)}`]
     ]
   },
@@ -2139,6 +2291,312 @@ const scenarios = {
       ['## MATCHES is "(all exact)"', /\(all exact\)/.test(r.sec['MATCHES'] ?? ''), `matches=${short((r.sec['MATCHES'] ?? '(missing)').slice(0, 300))} ${r.err}`],
       ['table rows all exact', rows.length >= 2 && rows.every((x) => x.match?.status === 'exact'), `rows=${short(rows.map((x) => [x.place, x.match?.status]))}`],
       ['no non-exact tag on the overlay or Next tab', r.next.length > 0 && !NON_EXACT_TAG.test(r.overlay) && !NON_EXACT_TAG.test(r.next), `overlay=${short(lineWith(r.overlay, NON_EXACT_TAG))} next=${short(lineWith(r.next, NON_EXACT_TAG))}`]
+    ]
+  },
+
+  // CONTRACT9 M5 + M1: "Shubin Mining Facility on Lyria" is '? not sure' (SAL-2 / SAL-5). Click the tag on the Next tab,
+  // ✗ Wrong, pick SAL-2 -> '✓ you set' with a distance, a 'user' entry in other-matches.json; after a restart it is
+  // still set (the file is read back, not re-guessed)
+  'memory-wrong-pick': async () => {
+    const name = 'memory-wrong-pick'
+    const { e, port, iport, stop } = await memLaunch(name, { jobs: [{ ref: 'J92', steps: [goStep('s1', SHUBIN)] }] })
+    let ui = null
+    let next = ''
+    let snap = null
+    let err = ''
+    try {
+      await nextText(port, TAG.unsure)
+      ui = await uiWrongPick(port, 'main', TAG.unsure, 'SAL-2', SAL2)
+      next = await nextText(port, MEM_TAG.user)
+      snap = snapshotJson(await exportNow(e, port, iport, name))
+    } catch (x) {
+      err = String(x?.message ?? x)
+    }
+    await stop()
+    const file = memFile(e)
+    const ent = memEntry(file, /Shubin Mining Facility on Lyria/i)
+    const row = distRow(snap, /Shubin Mining Facility on Lyria/i)
+    // second run on the same data folder; move the first run's log aside so launch() waits for this run's ready line
+    try {
+      const lf = path.join(e.data, 'logs', 'supercargo.log')
+      if (fs.existsSync(lf)) fs.renameSync(lf, `${lf}.run1`)
+    } catch {
+      // no log yet
+    }
+    const again = await launch(e, cdpArgs(port))
+    let next2 = ''
+    try {
+      next2 = await nextText(port, MEM_TAG.user, 15000)
+    } catch (x) {
+      err += ` restart: ${String(x?.message ?? x)}`
+    }
+    await again()
+    return [
+      ['UI: tag, ✗ Wrong, picker input and SAL-2 option found', !!ui?.tag && !!ui.wrong && !!ui.input && !!ui.option, `ui=${short(ui)} ${err}`],
+      ['Next tab: "✓ you set" tag', MEM_TAG.user.test(next), `next=${short(lineWith(next, /Shubin|SAL-|you set|not sure/i))}`],
+      ['Next tab: no "? not sure" left on the stop', next.length > 0 && !TAG.unsure.test(lineWith(next, /Shubin|not sure/i)), `next=${short(lineWith(next, /not sure/i))}`],
+      ['table row: status user, SAL-2, has a distance', row?.match?.status === 'user' && /SAL-2/.test(JSON.stringify(row.match.match ?? row.match)) && row.distance > 0, `match=${short(row?.match, 500)} distance=${row?.distance}`],
+      ['table row: confidence 10, evidence "you set this"', row?.match?.confidence === 10 && /you set this/i.test(short(row?.match?.evidence, 1000)), `confidence=${row?.match?.confidence} evidence=${short(row?.match?.evidence, 300)}`],
+      ['other-matches.json: user entry -> SAL-2', ent?.origin === 'user' && ent.place === SAL2, `entry=${short(ent, 500)}`],
+      ['other-matches.json: a "set" change by user with before/after', (file?.changes ?? []).some((c) => c.what === 'set' && c.by === 'user' && c.after?.place === SAL2), `changes=${short(file?.changes, 500)}`],
+      ['after restart: still "✓ you set"', MEM_TAG.user.test(next2), `next=${short(lineWith(next2, /Shubin|you set|not sure/i))}`]
+    ]
+  },
+
+  // CONTRACT9 M7: set SAL-2 for the unsure stop, then Settings -> LEARNED PLACES -> Undo on the newest change ->
+  // the stop is '? not sure' again and the entry is no longer the user's
+  'memory-undo': async () => {
+    const name = 'memory-undo'
+    const { e, port, stop } = await memLaunch(name, { jobs: [{ ref: 'J92', steps: [goStep('s1', SHUBIN)] }] })
+    let setDoc = null
+    let listText = ''
+    let undone = false
+    let next = ''
+    let err = ''
+    try {
+      setDoc = await memSetVia(port, /Shubin Mining Facility on Lyria/i, SAL2)
+      await nextText(port, MEM_TAG.user)
+      await clickButton(port, 'main', /^SETTINGS$/)
+      listText = (await until(() => windowText(port, 'main').then((t) => (/LEARNED PLACES/i.test(t) && /SAL-2/.test(t) ? t : '')), 10000)) || (await windowText(port, 'main'))
+      undone = await clickButton(port, 'main', /^Undo$/i)
+      await until(() => (memEntry(memFile(e), /Shubin Mining Facility on Lyria/i)?.origin !== 'user' ? true : null), 8000)
+      next = await nextText(port, TAG.unsure)
+    } catch (x) {
+      err = String(x?.message ?? x)
+    }
+    await stop()
+    const file = memFile(e)
+    const ent = memEntry(file, /Shubin Mining Facility on Lyria/i)
+    return [
+      ['otherMemorySet returned the doc with the user entry', memEntry(setDoc, /Shubin/i)?.origin === 'user', `doc=${short(setDoc, 400)} ${err}`],
+      ['LEARNED PLACES lists the text -> SAL-2, "you set it"', /LEARNED PLACES/i.test(listText) && /you set it/i.test(listText) && /SAL-2/.test(listText), `settings=${short(lineWith(listText, /LEARNED|Shubin|SAL-|you set/i))}`],
+      ['Undo button clicked', undone === true, `undone=${undone}`],
+      ['Next tab: back to "? not sure"', TAG.unsure.test(next) && !MEM_TAG.user.test(lineWith(next, /Shubin|you set/i)), `next=${short(lineWith(next, /Shubin|not sure|you set/i))}`],
+      ['other-matches.json: entry not the user\'s (game or gone)', !ent || ent.origin === 'game', `entry=${short(ent, 400)}`],
+      ['other-matches.json: an "undo" change logged', (file?.changes ?? []).some((c) => c.what === 'undo'), `changes=${short((file?.changes ?? []).map((c) => c.what))}`]
+    ]
+  },
+
+  // CONTRACT9 M2 + M3: read at Covalex S1DC06, then Objective Complete for "Covalex Distribution Center S1DCO06 on
+  // Hurston" (resolved there, 'corrected') -> confirmed 1; a second job the same -> confirmed 2; a third job's open stop
+  // with that text is then '✓ learned'
+  'memory-proof-learned': async () => {
+    const name = 'memory-proof-learned'
+    const TEXT = 'Covalex Distribution Center S1DCO06 on Hurston'
+    const OBJ = `Go to ${TEXT}`
+    const { e, port, iport, stop, textFile } = await memLaunch(name, { read: true })
+    const conf = []
+    let next = ''
+    let snap = null
+    let err = ''
+    try {
+      for (let i = 0; i < 2; i++) {
+        const id = mission()
+        e.append(L.accept(id, 'Med. Distance Covalex Delivery Stanton'), L.objective(id, OBJ))
+        await until(() => (findJob(e.jobs(), id)?.steps?.length ? true : null))
+        await memRead(e, port, textFile)
+        e.append(L.objectiveComplete(id, OBJ))
+        const n = await until(() => {
+          const c = memEntry(memFile(e), /S1DCO06/i)?.confirmed
+          return c >= i + 1 ? c : null
+        }, 10000)
+        conf.push(n ?? memEntry(memFile(e), /S1DCO06/i)?.confirmed ?? null)
+      }
+      const id3 = mission()
+      e.append(L.accept(id3, 'Med. Distance Covalex Delivery Stanton'), L.objective(id3, OBJ))
+      await until(() => (findJob(e.jobs(), id3)?.steps?.length ? true : null))
+      next = await nextText(port, MEM_TAG.learned)
+      snap = snapshotJson(await exportNow(e, port, iport, name))
+    } catch (x) {
+      err = String(x?.message ?? x)
+    }
+    await stop()
+    const ent = memEntry(memFile(e), /S1DCO06/i)
+    const row = distRow(snap, /S1DCO06/i)
+    const proofs = (memFile(e)?.changes ?? []).filter((c) => c.what === 'proof' && /S1DCO06/i.test(c.text))
+    return [
+      ['first completion -> confirmed 1', conf[0] === 1, `confirmed=${short(conf)} ${err}`],
+      ['second job -> confirmed 2', conf[1] === 2, `confirmed=${short(conf)}`],
+      ['entry: game, Covalex S1DC06, wrong 0', ent?.origin === 'game' && ent.place === COVALEX && !ent.wrong, `entry=${short(ent, 500)}`],
+      ['two "proof" changes by game', proofs.length === 2 && proofs.every((c) => c.by === 'game'), `changes=${short(proofs, 400)}`],
+      ['Next tab: "✓ learned" tag on the third job', MEM_TAG.learned.test(next), `next=${short(lineWith(next, /S1DC|learned|corrected/i))}`],
+      ['table row: status learned, Covalex S1DC06', row?.match?.status === 'learned' && /Covalex Distribution Centre S1DC06/.test(JSON.stringify(row.match)), `match=${short(row?.match, 500)}`],
+      ['evidence: "learned: game confirmed ×2"', /learned: game confirmed ×2/i.test(short(row?.match?.evidence, 2000)), `evidence=${short(row?.match?.evidence, 500)}`]
+    ]
+  },
+
+  // CONTRACT9 M8: the user sets SAL-2 for "Shubin Mining Facility on Lyria"; two completions of that stop while the
+  // reads show you at Covalex S1DC06 (Hurston) -> wrong 2, disputed; the user's place still wins (status user,
+  // confidence 6) and the stop shows "⚠ the game disagrees" with where you were
+  'memory-disputed': async () => {
+    const name = 'memory-disputed'
+    const OBJ = `Go to ${SHUBIN}`
+    const { e, port, iport, stop, textFile } = await memLaunch(name, { read: true })
+    let next = ''
+    let snap = null
+    let err = ''
+    try {
+      await memRead(e, port, textFile)
+      const ids = [mission(), mission(), mission()]
+      e.append(L.accept(ids[0], 'Bounty Hunt'), L.objective(ids[0], OBJ))
+      await memSetVia(port, /Shubin Mining Facility on Lyria/i, SAL2)
+      for (let i = 0; i < 2; i++) {
+        if (i) {
+          e.append(L.accept(ids[i], 'Bounty Hunt'), L.objective(ids[i], OBJ))
+          await until(() => (findJob(e.jobs(), ids[i])?.steps?.length ? true : null))
+        }
+        await memRead(e, port, textFile)
+        e.append(L.objectiveComplete(ids[i], OBJ))
+        await until(() => (memEntry(memFile(e), /Shubin/i)?.wrong >= i + 1 ? true : null), 10000)
+      }
+      e.append(L.accept(ids[2], 'Bounty Hunt'), L.objective(ids[2], OBJ))
+      await until(() => (findJob(e.jobs(), ids[2])?.steps?.length ? true : null))
+      next = await nextText(port, MEM_TAG.disputed)
+      snap = snapshotJson(await exportNow(e, port, iport, name))
+    } catch (x) {
+      err = String(x?.message ?? x)
+    }
+    await stop()
+    const ent = memEntry(memFile(e), /Shubin Mining Facility on Lyria/i)
+    const row = distRow(snap, /Shubin Mining Facility on Lyria/i)
+    return [
+      ['entry: user, SAL-2, wrong 2, disputed', ent?.origin === 'user' && ent.place === SAL2 && ent.wrong === 2 && ent.disputed === true, `entry=${short(ent, 600)} ${err}`],
+      ['entry: wrongAt[0] is Covalex S1DC06 with meters', ent?.wrongAt?.[0]?.name === COVALEX && ent.wrongAt[0].meters != null, `wrongAt=${short(ent?.wrongAt)}`],
+      ['Next tab: "⚠ the game disagrees"', MEM_TAG.disputed.test(next), `next=${short(lineWith(next, /Shubin|SAL-|disagree|you set/i))}`],
+      ['Next tab: "you were at Covalex Distribution Centre S1DC06"', /you were at Covalex Distribution Centre S1DC06/i.test(next), `next=${short(lineWith(next, /you were|disagree/i))}`],
+      ['table row: user\'s place still wins (status user, SAL-2, confidence 6)', row?.match?.status === 'user' && /SAL-2/.test(JSON.stringify(row.match)) && row.match.confidence === 6, `match=${short(row?.match, 500)}`],
+      ['evidence: "you set this; ⚠ the game disagrees ×2"', /you set this; ⚠ the game disagrees ×2/i.test(short(row?.match?.evidence, 2000)), `evidence=${short(row?.match?.evidence, 400)}`]
+    ]
+  },
+
+  // CONTRACT9 M4: after a user set, the button-path export has ## MATCH MEMORY with the entry and the change
+  'memory-diag-section': async () => {
+    const name = 'memory-diag-section'
+    const { e, port, iport, stop } = await memLaunch(name, { jobs: [{ ref: 'J92', steps: [goStep('s1', SHUBIN)] }] })
+    let text = null
+    let err = ''
+    try {
+      await memSetVia(port, /Shubin Mining Facility on Lyria/i, SAL2)
+      await sleep(1500)
+      text = await exportNow(e, port, iport, name)
+    } catch (x) {
+      err = String(x?.message ?? x)
+    }
+    await stop()
+    const body = diagSections(text)['MATCH MEMORY'] ?? null
+    return [
+      ['## MATCH MEMORY present', body != null, `sections=${short(Object.keys(diagSections(text)))} ${err}`],
+      ['entries: the Shubin text -> SAL-2 (user)', /Shubin Mining Facility on Lyria/i.test(body ?? '') && /SAL-2/.test(body ?? '') && /user/i.test(body ?? ''), `body=${short((body ?? '').slice(0, 600))}`],
+      ['changes: a "set" line', /\bset\b/.test(body ?? ''), `body=${short((body ?? '').slice(-400))}`],
+      ['no player handle in the section', !/PLAYER/.test(body ?? ''), '']
+    ]
+  },
+
+  // CONTRACT9 ADDENDUM 2 S: J82 pickup "S1DCO06" resolves to Covalex Distribution Centre S1DC06, a place only the
+  // starmap file has (UEX lists "…Center S1DC06" without coordinates). Switch the starmap source off in Settings →
+  // DATA SOURCES: the place is gone, the stop gets no distance (never the 4 km drop-off marker's), the counts show;
+  // switch it on again: back to ~0.3 km. The candidate's evidence names its source ("· from starmap data").
+  'sources-starmap-off': async () => {
+    const name = 'sources-starmap-off'
+    const e = setup(name, { otherStartMode: 'auto', otherSourceStarmap: true }, {
+      jobs: [logJob(mission(), { ref: 'J82', title: 'Med. Distance Covalex Delivery Stanton', steps: [J82_PICKUP_STEP] })],
+      history: [],
+      listOrder: 'distance',
+      lastLogEventAt: iso(ago(30))
+    })
+    const textFile = path.join(e.home, 'where-text.json')
+    fs.writeFileSync(textFile, JSON.stringify({ zone2: serverTimeNow(COVALEX_READS.planet), zone1: '' }))
+    const port = await freePort()
+    const iport = await freePort()
+    const stop = await launch(e, [...cdpArgs(port), ...inspectArgs(iport)], { SC_WHERE_TEXT_FILE: textFile })
+    const snaps = {}
+    const nexts = {}
+    let src = ''
+    let off = null
+    let back = null
+    let err = ''
+    try {
+      await cdpEval(port, 'main', 'window.supercargo.otherWhereRun()')
+      await until(() => (e.jobs()?.where?.name === COVALEX ? true : null))
+      nexts.on = await nextText(port, TAG.corrected)
+      snaps.on = snapshotJson(await exportNow(e, port, iport, `${name}-on`))
+      src = await sourcesText(port)
+      off = await sourcesToggle(port, false)
+      nexts.off = await nextText(port, /S1DCO06/i)
+      await sleep(1500)
+      snaps.off = snapshotJson(await exportNow(e, port, iport, `${name}-off`))
+      await sourcesText(port)
+      back = await sourcesToggle(port, true)
+      nexts.back = await nextText(port, TAG.corrected)
+      snaps.back = snapshotJson(await exportNow(e, port, iport, `${name}-back`))
+    } catch (x) {
+      err = String(x?.message ?? x)
+    }
+    await stop()
+    const rows = Object.fromEntries(Object.entries(snaps).map(([k, s]) => [k, distRow(s, /S1DCO06/i)]))
+    const counts = sourceCounts(src)
+    const isCentre = (r) => /Covalex Distribution Centre S1DC06/.test(JSON.stringify(r?.match?.match ?? r?.match?.label ?? ''))
+    const near = (r) => r?.distance > 100 && r.distance < 500 && r.distanceSource !== 'marker'
+    const evOn = short([rows.on?.match?.evidence, rows.on?.match?.candidates], 3000)
+    const sourcesSnap = findKey(snaps.off, /^(enabled)?sources$/i) ?? findKey(snaps.off, /source(s)?Enabled|otherSource/i)
+    return [
+      ['on: J82 pickup corrected to Covalex Centre S1DC06, ~0.3 km', isCentre(rows.on) && rows.on.match.status === 'corrected' && near(rows.on), `match=${short(rows.on?.match, 300)} distance=${rows.on?.distance} source=${rows.on?.distanceSource} ${err}`],
+      ['on: evidence names the source ("· from starmap data")', STARMAP_EV.test(evOn), `evidence=${evOn.slice(0, 500)}`],
+      ['DATA SOURCES: UEX row with counts, base list (always on)', counts.uex > 0 && counts.uexCoords >= 0 && /base list/i.test(src), `counts=${short(counts)} text=${short(lineWith(src, /UEX|base list/i))}`],
+      ['DATA SOURCES: starmap row "adds N places, fills coordinates for M"', counts.starmapAdds > 0 && counts.starmapFills >= 0, `counts=${short(counts)} text=${short(lineWith(src, /starmap/i))}`],
+      ['switch off through the UI', off?.clicked === true && off.setting === false, `off=${short(off)}`],
+      ['off: the stop is still listed on Next', /S1DCO06/i.test(nexts.off ?? ''), `next=${short(lineWith(nexts.off, /S1DC/i))}`],
+      ['off: not the starmap-only Centre S1DC06', !isCentre(rows.off), `match=${short(rows.off?.match, 300)}`],
+      ['off: no distance (never the drop-off marker\'s 4 km)', !rows.off || rows.off.distance == null, `row=${short(rows.off, 300)}`],
+      ['off: SNAPSHOT shows the starmap source disabled', /starmap/i.test(short(sourcesSnap, 400)) && /false|off/i.test(short(sourcesSnap, 400)), `sources=${short(sourcesSnap, 300)}`],
+      ['switch on again through the UI', back?.clicked === true && back.setting === true, `back=${short(back)}`],
+      ['settings.json keeps the switch (otherSourceStarmap true at the end)', (() => {
+        try {
+          return JSON.parse(fs.readFileSync(path.join(e.data, 'settings.json'), 'utf8')).otherSourceStarmap === true
+        } catch {
+          return false
+        }
+      })(), ''],
+      ['back on: corrected to Covalex Centre S1DC06, ~0.3 km again', isCentre(rows.back) && near(rows.back), `match=${short(rows.back?.match, 300)} distance=${rows.back?.distance}`]
+    ]
+  },
+
+  // CONTRACT9 ADDENDUM 2 T (OCR typo matching): confusion-folded names -> '≈ corrected'. Primary: J73's pickup
+  // "CRU-L1 Ambitious Dream Station" as OCR reads it with rn for m ("Drearn"): folded keys equal -> corrected +5,
+  // right place, shown with the tag in both windows. The case table's OCR misreads may resolve or stay 'none'
+  // (resolve_checks decides each), but never to a wrong place; S1DC06 never matches S4DC05 (code tokens).
+  'typo-close-spelling': async () => {
+    const TYPO = 'CRU-L1 Ambitious Drearn Station'
+    const CASES = [
+      ['CRU-LS5 Beautiful Glen Station', 'CRU-L5 Beautiful Glen Station'],
+      ['ARC-L dern Express Station', 'ARC-L3 Modern Express Station'],
+      ['Deak Outpost on Yela', 'Deakins Research Outpost'],
+      ['August Dunlow Sg Orison. Quy port in', 'August Dunlow Spaceport']
+    ]
+    const jobs = [
+      { ref: 'J73', title: 'Medical Supplies', steps: [goStep('s0', TYPO)] },
+      ...CASES.map(([text], i) => ({ ref: `J${74 + i}`, steps: [goStep(`s${i + 1}`, text)] })),
+      { ref: 'J90', steps: [goStep('s9', 'Covalex Distribution Center S4DC05 on Hurston')] }
+    ]
+    const r = await matchRun('typo-close-spelling', { jobs, want: TAG.corrected })
+    const row = distRow(r.snap, /Drearn/i)
+    const m = matchEntry(r.matches, /Drearn/i)
+    const placeOf = (x) => String(x?.match?.match?.name ?? x?.match?.label ?? '')
+    const caseChecks = CASES.map(([text, right]) => {
+      const x = distRow(r.snap, new RegExp(text.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'), 'i'))
+      const st = x?.match?.status
+      const ok = !x || st === 'none' || st === 'unsure' || placeOf(x) === right
+      return [`case table "${text}": ${right} or not placed, never a wrong place`, ok, `status=${st} place=${placeOf(x)} evidence=${short(x?.match?.evidence, 200)}`]
+    })
+    const s4 = distRow(r.snap, /S4DC05/i)
+    return [
+      ['overlay: "≈ corrected" tag', TAG.corrected.test(r.overlay), `overlay=${short(lineWith(r.overlay, /Drearn|Dream|corrected/i))} ${r.err}`],
+      ['Next tab: "≈ corrected" on the Drearn stop', TAG.corrected.test(lineWith(r.next, /Drearn|corrected/i)), `next=${short(lineWith(r.next, /Drearn|Dream|corrected/i))}`],
+      ['table row: corrected to CRU-L1 Ambitious Dream Station, has a distance', row?.match?.status === 'corrected' && placeOf(row) === 'CRU-L1 Ambitious Dream Station' && row.distance > 0, `match=${short(row?.match, 400)} distance=${row?.distance}`],
+      ['evidence: name corrected / close spelling', /corrected|close spelling/i.test(short(row?.match?.evidence, 2000)), `evidence=${short(row?.match?.evidence, 500)}`],
+      ['## MATCHES lists the Drearn text as corrected', m?.status === 'corrected', `m=${short(m, 300)}`],
+      ...caseChecks,
+      ['S4DC05 never matches Covalex S1DC06 (code tokens differ)', !/S1DC06/.test(placeOf(s4)), `status=${s4?.match?.status} place=${placeOf(s4)}`]
     ]
   },
 

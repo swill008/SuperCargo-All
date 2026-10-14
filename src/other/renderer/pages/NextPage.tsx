@@ -18,6 +18,8 @@ import { otherView, withoutWithdrawn, JobTags } from './JobsPartsStyles'
 import { AccSlider, TrackedTag } from '../components/AccuracyMeter'
 import { MatchTag, candidatesLine, stopPlaceText } from '../components/MatchTag'
 import type { StopPlace } from '@other/otherResolve'
+import { memoryKey } from '@other/otherMemory'
+import { useMemoryLookup } from '../state/otherMemoryStore'
 
 type OpenStop = OpenStopRow
 
@@ -89,7 +91,7 @@ interface Group {
 
 /** withdrawn rows are listed, never resolved */
 const noMatch = (text: string): StopPlace => ({
-  text, label: text, source: null, status: 'none', confidence: 0, evidence: [], candidates: []
+  text, label: text, source: null, status: 'none', confidence: 0, evidence: [], candidates: [], memoryKey: memoryKey(text)
 })
 
 /** "<pickup> (pickup) → <dest>" or "→ N destinations"; `shown` is the pickup as displayed */
@@ -121,6 +123,8 @@ export default function NextPage(): React.ReactElement {
   const showAll = !!useStore((s) => s.settings.overlayShowAllObjectives)
   const hideCompleted = useStore((s) => s.settings.overlayHideCompletedObjectives) !== false
   const locations = useMergedLocations()
+  // user-set / learned places; identity changes with the memory doc so the list re-resolves
+  const memory = useMemoryLookup()
   const names = useMemo(() => locations.map((l) => l.name).filter(Boolean), [locations])
 
   const settings = useStore((s) => s.settings)
@@ -156,9 +160,9 @@ export default function NextPage(): React.ReactElement {
   const liveJobs = useMemo(() => jobs.map(withoutWithdrawn), [jobs])
   const open = useMemo(
     () => listOpenStops(liveJobs, startLocation, locations, {
-      showAll, hideCompleted, listOrder, jobOrder, markerDistance, origin: originPoint, originIsRead
+      showAll, hideCompleted, listOrder, jobOrder, markerDistance, origin: originPoint, originIsRead, memory
     }),
-    [liveJobs, startLocation, originPoint, originIsRead, locations, showAll, hideCompleted, listOrder, jobOrder, markerDistance]
+    [liveJobs, startLocation, originPoint, originIsRead, locations, showAll, hideCompleted, listOrder, jobOrder, markerDistance, memory]
   )
 
   const groups = useMemo(() => {

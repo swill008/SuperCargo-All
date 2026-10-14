@@ -19,6 +19,7 @@ import type { WhereRunResult, WhereSource } from '@other/otherWhere'
 import { miniBtn, otherView, withoutWithdrawn, JobTags } from '../pages/JobsPartsStyles'
 import { AccTag, TrackedTag } from './AccuracyMeter'
 import { MatchTag, stopPlaceText } from './MatchTag'
+import { useMemoryLookup } from '../state/otherMemoryStore'
 import { setOverlayDiag, overlayDiag } from '../state/otherOverlayDiag'
 
 /** AFK keep-alive state (src/other/otherAfk.ts AfkState); preload methods may be missing mid-build */
@@ -76,6 +77,8 @@ export default function OtherOverlay(): React.ReactElement {
   const trackedAt = useOtherJobs((s) => (s as { trackedAt?: string }).trackedAt)
   const settings = useStore((s) => s.settings)
   const locations = useMergedLocations()
+  // user-set / learned places (main owns the file; the overlay only reads and sends fixes)
+  const memory = useMemoryLookup()
   const opacity = settings.overlayOpacity ?? 0.85
   const returnToFirst = settings.overlayReturnToFirst !== false
   const returnSeconds = Math.max(0, Math.min(20, settings.overlayReturnSeconds ?? 8))
@@ -111,9 +114,9 @@ export default function OtherOverlay(): React.ReactElement {
   const liveJobs = useMemo(() => jobs.map(withoutWithdrawn), [jobs])
   const open = useMemo(
     () => listOpenStops(liveJobs, startLocation, locations, {
-      showAll, hideCompleted, listOrder, jobOrder, markerDistance, origin: originPoint, originIsRead
+      showAll, hideCompleted, listOrder, jobOrder, markerDistance, origin: originPoint, originIsRead, memory
     }),
-    [liveJobs, startLocation, originPoint, originIsRead, locations, showAll, hideCompleted, listOrder, jobOrder, markerDistance]
+    [liveJobs, startLocation, originPoint, originIsRead, locations, showAll, hideCompleted, listOrder, jobOrder, markerDistance, memory]
   )
   // the overlay walks places: several steps at one station are one stop
   const groups = useMemo(() => groupByPlace(open, locations), [open, locations])

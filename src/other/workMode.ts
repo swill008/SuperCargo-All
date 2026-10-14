@@ -96,6 +96,8 @@ declare module '@shared/types' {
     otherAfkWhereRead?: boolean
     /** distances on the overlay card */
     otherOverlayDistance?: boolean
+    /** data source: the bundled starmap positions (places UEX lacks + coords UEX lacks); UEX is always on */
+    otherSourceStarmap?: boolean
   }
 }
 
@@ -123,7 +125,8 @@ export const OTHER_SETTING_DEFAULTS = {
   otherAfkCycleKey: 'F1',
   otherAfkMaxMin: 120,
   otherAfkWhereRead: true,
-  otherOverlayDistance: true
+  otherOverlayDistance: true,
+  otherSourceStarmap: true
 }
 
 type OtherSettingKey = keyof typeof OTHER_SETTING_DEFAULTS

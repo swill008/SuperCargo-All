@@ -9,6 +9,7 @@ import { formatPlaceWithBodySystem, stepIsPickup } from '@other/otherNext'
 import { resolveStopPlace, type StopPlace } from '@other/otherResolve'
 import { otherSetting } from '@other/workMode'
 import { MatchTag, stopPlaceText } from '../components/MatchTag'
+import { useMemoryLookup } from '../state/otherMemoryStore'
 import { OTHER_KIND_LABEL, type OtherJob } from '@other/otherJob'
 import { EditForm } from './JobsPartsUi'
 import { miniBtn, tagStyle, otherView, shownSteps, JobTags } from './JobsPartsStyles'
@@ -38,10 +39,11 @@ export function JobRow({ job, uex, expanded, editing, onToggle, onEdit, onCancel
   const total = live.length
   const steps = shownSteps(job.steps, view)
   const roster = useMergedLocations()
+  const memory = useMemoryLookup()
   // how sure each open step's next place is (same resolver as the Next tab and overlay)
   const matchOf = (step: OtherJob['steps'][number]): StopPlace | null =>
     job.status === 'active' && !step.done && !step.withdrawn && expanded && !editing
-      ? resolveStopPlace(step, { locations: roster, useMarker }, job)
+      ? resolveStopPlace(step, { locations: roster, useMarker, memory }, job)
       : null
   const statusColor = job.status === 'active' ? C.green : job.status === 'complete' ? C.dim : C.amber
   return (

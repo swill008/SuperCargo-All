@@ -1,21 +1,31 @@
 /**
  * How sure a stop's place is (otherResolve StopPlace): "✓ exact", "≈ corrected", "📍 game marker"...
- * Colour from confidence on the WHERE AM I accuracy gradient. Only exact/marker can look green;
- * every other status is held to amber/red. Hover lists the evidence weighed.
+ * Colour from confidence on the WHERE AM I accuracy gradient. Only exact/marker/you set/learned can look green;
+ * every other status is held to amber/red. Hover lists the evidence weighed; click opens MatchFix.
  */
-import React from 'react'
-import { F } from '@renderer/theme'
+import React, { useCallback, useState } from 'react'
+import { C, F } from '@renderer/theme'
 import { matchWord, type StopPlace } from '@other/otherResolve'
 import { formatDistance, formatPlaceNear, formatPlaceWithBodySystem } from '@other/otherNext'
 import type { Location } from '@shared/types'
 import { accuracyColor } from './AccuracyMeter'
+import { MatchFix } from './MatchFix'
 
-const NORMAL = new Set<StopPlace['status']>(['exact', 'marker'])
+const NORMAL = new Set<StopPlace['status']>(['exact', 'marker', 'user', 'learned'])
 
-/** tag colour: exact/marker on the full gradient; others capped at amber (5) */
-export function matchColor(match: Pick<StopPlace, 'status' | 'confidence'>): string {
+/** tag colour: exact/marker/you set/learned on the full gradient; others (and disputed) capped at amber (5) */
+export function matchColor(match: Pick<StopPlace, 'status' | 'confidence'> & Partial<Pick<StopPlace, 'memory'>>): string {
   const c = Number.isFinite(match.confidence) ? match.confidence : 0
-  return accuracyColor(NORMAL.has(match.status) ? c : Math.min(c, 5))
+  return accuracyColor(NORMAL.has(match.status) && !match.memory?.disputed ? c : Math.min(c, 5))
+}
+
+/** "⚠ the game disagrees · you were at X" for a disputed user entry; null otherwise */
+export function disputedLine(match: StopPlace | undefined | null): string | null {
+  if (!match?.memory?.disputed) return null
+  const w = match.memory.wrongAt?.[0]
+  if (!w?.name) return '\u26a0 the game disagrees'
+  const where = w.meters != null && w.meters > 1000 ? `${formatDistance(w.meters)} from ${w.name}` : `at ${w.name}`
+  return `\u26a0 the game disagrees \u00b7 you were ${where}`
 }
 
 /** tooltip: status, confidence, then each piece of evidence in the order weighed */
@@ -51,19 +61,44 @@ export function stopPlaceText(match: StopPlace | undefined | null, fallback: str
   return formatPlaceNear(match.label || match.text || fallback, match.near, locations)
 }
 
+/** the tag is a button: click (or Enter/Space) opens MatchFix to confirm, correct or forget the match */
 export function MatchTag({ match }: { match?: StopPlace | null }): React.ReactElement | null {
+  const [anchor, setAnchor] = useState<HTMLButtonElement | null>(null)
+  const [open, setOpen] = useState(false)
+  const close = useCallback(() => setOpen(false), [])
   if (!match) return null
   const col = matchColor(match)
+  const disputed = disputedLine(match)
   return (
-    <span
-      title={matchTip(match)}
-      style={{
-        fontFamily: F.body, fontSize: 10, letterSpacing: '0.04em', color: col,
-        border: `1px solid ${col}`, borderRadius: 2, padding: '0 4px', lineHeight: 1.4,
-        flex: 'none', whiteSpace: 'nowrap', verticalAlign: 'middle', textTransform: 'none'
-      }}
-    >
-      {matchWord(match.status)}
-    </span>
+    <>
+      <button
+        type="button"
+        ref={setAnchor}
+        title={`${matchTip(match)}\n\nClick to fix this match`}
+        aria-haspopup="dialog"
+        aria-expanded={open}
+        onClick={(e) => {
+          // rows and cards around the tag have their own click/drag handlers
+          e.stopPropagation()
+          setOpen((v) => !v)
+        }}
+        onMouseDown={(e) => e.stopPropagation()}
+        style={{
+          fontFamily: F.body, fontSize: 10, letterSpacing: '0.04em', color: col, background: 'transparent',
+          border: `1px solid ${col}`, borderRadius: 2, padding: '0 4px', lineHeight: 1.4, margin: 0,
+          flex: 'none', whiteSpace: 'nowrap', verticalAlign: 'middle', textTransform: 'none', cursor: 'pointer',
+          WebkitAppRegion: 'no-drag'
+        } as React.CSSProperties}
+      >
+        {matchWord(match.status)}
+      </button>
+      {disputed ? (
+        <span style={{
+          fontFamily: F.body, fontSize: 10, color: C.amber, marginLeft: 6, whiteSpace: 'nowrap',
+          verticalAlign: 'middle', textTransform: 'none', letterSpacing: 'normal'
+        }}>{disputed}</span>
+      ) : null}
+      {open ? <MatchFix match={match} anchor={anchor} onClose={close} /> : null}
+    </>
   )
 }

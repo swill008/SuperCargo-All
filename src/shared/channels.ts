@@ -85,6 +85,16 @@ export const IPC = {
   otherBodiesGet: 'otherBodies:get', // -> BodiesDoc (table built from the roster + saved)
   otherLearnedPlace: 'otherBodies:learned', // renderer -> main (send), one LearnedPlaceReport
   evtOtherBodies: 'evt:other:bodies', // main -> all windows, BodiesDoc on every change
+  otherMemoryGet: 'otherMemory:get', // -> MemoryDoc (match memory, other-matches.json)
+  otherMemorySeen: 'otherMemory:seen', // renderer -> main (send), recordSeen inputs[] (main window only)
+  otherMemoryProof: 'otherMemory:proof', // renderer -> main (send), one recordProof input (main window only)
+  otherMemorySet: 'otherMemory:set', // ({ key, text, context?, place }) -> MemoryDoc ('user' entry)
+  otherMemoryForget: 'otherMemory:forget', // (key) -> MemoryDoc
+  otherMemoryUndo: 'otherMemory:undo', // (index into changes) -> MemoryDoc
+  evtOtherMemory: 'evt:other:memory', // main -> all windows, MemoryDoc on every change
+  otherGameDataGet: 'otherGameData:get', // -> GameDataReply (Star Citizen Wiki game data: counts, source, site table)
+  otherGameDataUpdate: 'otherGameData:update', // download + rebuild -> GameDataReply (error? on failure)
+  evtOtherGameData: 'evt:other:gameData', // main -> all windows, GameDataReply after every update
   evtObjective: 'evt:objective',
   evtContractEnded: 'evt:contract:ended',
   evtContractPaid: 'evt:contract:paid',

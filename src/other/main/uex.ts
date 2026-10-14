@@ -7,6 +7,7 @@ import fs from 'node:fs'
 import path from 'node:path'
 import type { Location } from '@shared/types'
 import { logger } from '../../main/logger'
+import { gameDataPositionsFile, onGameDataUpdated } from './gameData'
 
 const FILE = 'other-uex-places.json'
 const BASE = 'https://api.uexcorp.space/2.0'
@@ -46,6 +47,7 @@ function asLoc(row: UexRow): Location | null {
     maxContainerSize: 0,
     uexId: Number(row.id) || 0,
     hasElevator: false,
+    source: 'uex',
     system: String(row.star_system_name || '').toLowerCase() || undefined,
     body: String(row.moon_name || row.planet_name || row.orbit_name || '') || undefined
   }
@@ -64,16 +66,16 @@ function attachCoords(places: Location[], haul: Location[]): Location[] {
   const byName = new Map(haul.map((l) => [l.name.toLowerCase(), l]))
   return places.map((p) => {
     const exact = byName.get(p.name.toLowerCase())
-    if (exact?.x != null) return { ...p, x: exact.x, y: exact.y, z: exact.z, system: p.system || exact.system }
+    if (exact?.x != null) return { ...p, x: exact.x, y: exact.y, z: exact.z, coordsFrom: 'uex', system: p.system || exact.system }
     const padName = CITY_PAD[p.name.toLowerCase()]
     const pad = padName ? byName.get(padName.toLowerCase()) : undefined
-    if (pad?.x != null) return { ...p, x: pad.x, y: pad.y, z: pad.z, system: p.system || pad.system }
+    if (pad?.x != null) return { ...p, x: pad.x, y: pad.y, z: pad.z, coordsFrom: 'uex', system: p.system || pad.system }
     const key = p.name.toLowerCase()
     for (const h of haul) {
       if (h.x == null) continue
       const n = h.name.toLowerCase()
       if (n.length >= 8 && (n.includes(key) || key.includes(n))) {
-        return { ...p, x: h.x, y: h.y, z: h.z, system: p.system || h.system }
+        return { ...p, x: h.x, y: h.y, z: h.z, coordsFrom: 'uex', system: p.system || h.system }
       }
     }
     return p
@@ -84,12 +86,18 @@ type Pos = { name: string; aliases?: string[]; system: string; body?: string; x:
 
 const norm = (s: string): string => s.toLowerCase().replace(/[^a-z0-9]+/g, '')
 
-// bundled data/uex/other-positions.json (scripts/gen-other-positions.mjs)
+// starmap positions: the "Update game data" copy (userData/game-data, main/gameData.ts) when there is one,
+// else the bundled data/uex/other-positions.json (scripts/gen-other-positions.mjs)
 let positions: Map<string, Pos[]> | null = null
+onGameDataUpdated(() => {
+  positions = null
+})
 function positionIndex(): Map<string, Pos[]> {
   if (positions) return positions
   positions = new Map()
+  const downloaded = gameDataPositionsFile()
   const candidates = [
+    ...(downloaded ? [downloaded] : []),
     path.join(process.resourcesPath ?? '', 'data', 'uex', 'other-positions.json'),
     path.join(app.getAppPath(), 'data', 'uex', 'other-positions.json'),
     path.join(app.getAppPath(), '..', '..', 'data', 'uex', 'other-positions.json')
@@ -113,7 +121,8 @@ function positionIndex(): Map<string, Pos[]> {
   return positions
 }
 
-// fill places the haul cache could not place from the bundled starmap positions
+// fill places the haul cache could not place from the bundled starmap positions (coordsFrom 'starmap': the
+// otherSourceStarmap switch strips them again in the renderer)
 function fillFromPositions(places: Location[]): Location[] {
   const idx = positionIndex()
   if (!idx.size) return places
@@ -124,7 +133,7 @@ function fillFromPositions(places: Location[]): Location[] {
     const sys = (p.system ?? '').toLowerCase()
     const hit = hits.find((h) => !sys || (h.system ?? '').toLowerCase() === sys) ?? (hits.length === 1 && !sys ? hits[0] : undefined)
     if (!hit) return p
-    return { ...p, x: hit.x, y: hit.y, z: hit.z, system: p.system || hit.system, body: p.body || hit.body }
+    return { ...p, x: hit.x, y: hit.y, z: hit.z, coordsFrom: 'starmap', system: p.system || hit.system, body: p.body || hit.body }
   })
 }
 
@@ -142,7 +151,19 @@ function addStarmapPlaces(places: Location[]): Location[] {
     for (const h of list) {
       if (seen.has(h) || have.has(norm(h.name)) || (h.aliases ?? []).some((a) => have.has(norm(a)))) continue
       seen.add(h)
-      extra.push({ name: h.name, code: '', maxContainerSize: 0, uexId: 0, x: h.x, y: h.y, z: h.z, system: titleCase(h.system ?? ''), body: h.body })
+      extra.push({
+        name: h.name,
+        code: '',
+        maxContainerSize: 0,
+        uexId: 0,
+        source: 'starmap',
+        coordsFrom: 'starmap',
+        x: h.x,
+        y: h.y,
+        z: h.z,
+        system: titleCase(h.system ?? ''),
+        body: h.body
+      })
     }
   }
   return [...places, ...extra]

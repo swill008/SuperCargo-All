@@ -638,6 +638,20 @@ safe('resolver wiring', () => {
   const viaJob = N.listOpenStops([twoSteps], '', roster, { listOrder: 'distance', origin })[0]
   check('resolver wiring', "job passed: site from the job's other step", viaJob?.match.site?.from === 'contract' && /S1DC06$/.test(viaJob.match.site.name), `${viaJob?.match.status} ${JSON.stringify(viaJob?.match.site)}`)
 
+  // batch 8: opts.memory reaches the resolver (a 'user' entry decides the place); stepDistanceFromStart takes it too
+  const key = pick?.match.memoryKey
+  check('resolver wiring', 'row match carries a memoryKey', typeof key === 'string' && key.length > 0, String(key))
+  const at = '2026-10-14T00:00:00.000Z'
+  const userEntry = { key, text: pick?.match.text, place: 'Port Tressler', origin: 'user', confirmed: 0, wrong: 0, seen: 1, firstAt: at, lastAt: at }
+  const memory = (k) => (k === key ? userEntry : undefined)
+  const mine = N.listOpenStops([jb(st({}))], '', roster, { listOrder: 'distance', origin, memory })[0]
+  check('resolver wiring', "opts.memory: user entry -> status 'user' at that place", mine?.match.status === 'user' && mine.match.match?.name === 'Port Tressler' && mine.match.memory?.origin === 'user', `${mine?.match.status} ${mine?.match.match?.name}`)
+  const pt = byName('Port Tressler')
+  const dMem = N.stepDistanceFromStart(START, jb(st({})).steps[0], roster, true, jb(st({})), memory)
+  check('resolver wiring', 'stepDistanceFromStart(memory): distance to the user place', near(dMem, dist(byName(START), pt)), `${dMem}`)
+  const dNo = N.stepDistanceFromStart(START, jb(st({})).steps[0], roster, true, jb(st({})))
+  check('resolver wiring', 'stepDistanceFromStart without memory: unchanged', !near(dNo, dist(byName(START), pt)), `${dNo}`)
+
   // a roster name whose game marker is far away: the marker wins the distance (never the roster place's)
   const ev = byName('Everus Harbor')
   const far = { ...job(60, 'Port Tressler'), steps: [{ ...job(60, 'Port Tressler').steps[0], position: { x: ev.x, y: ev.y, z: ev.z } }] }

@@ -7,8 +7,11 @@ import type { Location } from '@shared/types'
 import { splitLogAddress } from '@shared/logLocation'
 import type { OtherStep } from '@other/otherJob'
 import type { GeoPoint } from './otherGeo'
+import type { MemoryEntry } from './otherMemory'
+import { learnedPlace, memoryKey, memoryLabel } from './otherMemory'
+import { codeFromText, gameDataPlace, parentForCode, siteByCode, sitesNamed, stripCode } from './otherSiteCodes'
 
-export type MatchStatus = 'exact' | 'corrected' | 'marker' | 'guess' | 'mismatch' | 'unsure' | 'none'
+export type MatchStatus = 'exact' | 'corrected' | 'marker' | 'guess' | 'mismatch' | 'unsure' | 'none' | 'user' | 'learned'
 
 export interface Evidence {
   kind: 'name' | 'body' | 'system' | 'marker' | 'here'
@@ -49,6 +52,17 @@ export interface StopPlace {
    * ('contract'), else the one nearest the marker ('marker'). meters = marker -> place; null without a marker
    */
   site?: StopSite
+  /** match-memory key for this stop: generic site -> memoryKey(text, site parent or ''), else memoryKey(text) */
+  memoryKey: string
+  /** set when a match-memory entry was used */
+  memory?: StopMemory
+}
+
+export interface StopMemory {
+  origin: MemoryEntry['origin']
+  label: string
+  disputed?: boolean
+  wrongAt?: MemoryEntry['wrongAt']
 }
 
 export interface StopSite {
@@ -64,6 +78,8 @@ export interface ResolveCtx {
   useMarker: boolean
   /** start point when it came from a read (not typed): 'here' evidence */
   here?: GeoPoint
+  /** match memory lookup by memoryKey */
+  memory?: (key: string) => MemoryEntry | undefined
 }
 
 /** how far a marker point may be from a roster place to be called "near" it */
@@ -72,6 +88,8 @@ export const NEAR_MAX_M = 25_000
 // scoring (contract 8)
 const PTS_EXACT = 6
 const PTS_KEY = 5
+const PTS_CLOSE = 4
+const PTS_NEAR_SPELLING = 3
 const PTS_CONTAINS = 3
 const PTS_TOKEN = 2
 const PTS_BODY = 2
@@ -81,6 +99,14 @@ const PTS_SYSTEM_BAD = -6
 const PTS_MARKER_NEAR = 4
 const PTS_MARKER_FAR = -5
 const PTS_HERE = 2
+/** game data (scunpacked site codes): the contract's place has / lacks a site by this name */
+const PTS_GAME_SITE = 2
+const CONF_GAME_CODE = 10
+const PTS_LEARNED = 4
+const PTS_WRONG = -4
+const WRONG_MIN = 2
+const CONF_USER = 10
+const CONF_DISPUTED = 6
 const MARKER_NEAR_M = 2_000
 const MARKER_FAR_M = 10_000
 const HERE_M = 1_000
@@ -88,6 +114,12 @@ const ACCEPT_SCORE = 5
 const ACCEPT_GAP = 3
 
 const SAME_PLACE_M = 1_000
+
+// OCR typo matching (contract 9 T): weighted Damerau-Levenshtein similarity on confusion-folded keys
+const SIM_CLOSE = 0.9
+const SIM_NEAR = 0.82
+const CLOSE_MIN_LEN = 8
+const CONFUSION_COST = 0.3
 
 /**
  * generic site names the game uses at many places (not roster places): such a stop belongs to the
@@ -114,6 +146,10 @@ function foldWord(w: string): string {
 
 interface Parsed {
   key: string
+  /** confusion-folded key (OCR look-alikes folded): see foldKey */
+  fold: string
+  /** code tokens (any token with a digit, e.g. S1DC06, CRU-L5, SAL-2), confusion-folded and sorted */
+  codes: string
   /** the name part (address hints removed), as typed */
   name: string
   bodyHint?: string
@@ -131,7 +167,62 @@ function parsePlace(s: string): Parsed {
     if (b && !SYSTEMS.has(b)) bodyHint = b
   }
   const key = words(name).map(foldWord).join(' ')
-  return { key, name, ...(bodyHint ? { bodyHint } : {}), ...(systemHint ? { systemHint } : {}) }
+  return { key, fold: foldKey(name), codes: codeTokens(name), name, ...(bodyHint ? { bodyHint } : {}), ...(systemHint ? { systemHint } : {}) }
+}
+
+/** OCR look-alikes in every word (on lower case, before the word split): rn -> m, vv -> w, cl -> d, '|' -> l */
+const foldAllWords = (s: string): string => s.toLowerCase().replace(/\|/g, 'l').replace(/rn/g, 'm').replace(/vv/g, 'w').replace(/cl/g, 'd')
+
+/** inside a word with a digit: S -> 5, B -> 8, Z -> 2, G -> 6 (after foldWord's O -> 0, I/l -> 1) */
+const foldDigitWord = (w: string): string => {
+  const f = foldWord(w)
+  return /\d/.test(f) ? f.replace(/s/g, '5').replace(/b/g, '8').replace(/z/g, '2').replace(/g/g, '6') : f
+}
+
+/** confusion-folded key: placeKey plus the OCR look-alike folds; two names with the same fold read the same to OCR */
+function foldKey(name: string): string {
+  return words(foldAllWords(name)).map(foldDigitWord).join(' ')
+}
+
+/** designators that tell sibling places apart without a digit: roman numerals, single letters, greek letters */
+const DESIGNATOR = /^(?:[ivx]+|[a-z]|alpha|beta|gamma|delta|epsilon|zeta|eta|theta|iota|kappa|lambda|omega|sigma|tau)$/
+
+/**
+ * code tokens: words with a digit ("S1DC06", the "l5" of CRU-L5, the "2" of SAL-2, "141") and designators
+ * ("Farro Data Center IX", "Complex-A", "Station Delta"), folded, sorted, joined. Two names whose code
+ * tokens differ are different places however close the rest reads.
+ */
+function codeTokens(name: string): string {
+  return words(foldAllWords(name))
+    .filter((t) => /\d/.test(t) || DESIGNATOR.test(t))
+    .map(foldDigitWord)
+    .sort()
+    .join(' ')
+}
+
+const CONFUSABLE = new Set(['o0', 'i1', 'l1', 'il', 's5', 'b8', 'z2', 'g6'])
+const confusable = (a: string, b: string): boolean => CONFUSABLE.has(a + b) || CONFUSABLE.has(b + a)
+
+/** weighted Damerau-Levenshtein (optimal string alignment) similarity, 0-1: OCR confusion pairs cost 0.3, other edits 1 */
+export function spellingSimilarity(a: string, b: string): number {
+  const n = a.length
+  const m = b.length
+  if (!n || !m) return n === m ? 1 : 0
+  const d: number[][] = Array.from({ length: n + 1 }, (_, i) => {
+    const row = new Array<number>(m + 1).fill(0)
+    row[0] = i
+    return row
+  })
+  for (let j = 0; j <= m; j++) d[0][j] = j
+  for (let i = 1; i <= n; i++) {
+    for (let j = 1; j <= m; j++) {
+      const sub = a[i - 1] === b[j - 1] ? 0 : confusable(a[i - 1], b[j - 1]) ? CONFUSION_COST : 1
+      let v = Math.min(d[i - 1][j] + 1, d[i][j - 1] + 1, d[i - 1][j - 1] + sub)
+      if (i > 1 && j > 1 && a[i - 1] === b[j - 2] && a[i - 2] === b[j - 1]) v = Math.min(v, d[i - 2][j - 2] + 1)
+      d[i][j] = v
+    }
+  }
+  return 1 - d[n][m] / Math.max(n, m)
 }
 
 /**
@@ -162,6 +253,9 @@ interface RosterEntry {
   /** every spelling's name, lower case */
   names: string[]
   key: string
+  /** confusion-folded key and code tokens of the chosen spelling */
+  fold: string
+  codes: string
   hasCoords: boolean
 }
 
@@ -179,7 +273,10 @@ function rosterEntries(locations: Location[]): RosterEntry[] {
     if (!list.length) byKey.set(key, list)
     // same key = one place when either lacks coords or both sit within 1 km (twins in two systems stay apart)
     const same = list.find((e) => !coords || !e.hasCoords || dist(e.loc, l as XYZ) <= SAME_PLACE_M)
-    if (!same) list.push({ loc: l, names: [l.name.toLowerCase()], key, hasCoords: coords })
+    if (!same) {
+      const nm = parsePlace(l.name).name
+      list.push({ loc: l, names: [l.name.toLowerCase()], key, fold: foldKey(nm), codes: codeTokens(nm), hasCoords: coords })
+    }
     else {
       same.names.push(l.name.toLowerCase())
       if (coords && !same.hasCoords) {
@@ -201,31 +298,72 @@ const distinctive = (w: string): boolean => w.length >= 4 && /\d/.test(w)
 interface Scored {
   e: RosterEntry
   score: number
-  nameKind: 'exact' | 'key' | 'contains' | 'token'
+  nameKind: 'exact' | 'key' | 'close' | 'contains' | 'token'
   /** containment with the text inside the roster name (a shortened name), not the other way */
   partOf?: boolean
   evidence: Evidence[]
   markerM?: number
 }
 
-function nameEvidence(p: Parsed, rawLower: string, e: RosterEntry): { pts: number; kind: Scored['nameKind']; text: string; partOf?: boolean } | null {
+type NameHit = { pts: number; kind: Scored['nameKind']; text: string; partOf?: boolean }
+
+/** " · from starmap data" when the place (or its coordinates) came from the bundled starmap file */
+function sourceNote(l: Location): string {
+  const s = l as Location & { source?: string; coordsFrom?: string }
+  return s.source === 'starmap' || s.coordsFrom === 'starmap' ? ' · from starmap data' : ''
+}
+
+function nameEvidence(p: Parsed, rawLower: string, e: RosterEntry, spelling = true): NameHit | null {
+  const hit = nameHit(p, rawLower, e, spelling)
+  return hit ? { ...hit, text: hit.text + sourceNote(e.loc) } : null
+}
+
+/** close spelling on the folded keys; code tokens must agree (S1DC06 never matches S4DC05) */
+function closeSpelling(p: Parsed, e: RosterEntry): NameHit | null {
+  if (!p.fold || !e.fold || p.codes !== e.codes) return null
+  const len = Math.max(p.fold.length, e.fold.length)
+  // a length gap alone already puts it under the lowest band
+  if (Math.abs(p.fold.length - e.fold.length) > (1 - SIM_NEAR) * len) return null
+  const sim = spellingSimilarity(p.fold, e.fold)
+  if (sim >= SIM_CLOSE && e.fold.length >= CLOSE_MIN_LEN) return { pts: PTS_CLOSE, kind: 'close', text: `close spelling: ${e.loc.name}` }
+  if (sim >= SIM_NEAR) return { pts: PTS_NEAR_SPELLING, kind: 'close', text: `similar spelling: ${e.loc.name}` }
+  return null
+}
+
+function nameHit(p: Parsed, rawLower: string, e: RosterEntry, spelling: boolean): NameHit | null {
   const shown = e.loc.name
   if (e.names.includes(rawLower) || e.names.includes(p.name.toLowerCase())) return { pts: PTS_EXACT, kind: 'exact', text: `name exact: ${shown}` }
   if (!p.key) return null
   if (e.key === p.key) return { pts: PTS_KEY, kind: 'key', text: `name corrected: "${p.name}" = ${shown}` }
+  if (p.fold && e.fold === p.fold) return { pts: PTS_KEY, kind: 'key', text: `name corrected (OCR look-alikes): "${p.name}" = ${shown}` }
+  let best: NameHit | null = null
   const shorter = e.key.length <= p.key.length ? e.key : p.key
   if (shorter.length >= 4 && (containsWords(p.key, e.key) || containsWords(e.key, p.key)))
-    return { pts: PTS_CONTAINS, kind: 'contains', text: `name partly matches: ${shown}`, partOf: containsWords(e.key, p.key) }
-  const mine = new Set(p.key.split(' ').filter(distinctive))
-  const shared = e.key.split(' ').find((w) => mine.has(w))
-  if (shared) return { pts: PTS_TOKEN, kind: 'token', text: `shares code ${shared.toUpperCase()}: ${shown}` }
-  return null
+    best = { pts: PTS_CONTAINS, kind: 'contains', text: `name partly matches: ${shown}`, partOf: containsWords(e.key, p.key) }
+  if (!best) {
+    const mine = new Set(p.key.split(' ').filter(distinctive))
+    const shared = e.key.split(' ').find((w) => mine.has(w))
+    if (shared) best = { pts: PTS_TOKEN, kind: 'token', text: `shares code ${shared.toUpperCase()}: ${shown}` }
+  }
+  const close = spelling ? closeSpelling(p, e) : null
+  return close && (!best || close.pts > best.pts) ? close : best
 }
 
-function scoreEntry(p: Parsed, rawLower: string, e: RosterEntry, ctx: ResolveCtx, marker?: GeoPoint): Scored | null {
-  const n = nameEvidence(p, rawLower, e)
+/** match-memory evidence for one roster place (by name); `add` makes it a candidate without name points */
+interface Adjust {
+  place: string
+  points: number
+  text: string
+  add?: boolean
+}
+
+const adjFor = (e: RosterEntry, adj: Adjust[]): Adjust[] => adj.filter((a) => e.names.includes(a.place.toLowerCase()))
+
+function scoreEntry(p: Parsed, rawLower: string, e: RosterEntry, ctx: ResolveCtx, marker?: GeoPoint, adj: Adjust[] = [], spelling = true): Scored | null {
+  const mine = adjFor(e, adj)
+  const n = nameEvidence(p, rawLower, e, spelling) ?? (mine.some((a) => a.add) ? { pts: 0, kind: 'token' as const, text: `no name match: ${e.loc.name}` } : null)
   if (!n) return null
-  const ev: Evidence[] = [{ kind: 'name', ok: true, points: n.pts, text: n.text }]
+  const ev: Evidence[] = n.pts ? [{ kind: 'name', ok: true, points: n.pts, text: n.text }] : []
   let score = n.pts
   const l = e.loc
   if (p.bodyHint) {
@@ -264,6 +402,10 @@ function scoreEntry(p: Parsed, rawLower: string, e: RosterEntry, ctx: ResolveCtx
   if (ctx.here && e.hasCoords && hasXYZ(ctx.here) && dist(l, ctx.here) <= HERE_M) {
     score += PTS_HERE
     ev.push({ kind: 'here', ok: true, points: PTS_HERE, text: 'you are here ✓' })
+  }
+  for (const a of mine) {
+    score += a.points
+    ev.push({ kind: 'name', ok: a.points > 0, points: a.points, text: a.text })
   }
   return { e, score, nameKind: n.kind, ...(n.partOf ? { partOf: true } : {}), evidence: ev, ...(markerM != null ? { markerM } : {}) }
 }
@@ -305,18 +447,21 @@ interface Weighed {
   accepted: boolean
 }
 
-function weigh(raw: string, ctx: ResolveCtx, mk?: GeoPoint): Weighed {
+function weigh(raw: string, ctx: ResolveCtx, mk?: GeoPoint, adj: Adjust[] = []): Weighed {
   const p = parsePlace(raw)
   const rawLower = raw.toLowerCase()
   const scored: Scored[] = []
   if (raw) {
-    for (const e of rosterEntries(ctx.locations)) {
-      const s = scoreEntry(p, rawLower, e, ctx, mk)
+    const entries = rosterEntries(ctx.locations)
+    // spelling similarity is the last name tier: only when no place has the name (exact, key or OCR-folded key)
+    const named = entries.some((e) => e.names.includes(rawLower) || e.names.includes(p.name.toLowerCase()) || (!!p.key && (e.key === p.key || e.fold === p.fold)))
+    for (const e of entries) {
+      const s = scoreEntry(p, rawLower, e, ctx, mk, adj, !named)
       if (s) scored.push(s)
     }
   }
   // highest score first; ties: with coords, then the stronger name evidence, then roster order
-  const nameRank = { exact: 0, key: 1, contains: 2, token: 3 }
+  const nameRank = { exact: 0, key: 1, close: 2, contains: 3, token: 4 }
   scored.sort((a, b) => b.score - a.score || Number(b.e.hasCoords) - Number(a.e.hasCoords) || nameRank[a.nameKind] - nameRank[b.nameKind])
   const winner = scored.find((s) => s.e.hasCoords)
   const second = winner ? scored.find((s) => s !== winner) : undefined
@@ -366,7 +511,136 @@ export function resolvePlaceText(text: string, ctx: ResolveCtx, marker?: GeoPoin
   const raw = (text ?? '').trim()
   const mk: GeoPoint | undefined =
     ctx.useMarker && marker && hasXYZ(marker) ? { x: marker.x, y: marker.y, z: marker.z, system: marker.system ?? null, body: marker.body ?? null } : undefined
-  const { scored, winner, accepted } = weigh(raw, ctx, mk)
+  // a "[CODE]" part (game data) is not part of the name
+  const named = stripCode(raw)
+  const generic = !!named && isGenericSite(named)
+  const base = resolveCore(raw, ctx, mk, related, jobTexts)
+  const key = generic ? memoryKey(named, base.site?.name ?? '') : memoryKey(named)
+  const entry = ctx.memory?.(key)
+  const learned = entry ? learnedPlace(entry) : null
+  if (!entry) return { ...base, memoryKey: key }
+  const memory: StopMemory = {
+    origin: entry.origin,
+    label: memoryLabel(entry),
+    ...(entry.origin === 'user' && (entry.disputed || entry.wrong >= WRONG_MIN) ? { disputed: true } : {}),
+    ...(entry.wrongAt?.length ? { wrongAt: entry.wrongAt } : {})
+  }
+
+  // the user's place wins outright (when the roster has it with coords)
+  if (learned?.strength === 'user') {
+    const want = learned.place.toLowerCase()
+    const hit = rosterEntries(ctx.locations).find((e) => e.hasCoords && e.names.includes(want))
+    if (hit) {
+      const loc = hit.loc
+      const disputed = !!memory.disputed
+      const first: Evidence = {
+        kind: 'name',
+        ok: !disputed,
+        points: 0,
+        text: disputed ? `you set this; ⚠ the game disagrees ×${entry.wrong}` : 'you set this ✓'
+      }
+      const common = { text: raw, candidates: base.candidates, status: 'user' as const, confidence: disputed ? CONF_DISPUTED : CONF_USER, memoryKey: key, memory }
+      if (generic) {
+        // the user's place is the site; the marker still gives the point
+        if (mk) {
+          const m = markerPlace(mk, ctx.locations)
+          const meters = dist(loc, mk)
+          return {
+            ...common,
+            label: raw,
+            point: m.point,
+            source: 'marker',
+            evidence: [first, { kind: 'marker', ok: true, points: 0, text: `measured to the game marker, at ${loc.name} (${shortDist(meters)})` }],
+            ...(m.near ? { near: m.near } : {}),
+            site: { name: loc.name, meters, from: 'contract' }
+          }
+        }
+        return { ...common, label: raw, match: loc, point: locPoint(loc), source: 'roster', evidence: [first], site: { name: loc.name, meters: null, from: 'contract' } }
+      }
+      return { ...common, label: loc.name, match: loc, point: locPoint(loc), source: 'roster', evidence: [first, ...base.evidence] }
+    }
+    return { ...base, memoryKey: key }
+  }
+
+  // game memory: +4 for a learned place, -4 for a place the game showed wrong
+  if (entry.origin !== 'game' || !entry.place) return { ...base, memoryKey: key }
+  const adj: Adjust[] = []
+  if (learned?.strength === 'learned')
+    adj.push({ place: learned.place, points: PTS_LEARNED, text: `learned: game confirmed ×${entry.confirmed}`, add: !generic })
+  if (entry.wrong >= WRONG_MIN) adj.push({ place: entry.place, points: PTS_WRONG, text: `the game showed this was wrong ×${entry.wrong}` })
+  if (!adj.length) return { ...base, memoryKey: key }
+  const out = resolveCore(raw, ctx, mk, related, jobTexts, adj)
+  const used = rosterEntries(ctx.locations).some((e) => adjFor(e, adj).length && out.candidates.some((c) => c.name === e.loc.name))
+  const res: StopPlace = { ...out, memoryKey: key, ...(used ? { memory } : {}) }
+  if (learned?.strength === 'learned' && out.source === 'roster' && out.match && out.status !== 'mismatch') {
+    const won = out.match.name.toLowerCase() === learned.place.toLowerCase() || rosterEntries(ctx.locations).some((e) => e.loc === out.match && e.names.includes(learned.place.toLowerCase()))
+    const score = out.candidates.find((c) => c.name === out.match!.name)?.score
+    if (won && score != null) return { ...res, status: 'learned', confidence: Math.max(0, Math.min(10, score)) }
+  }
+  return res
+}
+
+type CorePlace = Omit<StopPlace, 'memoryKey' | 'memory'>
+
+/** the roster place nearest a marker (within NEAR_MAX_M), by name */
+function fromMarkerNear(mk: GeoPoint, ctx: ResolveCtx): string | undefined {
+  return markerPlace(mk, ctx.locations).near?.name
+}
+
+/**
+ * game data: does the place `parent` have a site named `site`? +2 when the game data lists one there,
+ * -2 when the game data knows the place and it has none; nothing when the game data doesn't know the site
+ * name (or the game data source is off: the table is empty then)
+ */
+function gameSiteEvidence(site: string, parent: string): Evidence | undefined {
+  const parents = sitesNamed(site)
+  if (!parents.length) return undefined
+  const k = placeKey(parent)
+  if (parents.some((p) => placeKey(p.name) === k)) return { kind: 'name', ok: true, points: PTS_GAME_SITE, text: `game data: ${parent} has a ${site} ✓` }
+  if (!gameDataPlace(parent)) return undefined
+  return { kind: 'name', ok: false, points: -PTS_GAME_SITE, text: `game data: ${parent} has no ${site}` }
+}
+
+const clampConf = (n: number): number => Math.max(0, Math.min(10, n))
+
+/** a text carrying a game code ("Security Compound [DC_Stan_Covalex_S1_S1DC06_FOB]"): the code's place, exactly */
+function fromGameCode(raw: string, ctx: ResolveCtx, mk: GeoPoint | undefined): CorePlace | undefined {
+  const code = codeFromText(raw)
+  const parent = code ? parentForCode(code) : undefined
+  if (!code || !parent) return undefined
+  const w = weigh(parent.name, { locations: ctx.locations, useMarker: false })
+  const win = w.winner
+  if (!win || !win.e.hasCoords || (win.nameKind !== 'exact' && win.nameKind !== 'key')) return undefined
+  const loc = win.e.loc
+  const site = siteByCode(code)
+  const text = stripCode(raw) || site?.name || parent.name
+  const first: Evidence = { kind: 'name', ok: true, points: 0, text: `game code ${code} ✓` }
+  const candidates = w.scored.slice(0, 5).map(toCandidate)
+  const isSite = !!site && placeKey(site.name) !== placeKey(parent.name)
+  if (!isSite) return { text: raw, candidates, label: loc.name, match: loc, point: locPoint(loc), source: 'roster', status: 'exact', confidence: CONF_GAME_CODE, evidence: [first] }
+  if (mk) {
+    const m = markerPlace(mk, ctx.locations)
+    const meters = dist(loc, mk)
+    return {
+      text: raw,
+      candidates,
+      label: text,
+      point: m.point,
+      source: 'marker',
+      status: 'marker',
+      confidence: CONF_GAME_CODE,
+      evidence: [first, { kind: 'marker', ok: true, points: 0, text: `measured to the game marker, at ${loc.name} (${shortDist(meters)})` }],
+      ...(m.near ? { near: m.near } : {}),
+      site: { name: loc.name, meters, from: 'contract' }
+    }
+  }
+  return { text: raw, candidates, label: text, match: loc, point: locPoint(loc), source: 'roster', status: 'exact', confidence: CONF_GAME_CODE, evidence: [first], site: { name: loc.name, meters: null, from: 'contract' } }
+}
+
+function resolveCore(raw: string, ctx: ResolveCtx, mk: GeoPoint | undefined, related: string[], jobTexts: string[], adj: Adjust[] = []): CorePlace {
+  const coded = fromGameCode(raw, ctx, mk)
+  if (coded) return coded
+  const { scored, winner, accepted } = weigh(raw, ctx, mk, adj)
   const candidates = scored.slice(0, 5).map(toCandidate)
 
   const evidence: Evidence[] = []
@@ -376,7 +650,7 @@ export function resolvePlaceText(text: string, ctx: ResolveCtx, marker?: GeoPoin
   if (other) evidence.push({ kind: 'name', ok: false, points: 0, text: `runner-up ${other.e.loc.name} (score ${other.score})` })
 
   const base = { text: raw, candidates }
-  const fromMarker = (status: MatchStatus, confidence: number, extra: Evidence[] = []): StopPlace => {
+  const fromMarker = (status: MatchStatus, confidence: number, extra: Evidence[] = []): CorePlace => {
     const m = markerPlace(mk!, ctx.locations)
     const nearTxt = m.near ? `, near ${m.near.name} (${shortDist(m.near.meters)})` : ''
     return {
@@ -458,14 +732,18 @@ export function resolvePlaceText(text: string, ctx: ResolveCtx, marker?: GeoPoin
     if (parent) {
       const site: StopSite = { name: parent.loc.name, meters: parent.meters, from: 'contract' }
       why.push({ kind: 'name', ok: true, points: 0, text: `site at ${parent.loc.name}, named in the contract (${shortDist(parent.meters!)} from the marker)` })
-      const out = fromMarker('marker', 8, why)
+      const game = gameSiteEvidence(raw, parent.loc.name)
+      const out = fromMarker('marker', clampConf(8 + (game?.points ?? 0)), game ? [...why, game] : why)
       return { ...out, site }
     }
-    const out = fromMarker('marker', 8, why)
+    const nearName = generic ? fromMarkerNear(mk, ctx) : undefined
+    const nearGame = nearName ? gameSiteEvidence(raw, nearName) : undefined
+    const out = fromMarker('marker', clampConf(8 + (nearGame?.points ?? 0)), nearGame ? [...why, nearGame] : why)
     return generic && out.near ? { ...out, site: { name: out.near.name, meters: out.near.meters, from: 'marker' } } : out
   }
   if (parent) {
     const name = parent.loc.name
+    const game = gameSiteEvidence(raw, name)
     return {
       ...base,
       label: raw,
@@ -473,10 +751,11 @@ export function resolvePlaceText(text: string, ctx: ResolveCtx, marker?: GeoPoin
       point: locPoint(parent.loc),
       source: 'roster',
       status: 'guess',
-      confidence: 5,
+      confidence: clampConf(5 + (game?.points ?? 0)),
       evidence: [
         { kind: 'name', ok: false, points: 0, text: 'no roster place by this name' },
-        { kind: 'marker', ok: false, points: 0, text: `no game marker: using ${name}, named in the contract` }
+        { kind: 'marker', ok: false, points: 0, text: `no game marker: using ${name}, named in the contract` },
+        ...(game ? [game] : [])
       ],
       site: { name, meters: null, from: 'contract' }
     }
@@ -514,7 +793,9 @@ const WORDS: Record<MatchStatus, string> = {
   guess: '? guess',
   mismatch: '⚠ mismatch',
   unsure: '? not sure',
-  none: '✗ not found'
+  none: '✗ not found',
+  user: '✓ you set',
+  learned: '✓ learned'
 }
 
 export function matchWord(status: MatchStatus): string {

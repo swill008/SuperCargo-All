@@ -9,6 +9,10 @@ import type { ListOrder, OtherJob, OtherStep } from '@other/otherJob'
 import { compareTravel, formatShortDistance, travel, type GeoPoint, type Travel } from './otherGeo'
 import { whereAccuracy, type Where, type WhereSource } from './otherWhere'
 import { NEAR_MAX_M, placeKey, resolveStopPlace, type ResolveCtx, type StopPlace } from './otherResolve'
+import type { MemoryEntry } from './otherMemory'
+
+/** match memory lookup (memoryKey -> entry); otherMemoryStore's useMemoryLookup / memoryLookup */
+export type MemoryLookup = (key: string) => MemoryEntry | undefined
 
 export type { ListOrder }
 
@@ -194,8 +198,8 @@ const resolverFor = (ctx: ResolveCtx): StepResolver => {
 }
 
 /** where a step is: the resolver's point (roster coords, or the game marker); `job` lets a generic site find the contract's place */
-function stepPoint(step: OtherStep, locations: Location[], useMarker: boolean, job?: OtherJob): GeoPoint | undefined {
-  return resolveStopPlace(step, { locations, useMarker }, job).point
+function stepPoint(step: OtherStep, locations: Location[], useMarker: boolean, job?: OtherJob, memory?: MemoryLookup): GeoPoint | undefined {
+  return resolveStopPlace(step, { locations, useMarker, ...(memory ? { memory } : {}) }, job).point
 }
 
 /** StopPlace.source as the row's distanceSource */
@@ -207,9 +211,10 @@ export function stepTravelFromStart(
   step: OtherStep,
   locations: Location[],
   useMarker = true,
-  job?: OtherJob
+  job?: OtherJob,
+  memory?: MemoryLookup
 ): Travel | null {
-  return travel(locationPoint(findRosterLocation(startName, locations)), stepPoint(step, locations, useMarker, job), locations)
+  return travel(locationPoint(findRosterLocation(startName, locations)), stepPoint(step, locations, useMarker, job, memory), locations)
 }
 
 /** distanceFromStart for a step: falls back to its marker position when the place has no UEX coords */
@@ -218,9 +223,10 @@ export function stepDistanceFromStart(
   step: OtherStep,
   locations: Location[],
   useMarker = true,
-  job?: OtherJob
+  job?: OtherJob,
+  memory?: MemoryLookup
 ): number | null {
-  return stepTravelFromStart(startName, step, locations, useMarker, job)?.meters ?? null
+  return stepTravelFromStart(startName, step, locations, useMarker, job, memory)?.meters ?? null
 }
 
 type JobStep = { job: OtherJob; step: OtherStep | undefined }
@@ -552,6 +558,8 @@ export type ListOpenStopsOpts = {
   origin?: GeoPoint
   /** origin came from a read (resolveOrigin kind not 'typed'): it counts as "you are here" evidence for stop places */
   originIsRead?: boolean
+  /** match memory (user-set / learned places) passed to the stop-place resolver */
+  memory?: MemoryLookup
 }
 
 const itemKey = (s: OtherStep): string => (s.item ?? '').trim().toLowerCase()
@@ -682,7 +690,12 @@ export function listOpenStops(
     origin ?? (startLocation.trim() ? locationPoint(findRosterLocation(startLocation, locations)) : undefined)
 
   // one resolve per step for this run; a read origin is "you are here" evidence
-  const resolve = resolverFor({ locations, useMarker, ...(origin && opts?.originIsRead ? { here: origin } : {}) })
+  const resolve = resolverFor({
+    locations,
+    useMarker,
+    ...(origin && opts?.originIsRead ? { here: origin } : {}),
+    ...(opts?.memory ? { memory: opts.memory } : {})
+  })
   // route chains from the log order, not the distance sort
   const base = baseOpenStops(jobs, start, locations, opts, listOrder === 'route' ? 'manual-free' : listOrder, resolve)
   const placed: Placed[] = base.map((r) => {

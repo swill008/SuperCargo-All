@@ -5,6 +5,8 @@ import React, { useEffect, useState } from 'react'
 import { Btn } from '@renderer/components/ui'
 import OtherMapCalibrator from './components/OtherMapCalibrator'
 import HotkeyRecorder from './components/HotkeyRecorder'
+import LearnedPlaces from './components/LearnedPlaces'
+import DataSources from './components/DataSources'
 import { C, F } from '@renderer/theme'
 import { useStore } from '@renderer/state/store'
 import { dlog } from '@renderer/state/log'
@@ -183,6 +185,10 @@ export default function OtherSettingsBlock({
           <span style={{ fontFamily: F.mono, fontSize: 13, color: C.body }}>SCU min</span>
         </div>
       </div>
+      <div style={sectionStyle}>DATA SOURCES</div>
+      <DataSources rowStyle={rowStyle} keyStyle={keyStyle} Toggle={Toggle} />
+      <div style={sectionStyle}>LEARNED PLACES</div>
+      <LearnedPlaces />
       <div style={sectionStyle}>WHERE AM I (MAP)</div>
       <div style={rowStyle}>
         <span style={keyStyle}>

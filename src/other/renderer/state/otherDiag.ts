@@ -14,7 +14,8 @@ import { OTHER_SETTING_DEFAULTS, otherSetting, resolveWorkMode } from '@other/wo
 import { useStore } from '@renderer/state/store'
 import { useOtherJobs, otherMissionMarkers, otherLastWhereRun, otherLiveWhereReads, whereHistory } from './otherJobs'
 import { useOtherHistory } from './otherHistory'
-import { mergeLocations, otherPlacesVersion } from './otherPlaces'
+import { mergeLocations, otherPlacesVersion, sourceCounts, starmapSourceOn } from './otherPlaces'
+import { currentMemoryLookup, memoryCounts } from './otherMemoryStore'
 
 const hasCoords = (p?: { x?: number; y?: number; z?: number } | null): boolean => !!p && p.x != null && p.y != null && p.z != null
 const round = (n: number | null | undefined): number | null => (n == null || !Number.isFinite(n) ? null : Math.round(n))
@@ -188,11 +189,11 @@ function markerInfo(missionId: string | undefined, step: OtherStep): Record<stri
   return { zone: m.zoneHostId, x: round(m.x), y: round(m.y), z: round(m.z), root: isRootFrame(m), small: isSmallZone(m) }
 }
 
-/** where a roster place came from: UEX rows carry a uexId; starmap-only places (uex.ts addStarmapPlaces) have uexId 0 and no code */
-function placeSource(l: Location): 'uex' | 'starmap' | 'other' {
-  if (l.uexId > 0) return 'uex'
-  if (l.uexId === 0 && !l.code) return 'starmap'
-  return 'other'
+/** where a roster place came from (uex.ts tags it): 'starmap' = a starmap-only place; 'uex+starmap' = a UEX place whose
+ *  coords came from the starmap; 'uex' otherwise (haul roster entries carry no tag and are UEX) */
+function placeSource(l: Location): 'uex' | 'starmap' | 'uex+starmap' {
+  if (l.source === 'starmap') return 'starmap'
+  return l.coordsFrom === 'starmap' && hasCoords(l) ? 'uex+starmap' : 'uex'
 }
 
 /** roster counts per system (normalised key) and per source, with / without coords */
@@ -215,8 +216,10 @@ function placesSummary(locations: Location[], haulCount: number): Record<string,
     total: locations.length,
     withCoords: locations.filter(hasCoords).length,
     haulRoster: haulCount,
-    // otherPlaces.ts keeps a version counter but doesn't export it
     rosterVersion: otherPlacesVersion(),
+    // Settings → DATA SOURCES: UEX is always on; counts are with every source on
+    sources: { uex: true, starmap: starmapSourceOn() },
+    sourceCounts: sourceCounts(useStore.getState().locations ?? []),
     bySystem,
     bySource
   }
@@ -247,6 +250,8 @@ export function otherDiagSnapshot(): Record<string, unknown> {
     const distanceTable: Record<string, unknown> = {}
     // every open stop whose place isn't an exact name match (## MATCHES in the export)
     const matches: Record<string, unknown>[] = []
+    // match memory (user-set / learned places), same as Next and the overlay
+    const memory = currentMemoryLookup()
     for (const order of orders) {
       const rows = listOpenStops(live, start, locations, {
         showAll,
@@ -256,7 +261,8 @@ export function otherDiagSnapshot(): Record<string, unknown> {
         markerDistance: useMarker,
         withdrawnSteps: withdrawn,
         origin: origin.point,
-        originIsRead: origin.kind != null && origin.kind !== 'typed'
+        originIsRead: origin.kind != null && origin.kind !== 'typed',
+        memory
       })
       if (order === 'distance') {
         for (const r of rows) {
@@ -268,7 +274,9 @@ export function otherDiagSnapshot(): Record<string, unknown> {
             status: r.match.status,
             confidence: r.match.confidence,
             evidence: r.match.evidence,
-            candidates: r.match.candidates
+            candidates: r.match.candidates,
+            key: r.match.memoryKey,
+            ...(r.match.memory ? { memory: r.match.memory } : {})
           })
         }
       }
@@ -379,7 +387,8 @@ export function otherDiagSnapshot(): Record<string, unknown> {
       places: placesSummary(locations, useStore.getState().locations?.length ?? 0),
       locationHistory: whereHistory(),
       distanceTable,
-      matches
+      matches,
+      memory: memoryCounts()
     }
   } catch (err) {
     return { error: (err as Error)?.message ?? String(err) }

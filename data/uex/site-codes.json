@@ -1,0 +1,2802 @@
+{
+ "generatedAt": "2026-10-14T17:46:07.719Z",
+ "source": "Star Citizen Wiki game data (scunpacked-data) trade_locations.json",
+ "sites": [
+  {
+   "code": "DC_Stan_Aban_S1_Dupree_ManuF_CombinedMarkupWing",
+   "name": "Exterior Zone 2"
+  },
+  {
+   "code": "DC_Stan_Aban_S1_Dupree_ManuF_FOB",
+   "name": "Security Compound"
+  },
+  {
+   "code": "DC_Stan_Aban_S1_Dupree_ManuF_Lobby",
+   "name": "Lobby"
+  },
+  {
+   "code": "DC_Stan_Aban_S1_Dupree_ManuF_SecurityPed",
+   "name": "Security Checkpoint"
+  },
+  {
+   "code": "DC_Stan_Aban_S1_Dupree_ManuF_SecurityRoad",
+   "name": "Dupree Industrial Manufacturing Facility"
+  },
+  {
+   "code": "DC_Stan_Aban_S1_Dupree_ManuF_ShippingWing",
+   "name": "Shipping Area"
+  },
+  {
+   "code": "DC_Stan_Aban_S1_Dupree_ManuF_SidePed02",
+   "name": "Supply Room"
+  },
+  {
+   "code": "DC_Stan_Aban_S1_Dupree_ManuF_SideRoad",
+   "name": "Staging Point"
+  },
+  {
+   "code": "DC_Stan_Aban_S1_Dupree_ManuF_Storage",
+   "name": "Storehouse"
+  },
+  {
+   "code": "DC_Stan_Aban_S1_Dupree_ManuF_Transition",
+   "name": "Dupree Industrial Manufacturing Facility"
+  },
+  {
+   "code": "DC_Stan_Aban_S1_Dupree_ManuF_Warehouse",
+   "name": "Inventory Center"
+  },
+  {
+   "code": "DC_Stan_Aban_S1_DupreeIndustrial_ManuFacility",
+   "name": "Dupree Industrial Manufacturing Facility"
+  },
+  {
+   "code": "DC_Stan_Covalex_S1_S1DC06",
+   "name": "Covalex Distribution Center S1DC06"
+  },
+  {
+   "code": "DC_Stan_Covalex_S1_S1DC06_CombinedMarkupWing",
+   "name": "Exterior Zone 2",
+   "parentCode": "DC_Stan_Covalex_S1_S1DC06",
+   "parentName": "Covalex Distribution Center S1DC06"
+  },
+  {
+   "code": "DC_Stan_Covalex_S1_S1DC06_FOB",
+   "name": "Security Compound",
+   "parentCode": "DC_Stan_Covalex_S1_S1DC06",
+   "parentName": "Covalex Distribution Center S1DC06"
+  },
+  {
+   "code": "DC_Stan_Covalex_S1_S1DC06_Lobby",
+   "name": "Lobby",
+   "parentCode": "DC_Stan_Covalex_S1_S1DC06",
+   "parentName": "Covalex Distribution Center S1DC06"
+  },
+  {
+   "code": "DC_Stan_Covalex_S1_S1DC06_SecurityPed",
+   "name": "Security Checkpoint",
+   "parentCode": "DC_Stan_Covalex_S1_S1DC06",
+   "parentName": "Covalex Distribution Center S1DC06"
+  },
+  {
+   "code": "DC_Stan_Covalex_S1_S1DC06_SecurityRoad",
+   "name": "Covalex Distribution Center S1DC06",
+   "parentCode": "DC_Stan_Covalex_S1_S1DC06",
+   "parentName": "Covalex Distribution Center S1DC06"
+  },
+  {
+   "code": "DC_Stan_Covalex_S1_S1DC06_ShippingWing",
+   "name": "Shipping Area",
+   "parentCode": "DC_Stan_Covalex_S1_S1DC06",
+   "parentName": "Covalex Distribution Center S1DC06"
+  },
+  {
+   "code": "DC_Stan_Covalex_S1_S1DC06_Storage",
+   "name": "Storehouse",
+   "parentCode": "DC_Stan_Covalex_S1_S1DC06",
+   "parentName": "Covalex Distribution Center S1DC06"
+  },
+  {
+   "code": "DC_Stan_Covalex_S1_S1DC06_Warehouse",
+   "name": "Inventory Center",
+   "parentCode": "DC_Stan_Covalex_S1_S1DC06",
+   "parentName": "Covalex Distribution Center S1DC06"
+  },
+  {
+   "code": "DC_Stan_Covalex_S4_S4DC05",
+   "name": "Covalex Distribution Center S4DC05"
+  },
+  {
+   "code": "DC_Stan_Covalex_S4_S4DC05_CargoShop",
+   "name": "On-Call Area",
+   "parentCode": "DC_Stan_Covalex_S4_S4DC05",
+   "parentName": "Covalex Distribution Center S4DC05"
+  },
+  {
+   "code": "DC_Stan_Covalex_S4_S4DC05_CombinedMarkupWing",
+   "name": "Exterior Zone 2",
+   "parentCode": "DC_Stan_Covalex_S4_S4DC05",
+   "parentName": "Covalex Distribution Center S4DC05"
+  },
+  {
+   "code": "DC_Stan_Covalex_S4_S4DC05_FOB",
+   "name": "Security Compound",
+   "parentCode": "DC_Stan_Covalex_S4_S4DC05",
+   "parentName": "Covalex Distribution Center S4DC05"
+  },
+  {
+   "code": "DC_Stan_Covalex_S4_S4DC05_Lobby",
+   "name": "Lobby",
+   "parentCode": "DC_Stan_Covalex_S4_S4DC05",
+   "parentName": "Covalex Distribution Center S4DC05"
+  },
+  {
+   "code": "DC_Stan_Covalex_S4_S4DC05_SecurityPed",
+   "name": "Security Checkpoint",
+   "parentCode": "DC_Stan_Covalex_S4_S4DC05",
+   "parentName": "Covalex Distribution Center S4DC05"
+  },
+  {
+   "code": "DC_Stan_Covalex_S4_S4DC05_SecurityRoad",
+   "name": "Covalex Distribution Center S4DC05",
+   "parentCode": "DC_Stan_Covalex_S4_S4DC05",
+   "parentName": "Covalex Distribution Center S4DC05"
+  },
+  {
+   "code": "DC_Stan_Covalex_S4_S4DC05_ShippingWing",
+   "name": "Shipping Area",
+   "parentCode": "DC_Stan_Covalex_S4_S4DC05",
+   "parentName": "Covalex Distribution Center S4DC05"
+  },
+  {
+   "code": "DC_Stan_Covalex_S4_S4DC05_Storage",
+   "name": "Storehouse",
+   "parentCode": "DC_Stan_Covalex_S4_S4DC05",
+   "parentName": "Covalex Distribution Center S4DC05"
+  },
+  {
+   "code": "DC_Stan_Covalex_S4_S4DC05_Warehouse",
+   "name": "Inventory Center",
+   "parentCode": "DC_Stan_Covalex_S4_S4DC05",
+   "parentName": "Covalex Distribution Center S4DC05"
+  },
+  {
+   "code": "DC_Stan_CryAstro_S4_Plant19-02",
+   "name": "Cry-Astro Processing Plant 19-02"
+  },
+  {
+   "code": "DC_Stan_CryAstro_S4_Plant19-02_CombinedMarkupWing",
+   "name": "Exterior Zone 2",
+   "parentCode": "DC_Stan_CryAstro_S4_Plant19-02",
+   "parentName": "Cry-Astro Processing Plant 19-02"
+  },
+  {
+   "code": "DC_Stan_CryAstro_S4_Plant19-02_FOB",
+   "name": "Security Compound",
+   "parentCode": "DC_Stan_CryAstro_S4_Plant19-02",
+   "parentName": "Cry-Astro Processing Plant 19-02"
+  },
+  {
+   "code": "DC_Stan_CryAstro_S4_Plant19-02_Lobby",
+   "name": "Lobby",
+   "parentCode": "DC_Stan_CryAstro_S4_Plant19-02",
+   "parentName": "Cry-Astro Processing Plant 19-02"
+  },
+  {
+   "code": "DC_Stan_CryAstro_S4_Plant19-02_SecurityPed",
+   "name": "Security Checkpoint",
+   "parentCode": "DC_Stan_CryAstro_S4_Plant19-02",
+   "parentName": "Cry-Astro Processing Plant 19-02"
+  },
+  {
+   "code": "DC_Stan_CryAstro_S4_Plant19-02_SecurityRoad",
+   "name": "Cry-Astro Processing Plant 19-02",
+   "parentCode": "DC_Stan_CryAstro_S4_Plant19-02",
+   "parentName": "Cry-Astro Processing Plant 19-02"
+  },
+  {
+   "code": "DC_Stan_CryAstro_S4_Plant19-02_ShippingWing",
+   "name": "Shipping Area",
+   "parentCode": "DC_Stan_CryAstro_S4_Plant19-02",
+   "parentName": "Cry-Astro Processing Plant 19-02"
+  },
+  {
+   "code": "DC_Stan_CryAstro_S4_Plant19-02_Storage",
+   "name": "Storehouse",
+   "parentCode": "DC_Stan_CryAstro_S4_Plant19-02",
+   "parentName": "Cry-Astro Processing Plant 19-02"
+  },
+  {
+   "code": "DC_Stan_CryAstro_S4_Plant19-02_Transition",
+   "name": "Cry-Astro Processing Plant 19-02",
+   "parentCode": "DC_Stan_CryAstro_S4_Plant19-02",
+   "parentName": "Cry-Astro Processing Plant 19-02"
+  },
+  {
+   "code": "DC_Stan_CryAstro_S4_Plant19-02_Warehouse",
+   "name": "Inventory Center",
+   "parentCode": "DC_Stan_CryAstro_S4_Plant19-02",
+   "parentName": "Cry-Astro Processing Plant 19-02"
+  },
+  {
+   "code": "DC_Stan_CryAstro_S4_Plant34-12",
+   "name": "Cry-Astro Processing Plant 34-12"
+  },
+  {
+   "code": "DC_Stan_CryAstro_S4_Plant34-12_CargoShop",
+   "name": "On-Call Area",
+   "parentCode": "DC_Stan_CryAstro_S4_Plant34-12",
+   "parentName": "Cry-Astro Processing Plant 34-12"
+  },
+  {
+   "code": "DC_Stan_CryAstro_S4_Plant34-12_CombinedMarkupWing",
+   "name": "Exterior Zone 2",
+   "parentCode": "DC_Stan_CryAstro_S4_Plant34-12",
+   "parentName": "Cry-Astro Processing Plant 34-12"
+  },
+  {
+   "code": "DC_Stan_CryAstro_S4_Plant34-12_FOB",
+   "name": "Security Compound",
+   "parentCode": "DC_Stan_CryAstro_S4_Plant34-12",
+   "parentName": "Cry-Astro Processing Plant 34-12"
+  },
+  {
+   "code": "DC_Stan_CryAstro_S4_Plant34-12_Lobby",
+   "name": "Lobby",
+   "parentCode": "DC_Stan_CryAstro_S4_Plant34-12",
+   "parentName": "Cry-Astro Processing Plant 34-12"
+  },
+  {
+   "code": "DC_Stan_CryAstro_S4_Plant34-12_SecurityPed",
+   "name": "Security Checkpoint",
+   "parentCode": "DC_Stan_CryAstro_S4_Plant34-12",
+   "parentName": "Cry-Astro Processing Plant 34-12"
+  },
+  {
+   "code": "DC_Stan_CryAstro_S4_Plant34-12_SecurityRoad",
+   "name": "Cry-Astro Processing Plant 34-12",
+   "parentCode": "DC_Stan_CryAstro_S4_Plant34-12",
+   "parentName": "Cry-Astro Processing Plant 34-12"
+  },
+  {
+   "code": "DC_Stan_CryAstro_S4_Plant34-12_ShippingWing",
+   "name": "Shipping Area",
+   "parentCode": "DC_Stan_CryAstro_S4_Plant34-12",
+   "parentName": "Cry-Astro Processing Plant 34-12"
+  },
+  {
+   "code": "DC_Stan_CryAstro_S4_Plant34-12_Storage",
+   "name": "Storehouse",
+   "parentCode": "DC_Stan_CryAstro_S4_Plant34-12",
+   "parentName": "Cry-Astro Processing Plant 34-12"
+  },
+  {
+   "code": "DC_Stan_CryAstro_S4_Plant34-12_Transition",
+   "name": "Cry-Astro Processing Plant 34-12",
+   "parentCode": "DC_Stan_CryAstro_S4_Plant34-12",
+   "parentName": "Cry-Astro Processing Plant 34-12"
+  },
+  {
+   "code": "DC_Stan_CryAstro_S4_Plant34-12_Warehouse",
+   "name": "Inventory Center",
+   "parentCode": "DC_Stan_CryAstro_S4_Plant34-12",
+   "parentName": "Cry-Astro Processing Plant 34-12"
+  },
+  {
+   "code": "DC_Stan_Greycat_S1_ComplexB",
+   "name": "Greycat Stanton I Production Complex-B"
+  },
+  {
+   "code": "DC_Stan_Greycat_S1_ComplexB_CombinedMarkupWing",
+   "name": "Exterior Zone 2",
+   "parentCode": "DC_Stan_Greycat_S1_ComplexB",
+   "parentName": "Greycat Stanton I Production Complex-B"
+  },
+  {
+   "code": "DC_Stan_Greycat_S1_ComplexB_FOB",
+   "name": "Security Compound",
+   "parentCode": "DC_Stan_Greycat_S1_ComplexB",
+   "parentName": "Greycat Stanton I Production Complex-B"
+  },
+  {
+   "code": "DC_Stan_Greycat_S1_ComplexB_Lobby",
+   "name": "Lobby",
+   "parentCode": "DC_Stan_Greycat_S1_ComplexB",
+   "parentName": "Greycat Stanton I Production Complex-B"
+  },
+  {
+   "code": "DC_Stan_Greycat_S1_ComplexB_SecurityPed",
+   "name": "Security Checkpoint",
+   "parentCode": "DC_Stan_Greycat_S1_ComplexB",
+   "parentName": "Greycat Stanton I Production Complex-B"
+  },
+  {
+   "code": "DC_Stan_Greycat_S1_ComplexB_SecurityRoad",
+   "name": "Greycat Stanton I Production Complex-B",
+   "parentCode": "DC_Stan_Greycat_S1_ComplexB",
+   "parentName": "Greycat Stanton I Production Complex-B"
+  },
+  {
+   "code": "DC_Stan_Greycat_S1_ComplexB_ShippingWing",
+   "name": "Shipping Area",
+   "parentCode": "DC_Stan_Greycat_S1_ComplexB",
+   "parentName": "Greycat Stanton I Production Complex-B"
+  },
+  {
+   "code": "DC_Stan_Greycat_S1_ComplexB_Storage",
+   "name": "Storehouse",
+   "parentCode": "DC_Stan_Greycat_S1_ComplexB",
+   "parentName": "Greycat Stanton I Production Complex-B"
+  },
+  {
+   "code": "DC_Stan_Greycat_S1_ComplexB_Warehouse",
+   "name": "Inventory Center",
+   "parentCode": "DC_Stan_Greycat_S1_ComplexB",
+   "parentName": "Greycat Stanton I Production Complex-B"
+  },
+  {
+   "code": "DC_Stan_Greycat_S4_ComplexA",
+   "name": "Greycat Stanton IV Production Complex-A"
+  },
+  {
+   "code": "DC_Stan_Greycat_S4_ComplexA_CombinedMarkupWing",
+   "name": "Exterior Zone 2",
+   "parentCode": "DC_Stan_Greycat_S4_ComplexA",
+   "parentName": "Greycat Stanton IV Production Complex-A"
+  },
+  {
+   "code": "DC_Stan_Greycat_S4_ComplexA_FOB",
+   "name": "Security Compound",
+   "parentCode": "DC_Stan_Greycat_S4_ComplexA",
+   "parentName": "Greycat Stanton IV Production Complex-A"
+  },
+  {
+   "code": "DC_Stan_Greycat_S4_ComplexA_Lobby",
+   "name": "Lobby",
+   "parentCode": "DC_Stan_Greycat_S4_ComplexA",
+   "parentName": "Greycat Stanton IV Production Complex-A"
+  },
+  {
+   "code": "DC_Stan_Greycat_S4_ComplexA_SecurityPed",
+   "name": "Security Checkpoint",
+   "parentCode": "DC_Stan_Greycat_S4_ComplexA",
+   "parentName": "Greycat Stanton IV Production Complex-A"
+  },
+  {
+   "code": "DC_Stan_Greycat_S4_ComplexA_SecurityRoad",
+   "name": "Greycat Stanton IV Production Complex-A",
+   "parentCode": "DC_Stan_Greycat_S4_ComplexA",
+   "parentName": "Greycat Stanton IV Production Complex-A"
+  },
+  {
+   "code": "DC_Stan_Greycat_S4_ComplexA_ShippingWing",
+   "name": "Shipping Area",
+   "parentCode": "DC_Stan_Greycat_S4_ComplexA",
+   "parentName": "Greycat Stanton IV Production Complex-A"
+  },
+  {
+   "code": "DC_Stan_Greycat_S4_ComplexA_SideRoad",
+   "name": "Staging Point",
+   "parentCode": "DC_Stan_Greycat_S4_ComplexA",
+   "parentName": "Greycat Stanton IV Production Complex-A"
+  },
+  {
+   "code": "DC_Stan_Greycat_S4_ComplexA_Storage",
+   "name": "Storehouse",
+   "parentCode": "DC_Stan_Greycat_S4_ComplexA",
+   "parentName": "Greycat Stanton IV Production Complex-A"
+  },
+  {
+   "code": "DC_Stan_Greycat_S4_ComplexA_Warehouse",
+   "name": "Inventory Center",
+   "parentCode": "DC_Stan_Greycat_S4_ComplexA",
+   "parentName": "Greycat Stanton IV Production Complex-A"
+  },
+  {
+   "code": "DC_Stan_Hurston_S1_Cassillo",
+   "name": "HDPC-Cassillo"
+  },
+  {
+   "code": "DC_Stan_Hurston_S1_Cassillo_CargoShop",
+   "name": "On-Call Area",
+   "parentCode": "DC_Stan_Hurston_S1_Cassillo",
+   "parentName": "HDPC-Cassillo"
+  },
+  {
+   "code": "DC_Stan_Hurston_S1_Cassillo_CombinedMarkupWing",
+   "name": "Exterior Zone 2",
+   "parentCode": "DC_Stan_Hurston_S1_Cassillo",
+   "parentName": "HDPC-Cassillo"
+  },
+  {
+   "code": "DC_Stan_Hurston_S1_Cassillo_FOB",
+   "name": "Security Compound",
+   "parentCode": "DC_Stan_Hurston_S1_Cassillo",
+   "parentName": "HDPC-Cassillo"
+  },
+  {
+   "code": "DC_Stan_Hurston_S1_Cassillo_Lobby",
+   "name": "Lobby",
+   "parentCode": "DC_Stan_Hurston_S1_Cassillo",
+   "parentName": "HDPC-Cassillo"
+  },
+  {
+   "code": "DC_Stan_Hurston_S1_Cassillo_SecurityPed",
+   "name": "Security Checkpoint",
+   "parentCode": "DC_Stan_Hurston_S1_Cassillo",
+   "parentName": "HDPC-Cassillo"
+  },
+  {
+   "code": "DC_Stan_Hurston_S1_Cassillo_SecurityRoad",
+   "name": "HDPC-Cassillo",
+   "parentCode": "DC_Stan_Hurston_S1_Cassillo",
+   "parentName": "HDPC-Cassillo"
+  },
+  {
+   "code": "DC_Stan_Hurston_S1_Cassillo_ShippingWing",
+   "name": "Shipping Area",
+   "parentCode": "DC_Stan_Hurston_S1_Cassillo",
+   "parentName": "HDPC-Cassillo"
+  },
+  {
+   "code": "DC_Stan_Hurston_S1_Cassillo_SideRoad",
+   "name": "Staging Point",
+   "parentCode": "DC_Stan_Hurston_S1_Cassillo",
+   "parentName": "HDPC-Cassillo"
+  },
+  {
+   "code": "DC_Stan_Hurston_S1_Cassillo_Transition",
+   "name": "HDPC-Cassillo",
+   "parentCode": "DC_Stan_Hurston_S1_Cassillo",
+   "parentName": "HDPC-Cassillo"
+  },
+  {
+   "code": "DC_Stan_Hurston_S1_Cassillo_Warehouse",
+   "name": "Inventory Center",
+   "parentCode": "DC_Stan_Hurston_S1_Cassillo",
+   "parentName": "HDPC-Cassillo"
+  },
+  {
+   "code": "DC_Stan_Hurston_S1_Farnesway",
+   "name": "HDPC-Farnesway"
+  },
+  {
+   "code": "DC_Stan_Hurston_S1_Farnesway_CargoShop",
+   "name": "On-Call Area",
+   "parentCode": "DC_Stan_Hurston_S1_Farnesway",
+   "parentName": "HDPC-Farnesway"
+  },
+  {
+   "code": "DC_Stan_Hurston_S1_Farnesway_CombinedMarkupWing",
+   "name": "Exterior Zone 2",
+   "parentCode": "DC_Stan_Hurston_S1_Farnesway",
+   "parentName": "HDPC-Farnesway"
+  },
+  {
+   "code": "DC_Stan_Hurston_S1_Farnesway_FOB",
+   "name": "Security Compound",
+   "parentCode": "DC_Stan_Hurston_S1_Farnesway",
+   "parentName": "HDPC-Farnesway"
+  },
+  {
+   "code": "DC_Stan_Hurston_S1_Farnesway_Lobby",
+   "name": "Lobby",
+   "parentCode": "DC_Stan_Hurston_S1_Farnesway",
+   "parentName": "HDPC-Farnesway"
+  },
+  {
+   "code": "DC_Stan_Hurston_S1_Farnesway_SecurityPed",
+   "name": "Security Checkpoint",
+   "parentCode": "DC_Stan_Hurston_S1_Farnesway",
+   "parentName": "HDPC-Farnesway"
+  },
+  {
+   "code": "DC_Stan_Hurston_S1_Farnesway_SecurityRoad",
+   "name": "HDPC-Farnesway",
+   "parentCode": "DC_Stan_Hurston_S1_Farnesway",
+   "parentName": "HDPC-Farnesway"
+  },
+  {
+   "code": "DC_Stan_Hurston_S1_Farnesway_ShippingWing",
+   "name": "Shipping Area",
+   "parentCode": "DC_Stan_Hurston_S1_Farnesway",
+   "parentName": "HDPC-Farnesway"
+  },
+  {
+   "code": "DC_Stan_Hurston_S1_Farnesway_Storage",
+   "name": "Storehouse",
+   "parentCode": "DC_Stan_Hurston_S1_Farnesway",
+   "parentName": "HDPC-Farnesway"
+  },
+  {
+   "code": "DC_Stan_Hurston_S1_Farnesway_Transition",
+   "name": "HDPC-Farnesway",
+   "parentCode": "DC_Stan_Hurston_S1_Farnesway",
+   "parentName": "HDPC-Farnesway"
+  },
+  {
+   "code": "DC_Stan_Hurston_S1_Farnesway_Warehouse",
+   "name": "Inventory Center",
+   "parentCode": "DC_Stan_Hurston_S1_Farnesway",
+   "parentName": "HDPC-Farnesway"
+  },
+  {
+   "code": "DC_Stan_microTech_S4_S4LD01",
+   "name": "microTech Logistics Depot S4LD01"
+  },
+  {
+   "code": "DC_Stan_microTech_S4_S4LD01_CargoShop",
+   "name": "On-Call Area",
+   "parentCode": "DC_Stan_microTech_S4_S4LD01",
+   "parentName": "microTech Logistics Depot S4LD01"
+  },
+  {
+   "code": "DC_Stan_microTech_S4_S4LD01_CombinedMarkupWing",
+   "name": "Exterior Zone 2",
+   "parentCode": "DC_Stan_microTech_S4_S4LD01",
+   "parentName": "microTech Logistics Depot S4LD01"
+  },
+  {
+   "code": "DC_Stan_microTech_S4_S4LD01_FOB",
+   "name": "Security Compound",
+   "parentCode": "DC_Stan_microTech_S4_S4LD01",
+   "parentName": "microTech Logistics Depot S4LD01"
+  },
+  {
+   "code": "DC_Stan_microTech_S4_S4LD01_Lobby",
+   "name": "Lobby",
+   "parentCode": "DC_Stan_microTech_S4_S4LD01",
+   "parentName": "microTech Logistics Depot S4LD01"
+  },
+  {
+   "code": "DC_Stan_microTech_S4_S4LD01_SecurityPed",
+   "name": "Security Checkpoint",
+   "parentCode": "DC_Stan_microTech_S4_S4LD01",
+   "parentName": "microTech Logistics Depot S4LD01"
+  },
+  {
+   "code": "DC_Stan_microTech_S4_S4LD01_SecurityRoad",
+   "name": "microTech Logistics Depot S4LD01",
+   "parentCode": "DC_Stan_microTech_S4_S4LD01",
+   "parentName": "microTech Logistics Depot S4LD01"
+  },
+  {
+   "code": "DC_Stan_microTech_S4_S4LD01_ShippingWing",
+   "name": "Shipping Area",
+   "parentCode": "DC_Stan_microTech_S4_S4LD01",
+   "parentName": "microTech Logistics Depot S4LD01"
+  },
+  {
+   "code": "DC_Stan_microTech_S4_S4LD01_Storage",
+   "name": "Storehouse",
+   "parentCode": "DC_Stan_microTech_S4_S4LD01",
+   "parentName": "microTech Logistics Depot S4LD01"
+  },
+  {
+   "code": "DC_Stan_microTech_S4_S4LD01_Transition",
+   "name": "microTech Logistics Depot S4LD01",
+   "parentCode": "DC_Stan_microTech_S4_S4LD01",
+   "parentName": "microTech Logistics Depot S4LD01"
+  },
+  {
+   "code": "DC_Stan_microTech_S4_S4LD01_Warehouse",
+   "name": "Inventory Center",
+   "parentCode": "DC_Stan_microTech_S4_S4LD01",
+   "parentName": "microTech Logistics Depot S4LD01"
+  },
+  {
+   "code": "DC_Stan_microTech_S4_S4LD13",
+   "name": "microTech Logistics Depot S4LD13"
+  },
+  {
+   "code": "DC_Stan_microTech_S4_S4LD13_CombinedMarkupWing",
+   "name": "Exterior Zone 2",
+   "parentCode": "DC_Stan_microTech_S4_S4LD13",
+   "parentName": "microTech Logistics Depot S4LD13"
+  },
+  {
+   "code": "DC_Stan_microTech_S4_S4LD13_FOB",
+   "name": "Security Compound",
+   "parentCode": "DC_Stan_microTech_S4_S4LD13",
+   "parentName": "microTech Logistics Depot S4LD13"
+  },
+  {
+   "code": "DC_Stan_microTech_S4_S4LD13_Lobby",
+   "name": "Lobby",
+   "parentCode": "DC_Stan_microTech_S4_S4LD13",
+   "parentName": "microTech Logistics Depot S4LD13"
+  },
+  {
+   "code": "DC_Stan_microTech_S4_S4LD13_SecurityPed",
+   "name": "Security Checkpoint",
+   "parentCode": "DC_Stan_microTech_S4_S4LD13",
+   "parentName": "microTech Logistics Depot S4LD13"
+  },
+  {
+   "code": "DC_Stan_microTech_S4_S4LD13_SecurityRoad",
+   "name": "microTech Logistics Depot S4LD13",
+   "parentCode": "DC_Stan_microTech_S4_S4LD13",
+   "parentName": "microTech Logistics Depot S4LD13"
+  },
+  {
+   "code": "DC_Stan_microTech_S4_S4LD13_ShippingWing",
+   "name": "Shipping Area",
+   "parentCode": "DC_Stan_microTech_S4_S4LD13",
+   "parentName": "microTech Logistics Depot S4LD13"
+  },
+  {
+   "code": "DC_Stan_microTech_S4_S4LD13_SidePed02",
+   "name": "Supply Room",
+   "parentCode": "DC_Stan_microTech_S4_S4LD13",
+   "parentName": "microTech Logistics Depot S4LD13"
+  },
+  {
+   "code": "DC_Stan_microTech_S4_S4LD13_SideRoad",
+   "name": "Staging Point",
+   "parentCode": "DC_Stan_microTech_S4_S4LD13",
+   "parentName": "microTech Logistics Depot S4LD13"
+  },
+  {
+   "code": "DC_Stan_microTech_S4_S4LD13_Storage",
+   "name": "Storehouse",
+   "parentCode": "DC_Stan_microTech_S4_S4LD13",
+   "parentName": "microTech Logistics Depot S4LD13"
+  },
+  {
+   "code": "DC_Stan_microTech_S4_S4LD13_Transition",
+   "name": "microTech Logistics Depot S4LD13",
+   "parentCode": "DC_Stan_microTech_S4_S4LD13",
+   "parentName": "microTech Logistics Depot S4LD13"
+  },
+  {
+   "code": "DC_Stan_microTech_S4_S4LD13_Warehouse",
+   "name": "Inventory Center",
+   "parentCode": "DC_Stan_microTech_S4_S4LD13",
+   "parentName": "microTech Logistics Depot S4LD13"
+  },
+  {
+   "code": "DC_Stan_SakuraSun_S1_Magnolia",
+   "name": "Sakura Sun Magnolia Workcenter"
+  },
+  {
+   "code": "DC_Stan_SakuraSun_S1_Magnolia_CargoShop",
+   "name": "On-Call Area",
+   "parentCode": "DC_Stan_SakuraSun_S1_Magnolia",
+   "parentName": "Sakura Sun Magnolia Workcenter"
+  },
+  {
+   "code": "DC_Stan_SakuraSun_S1_Magnolia_CombinedMarkupWing",
+   "name": "Exterior Zone 2",
+   "parentCode": "DC_Stan_SakuraSun_S1_Magnolia",
+   "parentName": "Sakura Sun Magnolia Workcenter"
+  },
+  {
+   "code": "DC_Stan_SakuraSun_S1_Magnolia_FOB",
+   "name": "Security Compound",
+   "parentCode": "DC_Stan_SakuraSun_S1_Magnolia",
+   "parentName": "Sakura Sun Magnolia Workcenter"
+  },
+  {
+   "code": "DC_Stan_SakuraSun_S1_Magnolia_Lobby",
+   "name": "Lobby",
+   "parentCode": "DC_Stan_SakuraSun_S1_Magnolia",
+   "parentName": "Sakura Sun Magnolia Workcenter"
+  },
+  {
+   "code": "DC_Stan_SakuraSun_S1_Magnolia_SecurityPed",
+   "name": "Security Checkpoint",
+   "parentCode": "DC_Stan_SakuraSun_S1_Magnolia",
+   "parentName": "Sakura Sun Magnolia Workcenter"
+  },
+  {
+   "code": "DC_Stan_SakuraSun_S1_Magnolia_SecurityRoad",
+   "name": "Sakura Sun Magnolia Workcenter",
+   "parentCode": "DC_Stan_SakuraSun_S1_Magnolia",
+   "parentName": "Sakura Sun Magnolia Workcenter"
+  },
+  {
+   "code": "DC_Stan_SakuraSun_S1_Magnolia_ShippingWing",
+   "name": "Shipping Area",
+   "parentCode": "DC_Stan_SakuraSun_S1_Magnolia",
+   "parentName": "Sakura Sun Magnolia Workcenter"
+  },
+  {
+   "code": "DC_Stan_SakuraSun_S1_Magnolia_Storage",
+   "name": "Storehouse",
+   "parentCode": "DC_Stan_SakuraSun_S1_Magnolia",
+   "parentName": "Sakura Sun Magnolia Workcenter"
+  },
+  {
+   "code": "DC_Stan_SakuraSun_S1_Magnolia_Transition",
+   "name": "Sakura Sun Magnolia Workcenter",
+   "parentCode": "DC_Stan_SakuraSun_S1_Magnolia",
+   "parentName": "Sakura Sun Magnolia Workcenter"
+  },
+  {
+   "code": "DC_Stan_SakuraSun_S1_Magnolia_Warehouse",
+   "name": "Inventory Center",
+   "parentCode": "DC_Stan_SakuraSun_S1_Magnolia",
+   "parentName": "Sakura Sun Magnolia Workcenter"
+  },
+  {
+   "code": "DC_Stan_SakuraSun_S4_Goldenrod",
+   "name": "Sakura Sun Goldenrod Workcenter"
+  },
+  {
+   "code": "DC_Stan_SakuraSun_S4_Goldenrod_CombinedMarkupWing",
+   "name": "Exterior Zone 2",
+   "parentCode": "DC_Stan_SakuraSun_S4_Goldenrod",
+   "parentName": "Sakura Sun Goldenrod Workcenter"
+  },
+  {
+   "code": "DC_Stan_SakuraSun_S4_Goldenrod_FOB",
+   "name": "Security Compound",
+   "parentCode": "DC_Stan_SakuraSun_S4_Goldenrod",
+   "parentName": "Sakura Sun Goldenrod Workcenter"
+  },
+  {
+   "code": "DC_Stan_SakuraSun_S4_Goldenrod_Lobby",
+   "name": "Lobby",
+   "parentCode": "DC_Stan_SakuraSun_S4_Goldenrod",
+   "parentName": "Sakura Sun Goldenrod Workcenter"
+  },
+  {
+   "code": "DC_Stan_SakuraSun_S4_Goldenrod_SecurityPed",
+   "name": "Security Checkpoint",
+   "parentCode": "DC_Stan_SakuraSun_S4_Goldenrod",
+   "parentName": "Sakura Sun Goldenrod Workcenter"
+  },
+  {
+   "code": "DC_Stan_SakuraSun_S4_Goldenrod_SecurityRoad",
+   "name": "Sakura Sun Goldenrod Workcenter",
+   "parentCode": "DC_Stan_SakuraSun_S4_Goldenrod",
+   "parentName": "Sakura Sun Goldenrod Workcenter"
+  },
+  {
+   "code": "DC_Stan_SakuraSun_S4_Goldenrod_ShippingWing",
+   "name": "Shipping Area",
+   "parentCode": "DC_Stan_SakuraSun_S4_Goldenrod",
+   "parentName": "Sakura Sun Goldenrod Workcenter"
+  },
+  {
+   "code": "DC_Stan_SakuraSun_S4_Goldenrod_Storage",
+   "name": "Storehouse",
+   "parentCode": "DC_Stan_SakuraSun_S4_Goldenrod",
+   "parentName": "Sakura Sun Goldenrod Workcenter"
+  },
+  {
+   "code": "DC_Stan_SakuraSun_S4_Goldenrod_Transition",
+   "name": "Sakura Sun Goldenrod Workcenter",
+   "parentCode": "DC_Stan_SakuraSun_S4_Goldenrod",
+   "parentName": "Sakura Sun Goldenrod Workcenter"
+  },
+  {
+   "code": "DC_Stan_SakuraSun_S4_Goldenrod_Warehouse",
+   "name": "Inventory Center",
+   "parentCode": "DC_Stan_SakuraSun_S4_Goldenrod",
+   "parentName": "Sakura Sun Goldenrod Workcenter"
+  },
+  {
+   "code": "DRAK_Caterpillar_Surface_Stanton1",
+   "name": "Caterpillar"
+  },
+  {
+   "code": "DRAK_Caterpillar_Surface_Stanton1_CaterpillarCrashSiteA",
+   "name": "Caterpillar"
+  },
+  {
+   "code": "DRAK_Caterpillar_Surface_Stanton1_CaterpillarCrashSiteB",
+   "name": "Caterpillar"
+  },
+  {
+   "code": "DRAK_Caterpillar_Surface_Stanton1_CaterpillarCrashSiteC",
+   "name": "Caterpillar"
+  },
+  {
+   "code": "DRAK_Caterpillar_Surface_Stanton1_CaterpillarCrashSiteD",
+   "name": "Caterpillar"
+  },
+  {
+   "code": "DRAK_Caterpillar_Surface_Stanton1a",
+   "name": "Caterpillar"
+  },
+  {
+   "code": "DRAK_Caterpillar_Surface_Stanton1a_CaterpillarCrashSite",
+   "name": "Caterpillar"
+  },
+  {
+   "code": "DRAK_Caterpillar_Surface_Stanton1b",
+   "name": "Caterpillar"
+  },
+  {
+   "code": "DRAK_Caterpillar_Surface_Stanton1c",
+   "name": "Caterpillar"
+  },
+  {
+   "code": "DRAK_Caterpillar_Surface_Stanton1d",
+   "name": "Caterpillar"
+  },
+  {
+   "code": "DRAK_Cutlass_Surface_Stanton1",
+   "name": "Cutlass"
+  },
+  {
+   "code": "DRAK_Cutlass_Surface_Stanton1_CutlassCrashSiteA",
+   "name": "Cutlass",
+   "parentCode": "DRAK_Cutlass_Surface_Stanton1",
+   "parentName": "Cutlass"
+  },
+  {
+   "code": "DRAK_Cutlass_Surface_Stanton1_CutlassCrashSiteB",
+   "name": "Cutlass",
+   "parentCode": "DRAK_Cutlass_Surface_Stanton1",
+   "parentName": "Cutlass"
+  },
+  {
+   "code": "DRAK_Cutlass_Surface_Stanton1_CutlassCrashSiteC",
+   "name": "Cutlass",
+   "parentCode": "DRAK_Cutlass_Surface_Stanton1",
+   "parentName": "Cutlass"
+  },
+  {
+   "code": "DRAK_Cutlass_Surface_Stanton1_CutlassCrashSiteD",
+   "name": "Cutlass",
+   "parentCode": "DRAK_Cutlass_Surface_Stanton1",
+   "parentName": "Cutlass"
+  },
+  {
+   "code": "DRAK_Cutlass_Surface_Stanton1a",
+   "name": "Cat"
+  },
+  {
+   "code": "DRAK_Cutlass_Surface_Stanton1a_CutlassCrashSite",
+   "name": "Cat",
+   "parentCode": "DRAK_Cutlass_Surface_Stanton1a",
+   "parentName": "Cat"
+  },
+  {
+   "code": "DRAK_Cutlass_Surface_Stanton1c",
+   "name": "Cutlass"
+  },
+  {
+   "code": "Hangar_Mission",
+   "name": "Hangar 13"
+  },
+  {
+   "code": "Inhabited_Derelict_Civilian_Stanton1_Drlct_Stmnt_001",
+   "name": "Ludlow"
+  },
+  {
+   "code": "Inhabited_Derelict_Civilian_Stanton1_Drlct_Stmnt_002",
+   "name": "Finn's Folly"
+  },
+  {
+   "code": "Inhabited_Derelict_Civilian_Stanton1_Drlct_Stmnt_005",
+   "name": "Zephyr"
+  },
+  {
+   "code": "Inhabited_Derelict_Civilian_Stanton1_Drlct_Stmnt_008",
+   "name": "Weeping Cove"
+  },
+  {
+   "code": "Inhabited_Derelict_Outlaw_Stanton1_Drlct_Stmnt_003",
+   "name": "Picker's Field"
+  },
+  {
+   "code": "Inhabited_Derelict_Outlaw_Stanton1_Drlct_Stmnt_004",
+   "name": "Maker's Point"
+  },
+  {
+   "code": "Inhabited_Derelict_Outlaw_Stanton1_Drlct_Stmnt_005",
+   "name": "Zephyr"
+  },
+  {
+   "code": "Inhabited_Derelict_Outlaw_Stanton1_Drlct_Stmnt_006",
+   "name": "Rappel"
+  },
+  {
+   "code": "Inhabited_Derelict_Outlaw_Stanton1_Drlct_Stmnt_007",
+   "name": "Cutter's Rig"
+  },
+  {
+   "code": "JumpPoint_Nyx-Castra",
+   "name": "Nyx - Castra Jump Point"
+  },
+  {
+   "code": "JumpPoint_Nyx-Pyro",
+   "name": "Nyx - Pyro Jump Point"
+  },
+  {
+   "code": "JumpPoint_Pyro-Stanton",
+   "name": "Stanton Gateway"
+  },
+  {
+   "code": "JumpPoint_Stanton-Magnus",
+   "name": "Magnus Gateway"
+  },
+  {
+   "code": "JumpPoint_Stanton-Pyro",
+   "name": "Pyro Gateway"
+  },
+  {
+   "code": "JumpPoint_Stanton-Terra",
+   "name": "Terra Gateway"
+  },
+  {
+   "code": "Junksite_Outlaw_Stanton2b_BriosBreakerYard",
+   "name": "a Salvage Yard on Daymar"
+  },
+  {
+   "code": "Junksite_Outlaw_Stanton3b_SamsonSonsSalvageCenter",
+   "name": "a Salvage Yard on Wala"
+  },
+  {
+   "code": "Junksite_Outlaw_Stanton4c_DevlinScrapSalvage",
+   "name": "Devlin Scrap & Salvage"
+  },
+  {
+   "code": "Junksite_Stanton1_ReclamationAndDisposalOrinth",
+   "name": "Reclamation & Disposal Orinth"
+  },
+  {
+   "code": "LandingZone_Nyx_Delamar_Levski",
+   "name": "Levski"
+  },
+  {
+   "code": "LandingZone_Stanton_1_Admin",
+   "name": "L19 Admin Office in Lorville"
+  },
+  {
+   "code": "LandingZone_Stanton_1_Habs",
+   "name": "L19 Habs in Lorville"
+  },
+  {
+   "code": "LandingZone_Stanton_1_Medical",
+   "name": "Maria Pure of Heart"
+  },
+  {
+   "code": "LandingZone_Stanton_1_MetroStation",
+   "name": "L19 Metro Station in Lorville"
+  },
+  {
+   "code": "LandingZone_Stanton_1_ReclamationAndDisposal",
+   "name": "Reclamation and Disposal in Lorville"
+  },
+  {
+   "code": "LandingZone_Stanton_1_Spaceport",
+   "name": "Teasa Spaceport"
+  },
+  {
+   "code": "LandingZone_Stanton_2_GrimHex",
+   "name": "Grim HEX"
+  },
+  {
+   "code": "LandingZone_Stanton_2_Orison",
+   "name": "Orison"
+  },
+  {
+   "code": "LandingZone_Stanton_2_Rooftop",
+   "name": "a Landing Pad Locker in Orison"
+  },
+  {
+   "code": "LandingZone_Stanton_2_SpacePort",
+   "name": "August Dunlow Spaceport"
+  },
+  {
+   "code": "LandingZone_Stanton_3_Rooftop",
+   "name": "a Private Landing Pad"
+  },
+  {
+   "code": "LandingZone_Stanton_3_RooftopPacheco",
+   "name": "a Private Landing Pad"
+  },
+  {
+   "code": "LandingZone_Stanton_3_Spaceport",
+   "name": "Riker Memorial Spaceport"
+  },
+  {
+   "code": "LandingZone_Stanton_4_Hospital",
+   "name": "a Landing Pad Locker in New Babbage"
+  },
+  {
+   "code": "LandingZone_Stanton_4_Rooftop",
+   "name": "a Landing Pad Locker in New Babbage"
+  },
+  {
+   "code": "LandingZone_Stanton_4_Spaceport",
+   "name": "NB Int. Spaceport"
+  },
+  {
+   "code": "MISC_Freelancer_Surface_Stanton1",
+   "name": "Freelancer"
+  },
+  {
+   "code": "MISC_Freelancer_Surface_Stanton1_FreelancerCrashSiteA",
+   "name": "Freelancer"
+  },
+  {
+   "code": "MISC_Freelancer_Surface_Stanton1_FreelancerCrashSiteB",
+   "name": "Freelancer"
+  },
+  {
+   "code": "MISC_Freelancer_Surface_Stanton1_FreelancerCrashSiteC",
+   "name": "Freelancer"
+  },
+  {
+   "code": "MISC_Freelancer_Surface_Stanton1_FreelancerCrashSiteD",
+   "name": "Freelancer"
+  },
+  {
+   "code": "MISC_Freelancer_Surface_Stanton1a",
+   "name": "Freelancer"
+  },
+  {
+   "code": "MISC_Freelancer_Surface_Stanton1a_FreelancerCrashSite",
+   "name": "Freelancer"
+  },
+  {
+   "code": "MISC_Freelancer_Surface_Stanton1b",
+   "name": "Freelancer"
+  },
+  {
+   "code": "MISC_Freelancer_Surface_Stanton1d",
+   "name": "Freelancer"
+  },
+  {
+   "code": "MISC_Starfarer_Surface_Stanton1",
+   "name": "Starfarer"
+  },
+  {
+   "code": "MISC_Starfarer_Surface_Stanton1_StarfarerCrashSiteA",
+   "name": "Starfarer"
+  },
+  {
+   "code": "MISC_Starfarer_Surface_Stanton1_StarfarerCrashSiteB",
+   "name": "Starfarer"
+  },
+  {
+   "code": "MISC_Starfarer_Surface_Stanton1_StarfarerCrashSiteC",
+   "name": "Starfarer"
+  },
+  {
+   "code": "MISC_Starfarer_Surface_Stanton1_StarfarerCrashSiteD",
+   "name": "Starfarer"
+  },
+  {
+   "code": "MISC_Starfarer_Surface_Stanton1a",
+   "name": "Starfarer"
+  },
+  {
+   "code": "MISC_Starfarer_Surface_Stanton1a_StarfarerCrashSite",
+   "name": "Starfarer"
+  },
+  {
+   "code": "MISC_Starfarer_Surface_Stanton1b",
+   "name": "Starfarer"
+  },
+  {
+   "code": "MISC_Starfarer_Surface_Stanton1d",
+   "name": "Starfarer"
+  },
+  {
+   "code": "NewBabbage_SpacePort",
+   "name": "NB Int. Spaceport"
+  },
+  {
+   "code": "Outpost_Abandoned_Stanton2a_001",
+   "name": "the abandoned outpost on Cellin"
+  },
+  {
+   "code": "Outpost_Abandoned_Stanton2b_001",
+   "name": "the abandoned outpost on Daymar"
+  },
+  {
+   "code": "Outpost_Admin_Stanton1a_HDMSBezdek",
+   "name": "HDMS-Bezdek on Arial"
+  },
+  {
+   "code": "Outpost_Admin_Stanton1a_HDMSLathan",
+   "name": "HDMS-Lathan"
+  },
+  {
+   "code": "Outpost_Col_M_Pyro_CFP_frm_Pyro3_ShepherdsRest",
+   "name": "Shepherd's Rest"
+  },
+  {
+   "code": "Outpost_Col_M_Pyro_CFP_frm_Pyro3_ShepherdsRest_HubB",
+   "name": "Outpost Depot",
+   "parentCode": "Outpost_Col_M_Pyro_CFP_frm_Pyro3_ShepherdsRest",
+   "parentName": "Shepherd's Rest"
+  },
+  {
+   "code": "Outpost_Col_M_Pyro_CFP_frm_Pyro3_ShepherdsRest_Junkpile",
+   "name": "Shepherd's Rest",
+   "parentCode": "Outpost_Col_M_Pyro_CFP_frm_Pyro3_ShepherdsRest",
+   "parentName": "Shepherd's Rest"
+  },
+  {
+   "code": "Outpost_Col_M_Pyro_CFP_frm_Pyro3_ShepherdsRest_StorageShed",
+   "name": "Outpost Storage Shed",
+   "parentCode": "Outpost_Col_M_Pyro_CFP_frm_Pyro3_ShepherdsRest",
+   "parentName": "Shepherd's Rest"
+  },
+  {
+   "code": "Outpost_Col_M_Pyro_CFP_frm_Pyro3_ShepherdsRest_Warehouse",
+   "name": "Outpost Warehouse",
+   "parentCode": "Outpost_Col_M_Pyro_CFP_frm_Pyro3_ShepherdsRest",
+   "parentName": "Shepherd's Rest"
+  },
+  {
+   "code": "Outpost_Col_M_Pyro_CFP_hmstd_Pyro3_NarenasRest",
+   "name": "Narena's Rest"
+  },
+  {
+   "code": "Outpost_Col_M_Pyro_CFP_hmstd_Pyro3_NarenasRest_StorageShed",
+   "name": "Outpost Storage Shed",
+   "parentCode": "Outpost_Col_M_Pyro_CFP_hmstd_Pyro3_NarenasRest",
+   "parentName": "Narena's Rest"
+  },
+  {
+   "code": "Outpost_Col_M_Pyro_CFP_hmstd_Pyro5c_ProphetsPeak",
+   "name": "Prophet's Peak"
+  },
+  {
+   "code": "Outpost_Col_M_Pyro_CFP_hmstd_Pyro5c_ProphetsPeak_HubA",
+   "name": "Outpost Main Building",
+   "parentCode": "Outpost_Col_M_Pyro_CFP_hmstd_Pyro5c_ProphetsPeak",
+   "parentName": "Prophet's Peak"
+  },
+  {
+   "code": "Outpost_Col_M_Pyro_CFP_hmstd_Pyro5c_ProphetsPeak_StorageShed",
+   "name": "Outpost Storage Shed",
+   "parentCode": "Outpost_Col_M_Pyro_CFP_hmstd_Pyro5c_ProphetsPeak",
+   "parentName": "Prophet's Peak"
+  },
+  {
+   "code": "Outpost_Col_M_Pyro_CFP_mng_Pyro3_BuenoRavine",
+   "name": "Bueno Ravine"
+  },
+  {
+   "code": "Outpost_Col_M_Pyro_CFP_mng_Pyro3_BuenoRavine_Junkpile",
+   "name": "Bueno Ravine",
+   "parentCode": "Outpost_Col_M_Pyro_CFP_mng_Pyro3_BuenoRavine",
+   "parentName": "Bueno Ravine"
+  },
+  {
+   "code": "Outpost_Col_M_Pyro_CFP_mng_Pyro3_BuenoRavine_StorageShed",
+   "name": "Outpost Storage Shed",
+   "parentCode": "Outpost_Col_M_Pyro_CFP_mng_Pyro3_BuenoRavine",
+   "parentName": "Bueno Ravine"
+  },
+  {
+   "code": "Outpost_Col_M_Pyro_CFP_mng_Pyro3_BuenoRavine_Warehouse",
+   "name": "Outpost Warehouse",
+   "parentCode": "Outpost_Col_M_Pyro_CFP_mng_Pyro3_BuenoRavine",
+   "parentName": "Bueno Ravine"
+  },
+  {
+   "code": "Outpost_Col_M_Pyro_CFP_scrp_Pyro2_SunsetMesa",
+   "name": "Sunset Mesa"
+  },
+  {
+   "code": "Outpost_Col_M_Pyro_CFP_scrp_Pyro2_SunsetMesa_HubA",
+   "name": "Outpost Main Building",
+   "parentCode": "Outpost_Col_M_Pyro_CFP_scrp_Pyro2_SunsetMesa",
+   "parentName": "Sunset Mesa"
+  },
+  {
+   "code": "Outpost_Col_M_Pyro_CFP_scrp_Pyro2_SunsetMesa_Junkpile",
+   "name": "Sunset Mesa",
+   "parentCode": "Outpost_Col_M_Pyro_CFP_scrp_Pyro2_SunsetMesa",
+   "parentName": "Sunset Mesa"
+  },
+  {
+   "code": "Outpost_Col_M_Pyro_CFP_scrp_Pyro2_SunsetMesa_LandingArea",
+   "name": "Outpost Landing Area",
+   "parentCode": "Outpost_Col_M_Pyro_CFP_scrp_Pyro2_SunsetMesa",
+   "parentName": "Sunset Mesa"
+  },
+  {
+   "code": "Outpost_Col_M_Pyro_CFP_scrp_Pyro2_SunsetMesa_Missions",
+   "name": "Sunset Mesa",
+   "parentCode": "Outpost_Col_M_Pyro_CFP_scrp_Pyro2_SunsetMesa",
+   "parentName": "Sunset Mesa"
+  },
+  {
+   "code": "Outpost_Col_M_Pyro_CFP_scrp_Pyro2_SunsetMesa_StorageShed",
+   "name": "Outpost Storage Shed",
+   "parentCode": "Outpost_Col_M_Pyro_CFP_scrp_Pyro2_SunsetMesa",
+   "parentName": "Sunset Mesa"
+  },
+  {
+   "code": "Outpost_Col_M_Pyro_CFP_scrp_Pyro2_SunsetMesa_Warehouse",
+   "name": "Outpost Warehouse",
+   "parentCode": "Outpost_Col_M_Pyro_CFP_scrp_Pyro2_SunsetMesa",
+   "parentName": "Sunset Mesa"
+  },
+  {
+   "code": "Outpost_Col_M_Pyro_CFP_scrp_Pyro4_ChawlasBeach",
+   "name": "Chawla's Beach"
+  },
+  {
+   "code": "Outpost_Col_M_Pyro_CFP_scrp_Pyro4_ChawlasBeach_Junkpile",
+   "name": "Chawla's Beach",
+   "parentCode": "Outpost_Col_M_Pyro_CFP_scrp_Pyro4_ChawlasBeach",
+   "parentName": "Chawla's Beach"
+  },
+  {
+   "code": "Outpost_Col_M_Pyro_CFP_scrp_Pyro4_ChawlasBeach_LandingArea",
+   "name": "Outpost Landing Area",
+   "parentCode": "Outpost_Col_M_Pyro_CFP_scrp_Pyro4_ChawlasBeach",
+   "parentName": "Chawla's Beach"
+  },
+  {
+   "code": "Outpost_Col_M_Pyro_CFP_scrp_Pyro4_ChawlasBeach_StorageShed",
+   "name": "Outpost Storage Shed",
+   "parentCode": "Outpost_Col_M_Pyro_CFP_scrp_Pyro4_ChawlasBeach",
+   "parentName": "Chawla's Beach"
+  },
+  {
+   "code": "Outpost_Col_M_Pyro_CFP_scrp_Pyro4_ChawlasBeach_Warehouse",
+   "name": "Outpost Warehouse",
+   "parentCode": "Outpost_Col_M_Pyro_CFP_scrp_Pyro4_ChawlasBeach",
+   "parentName": "Chawla's Beach"
+  },
+  {
+   "code": "Outpost_Col_M_Pyro_CFP_trdp_Pyro2_JacksonsSwap",
+   "name": "Jackson's Swap"
+  },
+  {
+   "code": "Outpost_Col_M_Pyro_CFP_trdp_Pyro2_JacksonsSwap_HubA",
+   "name": "Outpost Main Building",
+   "parentCode": "Outpost_Col_M_Pyro_CFP_trdp_Pyro2_JacksonsSwap",
+   "parentName": "Jackson's Swap"
+  },
+  {
+   "code": "Outpost_Col_M_Pyro_CFP_trdp_Pyro2_JacksonsSwap_Tradepost",
+   "name": "Trading Post",
+   "parentCode": "Outpost_Col_M_Pyro_CFP_trdp_Pyro2_JacksonsSwap",
+   "parentName": "Jackson's Swap"
+  },
+  {
+   "code": "Outpost_Col_M_Pyro_CFP_trdp_Pyro2_JacksonsSwap_Warehouse",
+   "name": "Outpost Warehouse",
+   "parentCode": "Outpost_Col_M_Pyro_CFP_trdp_Pyro2_JacksonsSwap",
+   "parentName": "Jackson's Swap"
+  },
+  {
+   "code": "Outpost_Col_M_Pyro_CFP_trdp_Pyro4_SacrensPlot",
+   "name": "Sacren's Plot"
+  },
+  {
+   "code": "Outpost_Col_M_Pyro_CFP_trdp_Pyro4_SacrensPlot_Junkpile",
+   "name": "Sacren's Plot",
+   "parentCode": "Outpost_Col_M_Pyro_CFP_trdp_Pyro4_SacrensPlot",
+   "parentName": "Sacren's Plot"
+  },
+  {
+   "code": "Outpost_Col_M_Pyro_CFP_trdp_Pyro4_SacrensPlot_StorageShed",
+   "name": "Outpost Storage Shed",
+   "parentCode": "Outpost_Col_M_Pyro_CFP_trdp_Pyro4_SacrensPlot",
+   "parentName": "Sacren's Plot"
+  },
+  {
+   "code": "Outpost_Col_M_Pyro_CFP_trdp_Pyro4_SacrensPlot_Tradepost",
+   "name": "Trading Post",
+   "parentCode": "Outpost_Col_M_Pyro_CFP_trdp_Pyro4_SacrensPlot",
+   "parentName": "Sacren's Plot"
+  },
+  {
+   "code": "Outpost_Col_M_Pyro_CFP_trdp_Pyro4_SacrensPlot_Warehouse",
+   "name": "Outpost Warehouse",
+   "parentCode": "Outpost_Col_M_Pyro_CFP_trdp_Pyro4_SacrensPlot",
+   "parentName": "Sacren's Plot"
+  },
+  {
+   "code": "Outpost_Col_M_Pyro_CFP_trdp_Pyro6_CanardView",
+   "name": "Canard View"
+  },
+  {
+   "code": "Outpost_Col_M_Pyro_CFP_trdp_Pyro6_CanardView_StorageShed",
+   "name": "Outpost Storage Shed",
+   "parentCode": "Outpost_Col_M_Pyro_CFP_trdp_Pyro6_CanardView",
+   "parentName": "Canard View"
+  },
+  {
+   "code": "Outpost_Col_M_Pyro_CFP_trdp_Pyro6_CanardView_Tradepost",
+   "name": "Trading Post",
+   "parentCode": "Outpost_Col_M_Pyro_CFP_trdp_Pyro6_CanardView",
+   "parentName": "Canard View"
+  },
+  {
+   "code": "Outpost_Col_M_Pyro_HH_scrp",
+   "name": "Windfall"
+  },
+  {
+   "code": "Outpost_Col_M_Pyro_HH_scrp_Pyro1",
+   "name": "Windfall"
+  },
+  {
+   "code": "Outpost_Col_M_Pyro_HH_scrp_Pyro1_Rustville",
+   "name": "Rustville"
+  },
+  {
+   "code": "Outpost_Col_M_Pyro_HH_scrp_Pyro1_Rustville_HubB",
+   "name": "Outpost Depot",
+   "parentCode": "Outpost_Col_M_Pyro_HH_scrp_Pyro1_Rustville",
+   "parentName": "Rustville"
+  },
+  {
+   "code": "Outpost_Col_M_Pyro_HH_scrp_Pyro1_Rustville_Junkpile",
+   "name": "Rustville",
+   "parentCode": "Outpost_Col_M_Pyro_HH_scrp_Pyro1_Rustville",
+   "parentName": "Rustville"
+  },
+  {
+   "code": "Outpost_Col_M_Pyro_HH_scrp_Pyro1_Rustville_LandingArea",
+   "name": "Outpost Landing Area",
+   "parentCode": "Outpost_Col_M_Pyro_HH_scrp_Pyro1_Rustville",
+   "parentName": "Rustville"
+  },
+  {
+   "code": "Outpost_Col_M_Pyro_HH_scrp_Pyro1_Rustville_StorageShed",
+   "name": "Outpost Storage Shed",
+   "parentCode": "Outpost_Col_M_Pyro_HH_scrp_Pyro1_Rustville",
+   "parentName": "Rustville"
+  },
+  {
+   "code": "Outpost_Col_M_Pyro_HH_scrp_Pyro1_Rustville_Warehouse",
+   "name": "Outpost Warehouse",
+   "parentCode": "Outpost_Col_M_Pyro_HH_scrp_Pyro1_Rustville",
+   "parentName": "Rustville"
+  },
+  {
+   "code": "Outpost_Col_M_Pyro_HH_scrp_Pyro5",
+   "name": "Windfall"
+  },
+  {
+   "code": "Outpost_Col_M_Pyro_HH_scrp_Pyro5b",
+   "name": "Windfall"
+  },
+  {
+   "code": "Outpost_Col_M_Pyro_HH_scrp_Pyro5b_SeersCanyon",
+   "name": "Seer's Canyon"
+  },
+  {
+   "code": "Outpost_Col_M_Pyro_HH_scrp_Pyro5b_SeersCanyon_HubB",
+   "name": "Outpost Depot",
+   "parentCode": "Outpost_Col_M_Pyro_HH_scrp_Pyro5b_SeersCanyon",
+   "parentName": "Seer's Canyon"
+  },
+  {
+   "code": "Outpost_Col_M_Pyro_HH_scrp_Pyro5b_SeersCanyon_Junkpile",
+   "name": "Seer's Canyon",
+   "parentCode": "Outpost_Col_M_Pyro_HH_scrp_Pyro5b_SeersCanyon",
+   "parentName": "Seer's Canyon"
+  },
+  {
+   "code": "Outpost_Col_M_Pyro_HH_scrp_Pyro5b_SeersCanyon_LandingArea",
+   "name": "Outpost Landing Area",
+   "parentCode": "Outpost_Col_M_Pyro_HH_scrp_Pyro5b_SeersCanyon",
+   "parentName": "Seer's Canyon"
+  },
+  {
+   "code": "Outpost_Col_M_Pyro_HH_scrp_Pyro5b_SeersCanyon_StorageShed",
+   "name": "Outpost Storage Shed",
+   "parentCode": "Outpost_Col_M_Pyro_HH_scrp_Pyro5b_SeersCanyon",
+   "parentName": "Seer's Canyon"
+  },
+  {
+   "code": "Outpost_Col_M_Pyro_HH_scrp_Pyro5b_SeersCanyon_Warehouse",
+   "name": "Outpost Warehouse",
+   "parentCode": "Outpost_Col_M_Pyro_HH_scrp_Pyro5b_SeersCanyon",
+   "parentName": "Seer's Canyon"
+  },
+  {
+   "code": "Outpost_Col_M_Pyro_HH_scrp_Pyro6",
+   "name": "Windfall"
+  },
+  {
+   "code": "Outpost_Col_M_Pyro_HH_scrp_Pyro6_LastLandings",
+   "name": "Last Landings"
+  },
+  {
+   "code": "Outpost_Col_M_Pyro_HH_scrp_Pyro6_LastLandings_Junkpile",
+   "name": "Last Landings",
+   "parentCode": "Outpost_Col_M_Pyro_HH_scrp_Pyro6_LastLandings",
+   "parentName": "Last Landings"
+  },
+  {
+   "code": "Outpost_Col_M_Pyro_HH_scrp_Pyro6_LastLandings_LandingArea",
+   "name": "Outpost Landing Area",
+   "parentCode": "Outpost_Col_M_Pyro_HH_scrp_Pyro6_LastLandings",
+   "parentName": "Last Landings"
+  },
+  {
+   "code": "Outpost_Col_M_Pyro_HH_scrp_Pyro6_LastLandings_StorageShed",
+   "name": "Outpost Storage Shed",
+   "parentCode": "Outpost_Col_M_Pyro_HH_scrp_Pyro6_LastLandings",
+   "parentName": "Last Landings"
+  },
+  {
+   "code": "Outpost_Col_M_Pyro_HH_scrp_Pyro6_LastLandings_Warehouse",
+   "name": "Outpost Warehouse",
+   "parentCode": "Outpost_Col_M_Pyro_HH_scrp_Pyro6_LastLandings",
+   "parentName": "Last Landings"
+  },
+  {
+   "code": "Outpost_Col_M_Pyro_HH_trdpst",
+   "name": "Windfall"
+  },
+  {
+   "code": "Outpost_Col_M_Pyro_HH_trdpst_Pyro3",
+   "name": "Windfall"
+  },
+  {
+   "code": "Outpost_Col_M_Pyro_HH_trdpst_Pyro3_TheGoldenRiviera",
+   "name": "The Golden Riviera"
+  },
+  {
+   "code": "Outpost_Col_M_Pyro_HH_trdpst_Pyro3_TheGoldenRiviera_HubB",
+   "name": "Outpost Depot",
+   "parentCode": "Outpost_Col_M_Pyro_HH_trdpst_Pyro3_TheGoldenRiviera",
+   "parentName": "The Golden Riviera"
+  },
+  {
+   "code": "Outpost_Col_M_Pyro_HH_trdpst_Pyro3_TheGoldenRiviera_Junkpile",
+   "name": "The Golden Riviera",
+   "parentCode": "Outpost_Col_M_Pyro_HH_trdpst_Pyro3_TheGoldenRiviera",
+   "parentName": "The Golden Riviera"
+  },
+  {
+   "code": "Outpost_Col_M_Pyro_HH_trdpst_Pyro3_TheGoldenRiviera_StorageShed",
+   "name": "Outpost Storage Shed",
+   "parentCode": "Outpost_Col_M_Pyro_HH_trdpst_Pyro3_TheGoldenRiviera",
+   "parentName": "The Golden Riviera"
+  },
+  {
+   "code": "Outpost_Col_M_Pyro_HH_trdpst_Pyro3_TheGoldenRiviera_Warehouse",
+   "name": "Outpost Warehouse",
+   "parentCode": "Outpost_Col_M_Pyro_HH_trdpst_Pyro3_TheGoldenRiviera",
+   "parentName": "The Golden Riviera"
+  },
+  {
+   "code": "Outpost_Col_M_Pyro_HH_trdpst_Pyro4",
+   "name": "Windfall"
+  },
+  {
+   "code": "Outpost_Col_M_Pyro_HH_trdpst_Pyro4_FallowField",
+   "name": "Fallow Field"
+  },
+  {
+   "code": "Outpost_Col_M_Pyro_HH_trdpst_Pyro4_FallowField_Junkpile",
+   "name": "Fallow Field",
+   "parentCode": "Outpost_Col_M_Pyro_HH_trdpst_Pyro4_FallowField",
+   "parentName": "Fallow Field"
+  },
+  {
+   "code": "Outpost_Col_M_Pyro_HH_trdpst_Pyro4_FallowField_Tradepost",
+   "name": "Trading Post",
+   "parentCode": "Outpost_Col_M_Pyro_HH_trdpst_Pyro4_FallowField",
+   "parentName": "Fallow Field"
+  },
+  {
+   "code": "Outpost_Col_M_Pyro_HH_trdpst_Pyro4_FallowField_Warehouse",
+   "name": "Outpost Warehouse",
+   "parentCode": "Outpost_Col_M_Pyro_HH_trdpst_Pyro4_FallowField",
+   "parentName": "Fallow Field"
+  },
+  {
+   "code": "Outpost_Col_M_Pyro_HH_trdpst_Pyro5",
+   "name": "Windfall"
+  },
+  {
+   "code": "Outpost_Col_M_Pyro_HH_trdpst_Pyro5a",
+   "name": "Windfall"
+  },
+  {
+   "code": "Outpost_Col_M_Pyro_HH_trdpst_Pyro5a_Ashland",
+   "name": "Ashland"
+  },
+  {
+   "code": "Outpost_Col_M_Pyro_HH_trdpst_Pyro5a_Ashland_HubB",
+   "name": "Outpost Depot",
+   "parentCode": "Outpost_Col_M_Pyro_HH_trdpst_Pyro5a_Ashland",
+   "parentName": "Ashland"
+  },
+  {
+   "code": "Outpost_Col_M_Pyro_HH_trdpst_Pyro5a_Ashland_Junkpile",
+   "name": "Ashland",
+   "parentCode": "Outpost_Col_M_Pyro_HH_trdpst_Pyro5a_Ashland",
+   "parentName": "Ashland"
+  },
+  {
+   "code": "Outpost_Col_M_Pyro_HH_trdpst_Pyro5a_Ashland_StorageShed",
+   "name": "Outpost Storage Shed",
+   "parentCode": "Outpost_Col_M_Pyro_HH_trdpst_Pyro5a_Ashland",
+   "parentName": "Ashland"
+  },
+  {
+   "code": "Outpost_Col_M_Pyro_HH_trdpst_Pyro5a_Ashland_Tradepost",
+   "name": "Trading Post",
+   "parentCode": "Outpost_Col_M_Pyro_HH_trdpst_Pyro5a_Ashland",
+   "parentName": "Ashland"
+  },
+  {
+   "code": "Outpost_Col_M_Pyro_HH_trdpst_Pyro5a_Ashland_Warehouse",
+   "name": "Outpost Warehouse",
+   "parentCode": "Outpost_Col_M_Pyro_HH_trdpst_Pyro5a_Ashland",
+   "parentName": "Ashland"
+  },
+  {
+   "code": "Outpost_Col_M_Pyro_XT_frm",
+   "name": "Windfall"
+  },
+  {
+   "code": "Outpost_Col_M_Pyro_XT_frm_Pyro6",
+   "name": "Windfall"
+  },
+  {
+   "code": "Outpost_Col_M_Pyro_XT_frm_Pyro6_ScrapersTurn",
+   "name": "Scraper's Turn"
+  },
+  {
+   "code": "Outpost_Col_M_Pyro_XT_hmstd",
+   "name": "Windfall"
+  },
+  {
+   "code": "Outpost_Col_M_Pyro_XT_hmstd_Pyro3",
+   "name": "Windfall"
+  },
+  {
+   "code": "Outpost_Col_M_Pyro_XT_hmstd_Pyro3_Shadowfall",
+   "name": "Shadowfall"
+  },
+  {
+   "code": "Outpost_Col_M_Pyro_XT_mng",
+   "name": "Windfall"
+  },
+  {
+   "code": "Outpost_Col_M_Pyro_XT_mng_Pyro2",
+   "name": "Windfall"
+  },
+  {
+   "code": "Outpost_Col_M_Pyro_XT_mng_Pyro2_LastDitch",
+   "name": "Last Ditch"
+  },
+  {
+   "code": "Outpost_Col_M_Pyro_XT_mng_Pyro2_LastDitch_B",
+   "name": "Last Ditch",
+   "parentCode": "Outpost_Col_M_Pyro_XT_mng_Pyro2_LastDitch",
+   "parentName": "Last Ditch"
+  },
+  {
+   "code": "Outpost_Col_S_Pyro_CFP_frm_Pyro6_BullocksReach",
+   "name": "Bullock's Reach"
+  },
+  {
+   "code": "Outpost_Col_S_Pyro_CFP_mng_Pyro1_StagsRut",
+   "name": "Stag's Rut"
+  },
+  {
+   "code": "Outpost_Col_S_Pyro_CFP_mng_Pyro2_YangsPlace",
+   "name": "Yang's Place"
+  },
+  {
+   "code": "Outpost_Col_S_Pyro_CFP_mng_Pyro2_YangsPlace_Junkpile",
+   "name": "Yang's Place",
+   "parentCode": "Outpost_Col_S_Pyro_CFP_mng_Pyro2_YangsPlace",
+   "parentName": "Yang's Place"
+  },
+  {
+   "code": "Outpost_Col_S_Pyro_CFP_trdp_Pyro3_FrigidKnot",
+   "name": "Frigid Knot"
+  },
+  {
+   "code": "Outpost_Col_S_Pyro_CFP_trdp_Pyro3_FrigidKnot_SmallTradepost",
+   "name": "Trading Post",
+   "parentCode": "Outpost_Col_S_Pyro_CFP_trdp_Pyro3_FrigidKnot",
+   "parentName": "Frigid Knot"
+  },
+  {
+   "code": "Outpost_Col_S_Pyro_CFP_trdp_Pyro3_FrigidKnot_StorageShed",
+   "name": "Outpost Storage Shed",
+   "parentCode": "Outpost_Col_S_Pyro_CFP_trdp_Pyro3_FrigidKnot",
+   "parentName": "Frigid Knot"
+  },
+  {
+   "code": "Outpost_Col_S_Pyro_CFP_trdp_pyro5a_KabirsPost",
+   "name": "Kabir's Post"
+  },
+  {
+   "code": "Outpost_Col_S_Pyro_CFP_trdp_pyro5a_KabirsPost_SmallTradepost",
+   "name": "Trading Post",
+   "parentCode": "Outpost_Col_S_Pyro_CFP_trdp_pyro5a_KabirsPost",
+   "parentName": "Kabir's Post"
+  },
+  {
+   "code": "Outpost_Col_S_Pyro_CFP_trdp_pyro5a_KabirsPost_StorageShed",
+   "name": "Outpost Storage Shed",
+   "parentCode": "Outpost_Col_S_Pyro_CFP_trdp_pyro5a_KabirsPost",
+   "parentName": "Kabir's Post"
+  },
+  {
+   "code": "Outpost_Col_S_Pyro_CFP_trdp_Pyro6_BlackrockExchange",
+   "name": "Blackrock Exchange"
+  },
+  {
+   "code": "Outpost_Col_S_Pyro_CFP_trdp_Pyro6_BlackrockExchange_Junkpile",
+   "name": "Blackrock Exchange",
+   "parentCode": "Outpost_Col_S_Pyro_CFP_trdp_Pyro6_BlackrockExchange",
+   "parentName": "Blackrock Exchange"
+  },
+  {
+   "code": "Outpost_Col_S_Pyro_CFP_trdp_Pyro6_BlackrockExchange_SmallTradepost",
+   "name": "Trading Post",
+   "parentCode": "Outpost_Col_S_Pyro_CFP_trdp_Pyro6_BlackrockExchange",
+   "parentName": "Blackrock Exchange"
+  },
+  {
+   "code": "Outpost_Col_S_Pyro_CFP_trdp_Pyro6_BlackrockExchange_StorageShed",
+   "name": "Outpost Storage Shed",
+   "parentCode": "Outpost_Col_S_Pyro_CFP_trdp_Pyro6_BlackrockExchange",
+   "parentName": "Blackrock Exchange"
+  },
+  {
+   "code": "Outpost_Col_S_Pyro_HH_frm",
+   "name": "Windfall"
+  },
+  {
+   "code": "Outpost_Col_S_Pyro_HH_frm_Pyro3",
+   "name": "Windfall"
+  },
+  {
+   "code": "Outpost_Col_S_Pyro_HH_frm_Pyro3_TheYard",
+   "name": "The Yard"
+  },
+  {
+   "code": "Outpost_Col_S_Pyro_HH_frm_Pyro6",
+   "name": "Windfall"
+  },
+  {
+   "code": "Outpost_Col_S_Pyro_HH_frm_Pyro6_KinderPlots",
+   "name": "Kinder Plots"
+  },
+  {
+   "code": "Outpost_Col_S_Pyro_HH_mng",
+   "name": "Windfall"
+  },
+  {
+   "code": "Outpost_Col_S_Pyro_HH_mng_Pyro2",
+   "name": "Windfall"
+  },
+  {
+   "code": "Outpost_Col_S_Pyro_HH_mng_Pyro2_OstlersClaim",
+   "name": "Ostler's Claim"
+  },
+  {
+   "code": "Outpost_Col_S_Pyro_HH_mng_Pyro2_OstlersClaim_Junkpile",
+   "name": "Ostler's Claim",
+   "parentCode": "Outpost_Col_S_Pyro_HH_mng_Pyro2_OstlersClaim",
+   "parentName": "Ostler's Claim"
+  },
+  {
+   "code": "Outpost_Col_S_Pyro_HH_mng_pyro3",
+   "name": "Windfall"
+  },
+  {
+   "code": "Outpost_Col_S_Pyro_HH_mng_pyro3_CarversRidge",
+   "name": "Carver's Ridge"
+  },
+  {
+   "code": "Outpost_Col_S_Pyro_HH_scrp",
+   "name": "Windfall"
+  },
+  {
+   "code": "Outpost_Col_S_Pyro_HH_scrp_Pyro3",
+   "name": "Windfall"
+  },
+  {
+   "code": "Outpost_Col_S_Pyro_HH_scrp_Pyro3_Windfall",
+   "name": "Windfall"
+  },
+  {
+   "code": "Outpost_Col_S_Pyro_HH_scrp_Pyro3_Windfall_Junkpile",
+   "name": "Windfall"
+  },
+  {
+   "code": "Outpost_Col_S_Pyro_HH_trdpst",
+   "name": "Windfall"
+  },
+  {
+   "code": "Outpost_Col_S_Pyro_HH_trdpst_Pyro2",
+   "name": "Windfall"
+  },
+  {
+   "code": "Outpost_Col_S_Pyro_HH_trdpst_Pyro2_AridReach",
+   "name": "Arid Reach"
+  },
+  {
+   "code": "Outpost_Col_S_Pyro_HH_trdpst_Pyro2_AridReach_Junkpile",
+   "name": "Arid Reach",
+   "parentCode": "Outpost_Col_S_Pyro_HH_trdpst_Pyro2_AridReach",
+   "parentName": "Arid Reach"
+  },
+  {
+   "code": "Outpost_Col_S_Pyro_HH_trdpst_Pyro2_AridReach_StorageShed",
+   "name": "Outpost Storage Shed",
+   "parentCode": "Outpost_Col_S_Pyro_HH_trdpst_Pyro2_AridReach",
+   "parentName": "Arid Reach"
+  },
+  {
+   "code": "Outpost_Col_S_Pyro_HH_trdpst_Pyro4",
+   "name": "Windfall"
+  },
+  {
+   "code": "Outpost_Col_S_Pyro_HH_trdpst_Pyro4_GonersDeal",
+   "name": "Goner's Deal"
+  },
+  {
+   "code": "Outpost_Col_S_Pyro_HH_trdpst_Pyro4_GonersDeal_StorageShed",
+   "name": "Outpost Storage Shed",
+   "parentCode": "Outpost_Col_S_Pyro_HH_trdpst_Pyro4_GonersDeal",
+   "parentName": "Goner's Deal"
+  },
+  {
+   "code": "Outpost_Col_S_Pyro_HH_trdpst_Pyro6",
+   "name": "Windfall"
+  },
+  {
+   "code": "Outpost_Col_S_Pyro_HH_trdpst_Pyro6_RoughLanding",
+   "name": "Rough Landing"
+  },
+  {
+   "code": "Outpost_Col_S_Pyro_HH_trdpst_Pyro6_RoughLanding_Junkpile",
+   "name": "Rough Landing",
+   "parentCode": "Outpost_Col_S_Pyro_HH_trdpst_Pyro6_RoughLanding",
+   "parentName": "Rough Landing"
+  },
+  {
+   "code": "Outpost_Col_S_Pyro_HH_trdpst_Pyro6_RoughLanding_StorageShed",
+   "name": "Outpost Storage Shed",
+   "parentCode": "Outpost_Col_S_Pyro_HH_trdpst_Pyro6_RoughLanding",
+   "parentName": "Rough Landing"
+  },
+  {
+   "code": "Outpost_Col_S_Pyro_XT_hmstd",
+   "name": "Windfall"
+  },
+  {
+   "code": "Outpost_Col_S_Pyro_XT_hmstd_Pyro6",
+   "name": "Windfall"
+  },
+  {
+   "code": "Outpost_Col_S_Pyro_XT_hmstd_Pyro6_Stonetree",
+   "name": "Stonetree"
+  },
+  {
+   "code": "Outpost_Colonial_Ruin_Medium_Pyro_Occupied_Pyro1",
+   "name": "Pyro I Abandoned Outpost"
+  },
+  {
+   "code": "Outpost_Colonial_Ruin_Medium_Pyro_Occupied_Pyro2",
+   "name": "Pyro II Abandoned Outpost"
+  },
+  {
+   "code": "Outpost_Colonial_Ruin_Medium_Pyro_Occupied_Pyro3",
+   "name": "Pyro III Abandoned Outpost"
+  },
+  {
+   "code": "Outpost_Colonial_Ruin_Medium_Pyro_Occupied_Pyro4",
+   "name": "Pyro IV Abandoned Outpost"
+  },
+  {
+   "code": "Outpost_Colonial_Ruin_Medium_Pyro_Occupied_Pyro5",
+   "name": "Pyro V Abandoned Outpost"
+  },
+  {
+   "code": "Outpost_Colonial_Ruin_Medium_Pyro_Occupied_Pyro5a",
+   "name": "Pyro 5a Abandoned Outpost"
+  },
+  {
+   "code": "Outpost_Colonial_Ruin_Medium_Pyro_Occupied_Pyro5b",
+   "name": "Pyro 5b Abandoned Outpost"
+  },
+  {
+   "code": "Outpost_Colonial_Ruin_Medium_Pyro_Occupied_Pyro6",
+   "name": "Pyro VI Abandoned Outpost"
+  },
+  {
+   "code": "Outpost_Colonial_Ruin_Medium_Pyro_Unoccupied_Pyro1",
+   "name": "Pyro I Abandoned Outpost"
+  },
+  {
+   "code": "Outpost_Colonial_Ruin_Medium_Pyro_Unoccupied_Pyro2",
+   "name": "Pyro II Abandoned Outpost"
+  },
+  {
+   "code": "Outpost_Colonial_Ruin_Medium_Pyro_Unoccupied_Pyro3",
+   "name": "Pyro III Abandoned Outpost"
+  },
+  {
+   "code": "Outpost_Colonial_Ruin_Medium_Pyro_Unoccupied_Pyro6",
+   "name": "Pyro VI Abandoned Outpost"
+  },
+  {
+   "code": "Outpost_DrugLab_Stanton1_Test",
+   "name": "Echo Isle"
+  },
+  {
+   "code": "Outpost_DrugLab_Stanton2_Jumptown",
+   "name": "Jumptown"
+  },
+  {
+   "code": "Outpost_DrugLab_Stanton3a_ParadiseCove",
+   "name": "Paradise Cove"
+  },
+  {
+   "code": "Outpost_DrugLab_Stanton4a_RavensRoost",
+   "name": "Raven's Roost"
+  },
+  {
+   "code": "Outpost_EMShelter_Stanton1b_BartonFlats",
+   "name": "Barton Flats Aid Shelter"
+  },
+  {
+   "code": "Outpost_EMShelter_Stanton2a_AshburnChannel",
+   "name": "Ashburn Channel Aid Shelter"
+  },
+  {
+   "code": "Outpost_EMShelter_Stanton2a_FlanagansRavine",
+   "name": "Flanagan's Ravine Aid Shelter"
+  },
+  {
+   "code": "Outpost_EMShelter_Stanton2a_JulepRavine",
+   "name": "Julep Ravine Aid Shelter"
+  },
+  {
+   "code": "Outpost_EMShelter_Stanton2a_Mogote",
+   "name": "Mogote Aid Shelter"
+  },
+  {
+   "code": "Outpost_EMShelter_Stanton2b_DunlowRidge",
+   "name": "Dunlow Ridge Aid Shelter"
+  },
+  {
+   "code": "Outpost_EMShelter_Stanton2b_EagerFlats",
+   "name": "Eager Flats Aid Shelter"
+  },
+  {
+   "code": "Outpost_EMShelter_Stanton2b_TamdonPlains",
+   "name": "Tamdon Plains Aid Shelter"
+  },
+  {
+   "code": "Outpost_EMShelter_Stanton2b_WolfPoint",
+   "name": "Wolf Point Aid Shelter"
+  },
+  {
+   "code": "Outpost_IndyFarmer_Stanton2a_GaletteFamilyFarms",
+   "name": "Gallete Farms"
+  },
+  {
+   "code": "Outpost_IndyFarmer_Stanton2a_TerraMillsHydroFarm",
+   "name": "the Terra Mills outpost on Cellin"
+  },
+  {
+   "code": "Outpost_IndyFarmer_Stanton3b_ShadyGlenFarms",
+   "name": "Shady Glen Farms"
+  },
+  {
+   "code": "Outpost_IndyFarmer_Stanton4c_BudsGrowery",
+   "name": "Bud's Growery"
+  },
+  {
+   "code": "Outpost_IndyMining_Stanton2a_TramMyersMining",
+   "name": "Tram & Myers Mining"
+  },
+  {
+   "code": "Outpost_IndyMining_Stanton2b_BountifulHarvest",
+   "name": "Bountiful Harvest"
+  },
+  {
+   "code": "Outpost_IndyMining_Stanton2b_KudreOre",
+   "name": "Kudre Ore"
+  },
+  {
+   "code": "Outpost_IndyMining_Stanton3a_HumboldtMines",
+   "name": "Humboldt Mines"
+  },
+  {
+   "code": "Outpost_IndyMining_Stanton3a_LoveridgeMineralReserve",
+   "name": "Loveridge Mineral Reserve"
+  },
+  {
+   "code": "Outpost_Mining_Admin_Stanton1_HDMSEdmond",
+   "name": "HDMS-Edmond"
+  },
+  {
+   "code": "Outpost_Mining_Admin_Stanton1_HDMSHadley",
+   "name": "HDMS-Hadley"
+  },
+  {
+   "code": "Outpost_Mining_Admin_Stanton1_HDMSOparei",
+   "name": "HDMS-Oparei"
+  },
+  {
+   "code": "Outpost_Mining_Admin_Stanton1_HDMSPinewood",
+   "name": "HDMS-Pinewood"
+  },
+  {
+   "code": "Outpost_Mining_Admin_Stanton1_HDMSStanhope",
+   "name": "HDMS-Stanhope"
+  },
+  {
+   "code": "Outpost_Mining_Admin_Stanton1_HDMSThedus",
+   "name": "HDMS-Thedus"
+  },
+  {
+   "code": "Outpost_Mining_Admin_Stanton1a_HDMSBezdek",
+   "name": "HDMS-Bezdek on Arial"
+  },
+  {
+   "code": "Outpost_Mining_Admin_Stanton1a_HDMSLathan",
+   "name": "HDMS-Lathan"
+  },
+  {
+   "code": "Outpost_Mining_Admin_Stanton1b_HDMSAnderson",
+   "name": "HDMS-Anderson"
+  },
+  {
+   "code": "Outpost_Mining_Admin_Stanton1b_HDMSNorgaard",
+   "name": "HDMS-Norgaard"
+  },
+  {
+   "code": "Outpost_Mining_Admin_Stanton1c_HDMSHahn",
+   "name": "HDMS-Hahn"
+  },
+  {
+   "code": "Outpost_Mining_Admin_Stanton1c_HDMSPerlman",
+   "name": "HDMS-Perlman"
+  },
+  {
+   "code": "Outpost_Mining_Admin_Stanton1d_HDMSRyder",
+   "name": "HDMS-Ryder"
+  },
+  {
+   "code": "Outpost_Mining_Admin_Stanton1d_HDMSWoodruff",
+   "name": "HDMS-Woodruff"
+  },
+  {
+   "code": "Outpost_Mining_Admin_Stanton2b_ArcCorpMiningArea141",
+   "name": "ArcCorp Mining Area 141"
+  },
+  {
+   "code": "Outpost_Mining_Admin_Stanton2b_ShubinMiningSCD1",
+   "name": "Shubin Mining Facility SCD-1"
+  },
+  {
+   "code": "Outpost_Mining_Admin_Stanton2c_ArcCorpMiningArea157",
+   "name": "ArcCorp Mining Area157"
+  },
+  {
+   "code": "Outpost_Mining_Admin_Stanton3a_ShubinMiningFacilitySAL2",
+   "name": "Shubin Mining Facility SAL-2"
+  },
+  {
+   "code": "Outpost_Mining_Admin_Stanton3a_ShubinMiningFacilitySAL5",
+   "name": "Shubin Mining Facility SAL-5"
+  },
+  {
+   "code": "Outpost_Mining_Admin_Stanton3b_ArcCorpMiningArea045",
+   "name": "ArcCorp Mining Area 045"
+  },
+  {
+   "code": "Outpost_Mining_Admin_Stanton3b_ArcCorpMiningArea048",
+   "name": "ArcCorp Mining Area 048"
+  },
+  {
+   "code": "Outpost_Mining_Admin_Stanton3b_ArcCorpMiningArea056",
+   "name": "ArcCorp Mining Area 056"
+  },
+  {
+   "code": "Outpost_Mining_Admin_Stanton3b_ArcCorpMiningArea061",
+   "name": "ArcCorp Mining Area 061"
+  },
+  {
+   "code": "Outpost_Mining_Admin_Stanton4_ShubinMiningFacilitySM010",
+   "name": "Shubin Mining Facility SM0-10"
+  },
+  {
+   "code": "Outpost_Mining_Admin_Stanton4_ShubinMiningFacilitySM013",
+   "name": "Shubin Mining Facility SM0-13"
+  },
+  {
+   "code": "Outpost_Mining_Admin_Stanton4_ShubinMiningFacilitySM018",
+   "name": "Shubin Mining Facility SM0-18"
+  },
+  {
+   "code": "Outpost_Mining_Admin_Stanton4_ShubinMiningFacilitySM022",
+   "name": "Shubin Mining Facility SM0-22"
+  },
+  {
+   "code": "Outpost_Mining_Admin_Stanton4a_ShubinMiningFacilitySMCa6",
+   "name": "Shubin Mining Facility SMCa-6"
+  },
+  {
+   "code": "Outpost_Mining_Admin_Stanton4a_ShubinMiningFacilitySMCa8",
+   "name": "Shubin Mining Facility SMCa-8"
+  },
+  {
+   "code": "Outpost_Rayari_Stanton2a_HickesResearchOutpost",
+   "name": "Hickes Research Outpost"
+  },
+  {
+   "code": "Outpost_Rayari_Stanton2c_DeakinsResearchOutpost",
+   "name": "Rayari"
+  },
+  {
+   "code": "Outpost_Rayari_Stanton4_DeltanaResearchOutpost",
+   "name": "Rayari Deltana Research Outpost"
+  },
+  {
+   "code": "Outpost_Rayari_Stanton4a_RayariAnvikResearchOutpost",
+   "name": "Rayari Anvik Research Outpost"
+  },
+  {
+   "code": "Outpost_Rayari_Stanton4a_RayariKaltagResearchOutpost",
+   "name": "Rayari Kaltag Research Outpost"
+  },
+  {
+   "code": "Outpost_Rayari_Stanton4b_RayariCantwellResearchOutpost",
+   "name": "Rayari Cantwell Research Outpost"
+  },
+  {
+   "code": "Outpost_Rayari_Stanton4b_RayariMcGrathResearchOutpost",
+   "name": "Rayari McGrath Research Outpost"
+  },
+  {
+   "code": "Outpost_Stash_Stanton2b_NuenWasteManagement",
+   "name": "the abandoned outpost on Daymar"
+  },
+  {
+   "code": "Outpost_Stash_Stanton3a_TheOrphanage",
+   "name": "\"The Orphanage\""
+  },
+  {
+   "code": "Planet_Pyro1",
+   "name": "Pyro I"
+  },
+  {
+   "code": "Planet_Pyro2",
+   "name": "Monox"
+  },
+  {
+   "code": "Planet_Pyro3",
+   "name": "Bloom"
+  },
+  {
+   "code": "Planet_Pyro4",
+   "name": "Pyro IV"
+  },
+  {
+   "code": "Planet_Pyro5a",
+   "name": "Ignis"
+  },
+  {
+   "code": "Planet_Pyro6",
+   "name": "Terminus"
+  },
+  {
+   "code": "PortOlisar",
+   "name": "Port Olisar"
+  },
+  {
+   "code": "RestStop_Nyx_Social_01",
+   "name": "People's Service Station Alpha"
+  },
+  {
+   "code": "RestStop_Nyx_Social_02",
+   "name": "People's Service Station Delta"
+  },
+  {
+   "code": "RestStop_Nyx_Social_03",
+   "name": "People's Service Station Theta"
+  },
+  {
+   "code": "RestStop_Nyx_Social_04",
+   "name": "People's Service Station Lambda"
+  },
+  {
+   "code": "RestStop_Pyro_Rundown_RR_P2_L4_CheckMate",
+   "name": "Checkmate at the L4 Lagrange of Pyro II"
+  },
+  {
+   "code": "RestStop_Pyro_Rundown_RR_P2_L4_CheckMate_Cargo",
+   "name": "Checkmate at the L4 Lagrange of Pyro II",
+   "parentCode": "RestStop_Pyro_Rundown_RR_P2_L4_CheckMate",
+   "parentName": "Checkmate at the L4 Lagrange of Pyro II"
+  },
+  {
+   "code": "RestStop_Pyro_Rundown_RR_P2_L4_CheckMate_Clinic",
+   "name": "the clinic inside Checkmate at the L4 Lagrange of Pyro II",
+   "parentCode": "RestStop_Pyro_Rundown_RR_P2_L4_CheckMate",
+   "parentName": "Checkmate at the L4 Lagrange of Pyro II"
+  },
+  {
+   "code": "RestStop_Pyro_Rundown_RR_P2_L4_CheckMate_CommsAbandoned",
+   "name": "Abandoned Section",
+   "parentCode": "RestStop_Pyro_Rundown_RR_P2_L4_CheckMate",
+   "parentName": "Checkmate at the L4 Lagrange of Pyro II"
+  },
+  {
+   "code": "RestStop_Pyro_Rundown_RR_P2_L4_CheckMate_Dealer",
+   "name": "Checkmate",
+   "parentCode": "RestStop_Pyro_Rundown_RR_P2_L4_CheckMate",
+   "parentName": "Checkmate at the L4 Lagrange of Pyro II"
+  },
+  {
+   "code": "RestStop_Pyro_Rundown_RR_P2_L4_CheckMate_Dungeon",
+   "name": "Checkmate",
+   "parentCode": "RestStop_Pyro_Rundown_RR_P2_L4_CheckMate",
+   "parentName": "Checkmate at the L4 Lagrange of Pyro II"
+  },
+  {
+   "code": "RestStop_Pyro_Rundown_RR_P2_L4_CheckMate_Entry",
+   "name": "the entrance inside Checkmate at the L4 Lagrange of Pyro II",
+   "parentCode": "RestStop_Pyro_Rundown_RR_P2_L4_CheckMate",
+   "parentName": "Checkmate at the L4 Lagrange of Pyro II"
+  },
+  {
+   "code": "RestStop_Pyro_Rundown_RR_P2_L4_CheckMate_Habs",
+   "name": "the habs inside Checkmate at the L4 Lagrange of Pyro II",
+   "parentCode": "RestStop_Pyro_Rundown_RR_P2_L4_CheckMate",
+   "parentName": "Checkmate at the L4 Lagrange of Pyro II"
+  },
+  {
+   "code": "RestStop_Pyro_Rundown_RR_P2_L4_CheckMate_Hatches_a",
+   "name": "Maintenance Area-01",
+   "parentCode": "RestStop_Pyro_Rundown_RR_P2_L4_CheckMate",
+   "parentName": "Checkmate at the L4 Lagrange of Pyro II"
+  },
+  {
+   "code": "RestStop_Pyro_Rundown_RR_P2_L4_CheckMate_Hatches_b",
+   "name": "Maintenance Area-02",
+   "parentCode": "RestStop_Pyro_Rundown_RR_P2_L4_CheckMate",
+   "parentName": "Checkmate at the L4 Lagrange of Pyro II"
+  },
+  {
+   "code": "RestStop_Pyro_Rundown_RR_P2_L4_CheckMate_Hatches_c",
+   "name": "Maintenance Area-03",
+   "parentCode": "RestStop_Pyro_Rundown_RR_P2_L4_CheckMate",
+   "parentName": "Checkmate at the L4 Lagrange of Pyro II"
+  },
+  {
+   "code": "RestStop_Pyro_Rundown_RR_P2_L4_CheckMate_M_Hangar",
+   "name": "Hangar 13",
+   "parentCode": "RestStop_Pyro_Rundown_RR_P2_L4_CheckMate",
+   "parentName": "Checkmate at the L4 Lagrange of Pyro II"
+  },
+  {
+   "code": "RestStop_Pyro_Rundown_RR_P2_L4_CheckMate_Refin",
+   "name": "the refinery inside Checkmate at the L4 Lagrange of Pyro II",
+   "parentCode": "RestStop_Pyro_Rundown_RR_P2_L4_CheckMate",
+   "parentName": "Checkmate at the L4 Lagrange of Pyro II"
+  },
+  {
+   "code": "RestStop_Pyro_Rundown_RR_P2_L4_CheckMate_RewardRoom",
+   "name": "Checkmate at the L4 Lagrange of Pyro II",
+   "parentCode": "RestStop_Pyro_Rundown_RR_P2_L4_CheckMate",
+   "parentName": "Checkmate at the L4 Lagrange of Pyro II"
+  },
+  {
+   "code": "RestStop_Pyro_Rundown_RR_P2_L4_CheckMate_Worker",
+   "name": "Checkmate",
+   "parentCode": "RestStop_Pyro_Rundown_RR_P2_L4_CheckMate",
+   "parentName": "Checkmate at the L4 Lagrange of Pyro II"
+  },
+  {
+   "code": "RestStop_Pyro_Rundown_RR_P3_L1_Starlight",
+   "name": "Starlight Service Station"
+  },
+  {
+   "code": "RestStop_Pyro_Rundown_RR_P3_L1_Starlight_Clinic",
+   "name": "Starlight Service Station Clinic",
+   "parentCode": "RestStop_Pyro_Rundown_RR_P3_L1_Starlight",
+   "parentName": "Starlight Service Station"
+  },
+  {
+   "code": "RestStop_Pyro_Rundown_RR_P3_L1_Starlight_Entry",
+   "name": "Starlight Service Station Entrance",
+   "parentCode": "RestStop_Pyro_Rundown_RR_P3_L1_Starlight",
+   "parentName": "Starlight Service Station"
+  },
+  {
+   "code": "RestStop_Pyro_Rundown_RR_P3_L1_Starlight_Habs",
+   "name": "Starlight Service Station Habs",
+   "parentCode": "RestStop_Pyro_Rundown_RR_P3_L1_Starlight",
+   "parentName": "Starlight Service Station"
+  },
+  {
+   "code": "RestStop_Pyro_Rundown_RR_P3_L1_Starlight_Hatches_a",
+   "name": "Maintenance Area-01",
+   "parentCode": "RestStop_Pyro_Rundown_RR_P3_L1_Starlight",
+   "parentName": "Starlight Service Station"
+  },
+  {
+   "code": "RestStop_Pyro_Rundown_RR_P3_L1_Starlight_Hatches_b",
+   "name": "Maintenance Area-02",
+   "parentCode": "RestStop_Pyro_Rundown_RR_P3_L1_Starlight",
+   "parentName": "Starlight Service Station"
+  },
+  {
+   "code": "RestStop_Pyro_Rundown_RR_P3_L1_Starlight_M_Hangar",
+   "name": "Hangar 12",
+   "parentCode": "RestStop_Pyro_Rundown_RR_P3_L1_Starlight",
+   "parentName": "Starlight Service Station"
+  },
+  {
+   "code": "RestStop_Pyro_Rundown_RR_P3_L3_Patch",
+   "name": "Patch City at the L3 Lagrange of Pyro III"
+  },
+  {
+   "code": "RestStop_Pyro_Rundown_RR_P3_L3_Patch_Clinic",
+   "name": "the clinic inside Patch City at the L3 Lagrange of Pyro III",
+   "parentCode": "RestStop_Pyro_Rundown_RR_P3_L3_Patch",
+   "parentName": "Patch City at the L3 Lagrange of Pyro III"
+  },
+  {
+   "code": "RestStop_Pyro_Rundown_RR_P3_L3_Patch_Entry",
+   "name": "the entrance inside Patch City at the L3 Lagrange of Pyro III",
+   "parentCode": "RestStop_Pyro_Rundown_RR_P3_L3_Patch",
+   "parentName": "Patch City at the L3 Lagrange of Pyro III"
+  },
+  {
+   "code": "RestStop_Pyro_Rundown_RR_P3_L3_Patch_Habs",
+   "name": "the habs inside Patch City at the L3 Lagrange of Pyro III",
+   "parentCode": "RestStop_Pyro_Rundown_RR_P3_L3_Patch",
+   "parentName": "Patch City at the L3 Lagrange of Pyro III"
+  },
+  {
+   "code": "RestStop_Pyro_Rundown_RR_P3_L3_Patch_Hatches_a",
+   "name": "Maintenance Area-01",
+   "parentCode": "RestStop_Pyro_Rundown_RR_P3_L3_Patch",
+   "parentName": "Patch City at the L3 Lagrange of Pyro III"
+  },
+  {
+   "code": "RestStop_Pyro_Rundown_RR_P3_L3_Patch_Hatches_b",
+   "name": "Maintenance Area-02",
+   "parentCode": "RestStop_Pyro_Rundown_RR_P3_L3_Patch",
+   "parentName": "Patch City at the L3 Lagrange of Pyro III"
+  },
+  {
+   "code": "RestStop_Pyro_Rundown_RR_P3_L3_Patch_M_Hangar",
+   "name": "Hangar 12",
+   "parentCode": "RestStop_Pyro_Rundown_RR_P3_L3_Patch",
+   "parentName": "Patch City at the L3 Lagrange of Pyro III"
+  },
+  {
+   "code": "RestStop_Pyro_Rundown_RR_P3_LEO_Orb",
+   "name": "Orbituary above Pyro III"
+  },
+  {
+   "code": "RestStop_Pyro_Rundown_RR_P3_LEO_Orb_Cargo",
+   "name": "Orbituary",
+   "parentCode": "RestStop_Pyro_Rundown_RR_P3_LEO_Orb",
+   "parentName": "Orbituary above Pyro III"
+  },
+  {
+   "code": "RestStop_Pyro_Rundown_RR_P3_LEO_Orb_Clinic",
+   "name": "the clinic inside Orbituary above Pyro III",
+   "parentCode": "RestStop_Pyro_Rundown_RR_P3_LEO_Orb",
+   "parentName": "Orbituary above Pyro III"
+  },
+  {
+   "code": "RestStop_Pyro_Rundown_RR_P3_LEO_Orb_CommsAbandoned",
+   "name": "Abandoned Section",
+   "parentCode": "RestStop_Pyro_Rundown_RR_P3_LEO_Orb",
+   "parentName": "Orbituary above Pyro III"
+  },
+  {
+   "code": "RestStop_Pyro_Rundown_RR_P3_LEO_Orb_ContestedZone",
+   "name": "Orbituary above Pyro III",
+   "parentCode": "RestStop_Pyro_Rundown_RR_P3_LEO_Orb",
+   "parentName": "Orbituary above Pyro III"
+  },
+  {
+   "code": "RestStop_Pyro_Rundown_RR_P3_LEO_Orb_Entry",
+   "name": "the entrance inside Orbituary above Pyro III",
+   "parentCode": "RestStop_Pyro_Rundown_RR_P3_LEO_Orb",
+   "parentName": "Orbituary above Pyro III"
+  },
+  {
+   "code": "RestStop_Pyro_Rundown_RR_P3_LEO_Orb_Habs",
+   "name": "the habs inside Orbituary above Pyro III",
+   "parentCode": "RestStop_Pyro_Rundown_RR_P3_LEO_Orb",
+   "parentName": "Orbituary above Pyro III"
+  },
+  {
+   "code": "RestStop_Pyro_Rundown_RR_P3_LEO_Orb_Hatches_a",
+   "name": "Maintenance Area-01",
+   "parentCode": "RestStop_Pyro_Rundown_RR_P3_LEO_Orb",
+   "parentName": "Orbituary above Pyro III"
+  },
+  {
+   "code": "RestStop_Pyro_Rundown_RR_P3_LEO_Orb_Hatches_b",
+   "name": "Maintenance Area-02",
+   "parentCode": "RestStop_Pyro_Rundown_RR_P3_LEO_Orb",
+   "parentName": "Orbituary above Pyro III"
+  },
+  {
+   "code": "RestStop_Pyro_Rundown_RR_P3_LEO_Orb_Hatches_c",
+   "name": "Maintenance Area-03",
+   "parentCode": "RestStop_Pyro_Rundown_RR_P3_LEO_Orb",
+   "parentName": "Orbituary above Pyro III"
+  },
+  {
+   "code": "RestStop_Pyro_Rundown_RR_P3_LEO_Orb_M_Hangar",
+   "name": "Hangar 11",
+   "parentCode": "RestStop_Pyro_Rundown_RR_P3_LEO_Orb",
+   "parentName": "Orbituary above Pyro III"
+  },
+  {
+   "code": "RestStop_Pyro_Rundown_RR_P3_LEO_Orb_Refin",
+   "name": "the refinery inside Orbituary above Pyro III",
+   "parentCode": "RestStop_Pyro_Rundown_RR_P3_LEO_Orb",
+   "parentName": "Orbituary above Pyro III"
+  },
+  {
+   "code": "RestStop_Pyro_Rundown_RR_P3_LEO_Orb_Rewardroom",
+   "name": "Orbituary",
+   "parentCode": "RestStop_Pyro_Rundown_RR_P3_LEO_Orb",
+   "parentName": "Orbituary above Pyro III"
+  },
+  {
+   "code": "RestStop_Pyro_Rundown_RR_P3_LEO_Orb_Worker",
+   "name": "Orbituary",
+   "parentCode": "RestStop_Pyro_Rundown_RR_P3_LEO_Orb",
+   "parentName": "Orbituary above Pyro III"
+  },
+  {
+   "code": "RestStop_Pyro_Rundown_RR_P5_L2_Gaslight",
+   "name": "Gaslight at the L2 Lagrange of Pyro V"
+  },
+  {
+   "code": "RestStop_Pyro_Rundown_RR_P5_L2_Gaslight_Clinic",
+   "name": "the clinic inside Gaslight at the L2 Lagrange of Pyro V",
+   "parentCode": "RestStop_Pyro_Rundown_RR_P5_L2_Gaslight",
+   "parentName": "Gaslight at the L2 Lagrange of Pyro V"
+  },
+  {
+   "code": "RestStop_Pyro_Rundown_RR_P5_L2_Gaslight_Dungeon",
+   "name": "Gaslight",
+   "parentCode": "RestStop_Pyro_Rundown_RR_P5_L2_Gaslight",
+   "parentName": "Gaslight at the L2 Lagrange of Pyro V"
+  },
+  {
+   "code": "RestStop_Pyro_Rundown_RR_P5_L2_Gaslight_Entry",
+   "name": "the entrance inside Gaslight at the L2 Lagrange of Pyro V",
+   "parentCode": "RestStop_Pyro_Rundown_RR_P5_L2_Gaslight",
+   "parentName": "Gaslight at the L2 Lagrange of Pyro V"
+  },
+  {
+   "code": "RestStop_Pyro_Rundown_RR_P5_L2_Gaslight_Habs",
+   "name": "the habs inside Gaslight at the L2 Lagrange of Pyro V",
+   "parentCode": "RestStop_Pyro_Rundown_RR_P5_L2_Gaslight",
+   "parentName": "Gaslight at the L2 Lagrange of Pyro V"
+  },
+  {
+   "code": "RestStop_Pyro_Rundown_RR_P5_L2_Gaslight_Hatches_a",
+   "name": "Maintenance Area-01",
+   "parentCode": "RestStop_Pyro_Rundown_RR_P5_L2_Gaslight",
+   "parentName": "Gaslight at the L2 Lagrange of Pyro V"
+  },
+  {
+   "code": "RestStop_Pyro_Rundown_RR_P5_L2_Gaslight_Hatches_b",
+   "name": "Maintenance Area-02",
+   "parentCode": "RestStop_Pyro_Rundown_RR_P5_L2_Gaslight",
+   "parentName": "Gaslight at the L2 Lagrange of Pyro V"
+  },
+  {
+   "code": "RestStop_Pyro_Rundown_RR_P5_L2_Gaslight_M_Hangar",
+   "name": "Hangar 13",
+   "parentCode": "RestStop_Pyro_Rundown_RR_P5_L2_Gaslight",
+   "parentName": "Gaslight at the L2 Lagrange of Pyro V"
+  },
+  {
+   "code": "RestStop_Pyro_Rundown_RR_P5_L2_Gaslight_RewardRoom",
+   "name": "Hangar 13",
+   "parentCode": "RestStop_Pyro_Rundown_RR_P5_L2_Gaslight",
+   "parentName": "Gaslight at the L2 Lagrange of Pyro V"
+  },
+  {
+   "code": "RestStop_Pyro_Rundown_RR_P5_L4_RodsFuel",
+   "name": "Rod's Fuel 'N Supplies at the L4 Lagrange of Pyro V"
+  },
+  {
+   "code": "RestStop_Pyro_Rundown_RR_P5_L4_RodsFuel_Clinic",
+   "name": "the clinic inside Rod's Fuel 'N Supplies at the L4 Lagrange of Pyro V",
+   "parentCode": "RestStop_Pyro_Rundown_RR_P5_L4_RodsFuel",
+   "parentName": "Rod's Fuel 'N Supplies at the L4 Lagrange of Pyro V"
+  },
+  {
+   "code": "RestStop_Pyro_Rundown_RR_P5_L4_RodsFuel_Entry",
+   "name": "the entrance inside Rod's Fuel 'N Supplies at the L4 Lagrange of Pyro V",
+   "parentCode": "RestStop_Pyro_Rundown_RR_P5_L4_RodsFuel",
+   "parentName": "Rod's Fuel 'N Supplies at the L4 Lagrange of Pyro V"
+  },
+  {
+   "code": "RestStop_Pyro_Rundown_RR_P5_L4_RodsFuel_Habs",
+   "name": "the habs inside Rod's Fuel 'N Supplies at the L4 Lagrange of Pyro V",
+   "parentCode": "RestStop_Pyro_Rundown_RR_P5_L4_RodsFuel",
+   "parentName": "Rod's Fuel 'N Supplies at the L4 Lagrange of Pyro V"
+  },
+  {
+   "code": "RestStop_Pyro_Rundown_RR_P5_L4_RodsFuel_Hatches_a",
+   "name": "Maintenance Area-01",
+   "parentCode": "RestStop_Pyro_Rundown_RR_P5_L4_RodsFuel",
+   "parentName": "Rod's Fuel 'N Supplies at the L4 Lagrange of Pyro V"
+  },
+  {
+   "code": "RestStop_Pyro_Rundown_RR_P5_L4_RodsFuel_Hatches_b",
+   "name": "Maintenance Area-02",
+   "parentCode": "RestStop_Pyro_Rundown_RR_P5_L4_RodsFuel",
+   "parentName": "Rod's Fuel 'N Supplies at the L4 Lagrange of Pyro V"
+  },
+  {
+   "code": "RestStop_Pyro_Rundown_RR_P5_L4_RodsFuel_M_Hangar",
+   "name": "Rod's Fuel 'N Supplies at the L4 Lagrange of Pyro V",
+   "parentCode": "RestStop_Pyro_Rundown_RR_P5_L4_RodsFuel",
+   "parentName": "Rod's Fuel 'N Supplies at the L4 Lagrange of Pyro V"
+  },
+  {
+   "code": "RestStop_Pyro_Rundown_RR_P5_L5_Rat",
+   "name": "Rat's Nest at the L5 Lagrange of Pyro V"
+  },
+  {
+   "code": "RestStop_Pyro_Rundown_RR_P5_L5_Rat_Clinic",
+   "name": "the clinic inside Rat's Nest at the L5 Lagrange of Pyro V",
+   "parentCode": "RestStop_Pyro_Rundown_RR_P5_L5_Rat",
+   "parentName": "Rat's Nest at the L5 Lagrange of Pyro V"
+  },
+  {
+   "code": "RestStop_Pyro_Rundown_RR_P5_L5_Rat_Entry",
+   "name": "the entrance inside Rat's Nest at the L5 Lagrange of Pyro V",
+   "parentCode": "RestStop_Pyro_Rundown_RR_P5_L5_Rat",
+   "parentName": "Rat's Nest at the L5 Lagrange of Pyro V"
+  },
+  {
+   "code": "RestStop_Pyro_Rundown_RR_P5_L5_Rat_Habs",
+   "name": "the habs inside Rat's Nest at the L5 Lagrange of Pyro V",
+   "parentCode": "RestStop_Pyro_Rundown_RR_P5_L5_Rat",
+   "parentName": "Rat's Nest at the L5 Lagrange of Pyro V"
+  },
+  {
+   "code": "RestStop_Pyro_Rundown_RR_P5_L5_Rat_Hatches_a",
+   "name": "Maintenance Area-01",
+   "parentCode": "RestStop_Pyro_Rundown_RR_P5_L5_Rat",
+   "parentName": "Rat's Nest at the L5 Lagrange of Pyro V"
+  },
+  {
+   "code": "RestStop_Pyro_Rundown_RR_P5_L5_Rat_Hatches_b",
+   "name": "Maintenance Area-02",
+   "parentCode": "RestStop_Pyro_Rundown_RR_P5_L5_Rat",
+   "parentName": "Rat's Nest at the L5 Lagrange of Pyro V"
+  },
+  {
+   "code": "RestStop_Pyro_Rundown_RR_P5_L5_Rat_M_Hangar",
+   "name": "Rat's Nest at the L5 Lagrange of Pyro V",
+   "parentCode": "RestStop_Pyro_Rundown_RR_P5_L5_Rat",
+   "parentName": "Rat's Nest at the L5 Lagrange of Pyro V"
+  },
+  {
+   "code": "RestStop_Pyro_Rundown_RR_P6_L3_Endgame",
+   "name": "Endgame at the L3 Lagrange of Pyro VI"
+  },
+  {
+   "code": "RestStop_Pyro_Rundown_RR_P6_L3_Endgame_Clinic",
+   "name": "the clinic inside Endgame at the L3 Lagrange of Pyro VI",
+   "parentCode": "RestStop_Pyro_Rundown_RR_P6_L3_Endgame",
+   "parentName": "Endgame at the L3 Lagrange of Pyro VI"
+  },
+  {
+   "code": "RestStop_Pyro_Rundown_RR_P6_L3_Endgame_Entry",
+   "name": "the entrance inside Endgame at the L3 Lagrange of Pyro VI",
+   "parentCode": "RestStop_Pyro_Rundown_RR_P6_L3_Endgame",
+   "parentName": "Endgame at the L3 Lagrange of Pyro VI"
+  },
+  {
+   "code": "RestStop_Pyro_Rundown_RR_P6_L3_Endgame_Habs",
+   "name": "the habs inside Endgame at the L3 Lagrange of Pyro VI",
+   "parentCode": "RestStop_Pyro_Rundown_RR_P6_L3_Endgame",
+   "parentName": "Endgame at the L3 Lagrange of Pyro VI"
+  },
+  {
+   "code": "RestStop_Pyro_Rundown_RR_P6_L3_Endgame_Hatches_a",
+   "name": "Maintenance Area-01",
+   "parentCode": "RestStop_Pyro_Rundown_RR_P6_L3_Endgame",
+   "parentName": "Endgame at the L3 Lagrange of Pyro VI"
+  },
+  {
+   "code": "RestStop_Pyro_Rundown_RR_P6_L3_Endgame_Hatches_b",
+   "name": "Maintenance Area-02",
+   "parentCode": "RestStop_Pyro_Rundown_RR_P6_L3_Endgame",
+   "parentName": "Endgame at the L3 Lagrange of Pyro VI"
+  },
+  {
+   "code": "RestStop_Pyro_Rundown_RR_P6_L3_Endgame_M_Hangar",
+   "name": "Hangar 13",
+   "parentCode": "RestStop_Pyro_Rundown_RR_P6_L3_Endgame",
+   "parentName": "Endgame at the L3 Lagrange of Pyro VI"
+  },
+  {
+   "code": "RestStop_Pyro_Rundown_RR_P6_L4_DD",
+   "name": "Dudley & Daughters at the L4 Lagrange of Pyro VI"
+  },
+  {
+   "code": "RestStop_Pyro_Rundown_RR_P6_L4_DD_Clinic",
+   "name": "the clinic inside Dudley & Daughters at the L4 Lagrange of Pyro VI",
+   "parentCode": "RestStop_Pyro_Rundown_RR_P6_L4_DD",
+   "parentName": "Dudley & Daughters at the L4 Lagrange of Pyro VI"
+  },
+  {
+   "code": "RestStop_Pyro_Rundown_RR_P6_L4_DD_Entry",
+   "name": "the entrance inside Dudley & Daughters at the L4 Lagrange of Pyro VI",
+   "parentCode": "RestStop_Pyro_Rundown_RR_P6_L4_DD",
+   "parentName": "Dudley & Daughters at the L4 Lagrange of Pyro VI"
+  },
+  {
+   "code": "RestStop_Pyro_Rundown_RR_P6_L4_DD_Habs",
+   "name": "the habs inside Dudley & Daughters at the L4 Lagrange of Pyro VI",
+   "parentCode": "RestStop_Pyro_Rundown_RR_P6_L4_DD",
+   "parentName": "Dudley & Daughters at the L4 Lagrange of Pyro VI"
+  },
+  {
+   "code": "RestStop_Pyro_Rundown_RR_P6_L4_DD_Hatches_a",
+   "name": "Maintenance Area-01 inside Dudley & Daughters at the L4 Lagrange of Pyro VI",
+   "parentCode": "RestStop_Pyro_Rundown_RR_P6_L4_DD",
+   "parentName": "Dudley & Daughters at the L4 Lagrange of Pyro VI"
+  },
+  {
+   "code": "RestStop_Pyro_Rundown_RR_P6_L4_DD_Hatches_b",
+   "name": "Maintenance Area-02 inside Dudley & Daughters at the L4 Lagrange of Pyro VI",
+   "parentCode": "RestStop_Pyro_Rundown_RR_P6_L4_DD",
+   "parentName": "Dudley & Daughters at the L4 Lagrange of Pyro VI"
+  },
+  {
+   "code": "RestStop_Pyro_Rundown_RR_P6_L4_DD_M_Hangar",
+   "name": "Hangar 13 inside Dudley & Daughters at the L4 Lagrange of Pyro VI",
+   "parentCode": "RestStop_Pyro_Rundown_RR_P6_L4_DD",
+   "parentName": "Dudley & Daughters at the L4 Lagrange of Pyro VI"
+  },
+  {
+   "code": "RestStop_Pyro_Rundown_RR_P6_L5_Meg",
+   "name": "Megumi Refueling at the L5 Lagrange of Pyro VI"
+  },
+  {
+   "code": "RestStop_Pyro_Rundown_RR_P6_L5_Meg_Clinic",
+   "name": "the clinic inside Megumi Refueling at the L5 Lagrange of Pyro VI",
+   "parentCode": "RestStop_Pyro_Rundown_RR_P6_L5_Meg",
+   "parentName": "Megumi Refueling at the L5 Lagrange of Pyro VI"
+  },
+  {
+   "code": "RestStop_Pyro_Rundown_RR_P6_L5_Meg_Entry",
+   "name": "the entrance inside Megumi Refueling at the L5 Lagrange of Pyro VI",
+   "parentCode": "RestStop_Pyro_Rundown_RR_P6_L5_Meg",
+   "parentName": "Megumi Refueling at the L5 Lagrange of Pyro VI"
+  },
+  {
+   "code": "RestStop_Pyro_Rundown_RR_P6_L5_Meg_Habs",
+   "name": "the habs inside Megumi Refueling at the L5 Lagrange of Pyro VI",
+   "parentCode": "RestStop_Pyro_Rundown_RR_P6_L5_Meg",
+   "parentName": "Megumi Refueling at the L5 Lagrange of Pyro VI"
+  },
+  {
+   "code": "RestStop_Pyro_Rundown_RR_P6_L5_Meg_Hatches_a",
+   "name": "Maintenance Area-01",
+   "parentCode": "RestStop_Pyro_Rundown_RR_P6_L5_Meg",
+   "parentName": "Megumi Refueling at the L5 Lagrange of Pyro VI"
+  },
+  {
+   "code": "RestStop_Pyro_Rundown_RR_P6_L5_Meg_Hatches_b",
+   "name": "Maintenance Area-02",
+   "parentCode": "RestStop_Pyro_Rundown_RR_P6_L5_Meg",
+   "parentName": "Megumi Refueling at the L5 Lagrange of Pyro VI"
+  },
+  {
+   "code": "RestStop_Pyro_Rundown_RR_P6_L5_Meg_M_Hangar",
+   "name": "Hangar 13",
+   "parentCode": "RestStop_Pyro_Rundown_RR_P6_L5_Meg",
+   "parentName": "Megumi Refueling at the L5 Lagrange of Pyro VI"
+  },
+  {
+   "code": "RestStop_Pyro_Rundown_RR_P6_LEO_Ruin",
+   "name": "Ruin Station above Pyro VI"
+  },
+  {
+   "code": "RestStop_Pyro_Rundown_RR_P6_LEO_Ruin_Cargo",
+   "name": "Ruin Station above Pyro VI",
+   "parentCode": "RestStop_Pyro_Rundown_RR_P6_LEO_Ruin",
+   "parentName": "Ruin Station above Pyro VI"
+  },
+  {
+   "code": "RestStop_Pyro_Rundown_RR_P6_LEO_Ruin_Clinic",
+   "name": "the clinic inside Ruin Station above Pyro VI",
+   "parentCode": "RestStop_Pyro_Rundown_RR_P6_LEO_Ruin",
+   "parentName": "Ruin Station above Pyro VI"
+  },
+  {
+   "code": "RestStop_Pyro_Rundown_RR_P6_LEO_Ruin_Dealer",
+   "name": "Ruin Station above Pyro VI",
+   "parentCode": "RestStop_Pyro_Rundown_RR_P6_LEO_Ruin",
+   "parentName": "Ruin Station above Pyro VI"
+  },
+  {
+   "code": "RestStop_Pyro_Rundown_RR_P6_LEO_Ruin_Dungeon",
+   "name": "Ruin Station above Pyro VI",
+   "parentCode": "RestStop_Pyro_Rundown_RR_P6_LEO_Ruin",
+   "parentName": "Ruin Station above Pyro VI"
+  },
+  {
+   "code": "RestStop_Pyro_Rundown_RR_P6_LEO_Ruin_Entry",
+   "name": "the entrance inside Ruin Station above Pyro VI",
+   "parentCode": "RestStop_Pyro_Rundown_RR_P6_LEO_Ruin",
+   "parentName": "Ruin Station above Pyro VI"
+  },
+  {
+   "code": "RestStop_Pyro_Rundown_RR_P6_LEO_Ruin_Habs",
+   "name": "the habs inside Ruin Station above Pyro VI",
+   "parentCode": "RestStop_Pyro_Rundown_RR_P6_LEO_Ruin",
+   "parentName": "Ruin Station above Pyro VI"
+  },
+  {
+   "code": "RestStop_Pyro_Rundown_RR_P6_LEO_Ruin_Hatches_a",
+   "name": "Ruin Station",
+   "parentCode": "RestStop_Pyro_Rundown_RR_P6_LEO_Ruin",
+   "parentName": "Ruin Station above Pyro VI"
+  },
+  {
+   "code": "RestStop_Pyro_Rundown_RR_P6_LEO_Ruin_Hatches_b",
+   "name": "Ruin Station",
+   "parentCode": "RestStop_Pyro_Rundown_RR_P6_LEO_Ruin",
+   "parentName": "Ruin Station above Pyro VI"
+  },
+  {
+   "code": "RestStop_Pyro_Rundown_RR_P6_LEO_Ruin_Hatches_c",
+   "name": "Ruin Station",
+   "parentCode": "RestStop_Pyro_Rundown_RR_P6_LEO_Ruin",
+   "parentName": "Ruin Station above Pyro VI"
+  },
+  {
+   "code": "RestStop_Pyro_Rundown_RR_P6_LEO_Ruin_M_Hangar",
+   "name": "Ruin Station",
+   "parentCode": "RestStop_Pyro_Rundown_RR_P6_LEO_Ruin",
+   "parentName": "Ruin Station above Pyro VI"
+  },
+  {
+   "code": "RestStop_Pyro_Rundown_RR_P6_LEO_Ruin_Refin",
+   "name": "the refinery inside Ruin Station above Pyro VI",
+   "parentCode": "RestStop_Pyro_Rundown_RR_P6_LEO_Ruin",
+   "parentName": "Ruin Station above Pyro VI"
+  },
+  {
+   "code": "RestStop_Stanton_1_EverusHarbor",
+   "name": "Everus Harbor"
+  },
+  {
+   "code": "RestStop_Stanton_1_L1",
+   "name": "HUR-L1 Green Glade Station"
+  },
+  {
+   "code": "RestStop_Stanton_1_L2",
+   "name": "HUR-L2 Faithful Dream Station"
+  },
+  {
+   "code": "RestStop_Stanton_1_L3",
+   "name": "HUR-L3 Thundering Express Station"
+  },
+  {
+   "code": "RestStop_Stanton_1_L4",
+   "name": "HUR-L4 Melodic Fields Station"
+  },
+  {
+   "code": "RestStop_Stanton_1_L5",
+   "name": "HUR-L5 High Course Station"
+  },
+  {
+   "code": "RestStop_Stanton_2_L1",
+   "name": "CRU-L1 Ambitious Dream Station"
+  },
+  {
+   "code": "RestStop_Stanton_2_L4",
+   "name": "CRU-L4 Shallow Fields Station"
+  },
+  {
+   "code": "RestStop_Stanton_2_L5",
+   "name": "CRU-L5 Beautiful Glen Station"
+  },
+  {
+   "code": "RestStop_Stanton_2_Seraphim_Station",
+   "name": "Seraphim Station"
+  },
+  {
+   "code": "RestStop_Stanton_3_BaijiniPoint",
+   "name": "Baijini Point"
+  },
+  {
+   "code": "RestStop_Stanton_3_L1",
+   "name": "ARC-L1 Wide Forest Station"
+  },
+  {
+   "code": "RestStop_Stanton_3_L2",
+   "name": "ARC-L2 Lively Pathway Station"
+  },
+  {
+   "code": "RestStop_Stanton_3_L3",
+   "name": "ARC-L3 Modern Express Station"
+  },
+  {
+   "code": "RestStop_Stanton_3_L4",
+   "name": "ARC-L4 Faint Glen Station"
+  },
+  {
+   "code": "RestStop_Stanton_3_L5",
+   "name": "ARC-L5 Yellow Core Station"
+  },
+  {
+   "code": "RestStop_Stanton_4_L1",
+   "name": "MIC-L1 Shallow Frontier Station"
+  },
+  {
+   "code": "RestStop_Stanton_4_L2",
+   "name": "MIC-L2 Long Forest Station"
+  },
+  {
+   "code": "RestStop_Stanton_4_L3",
+   "name": "MIC-L3 Endless Odyssey Station"
+  },
+  {
+   "code": "RestStop_Stanton_4_L4",
+   "name": "MIC-L4 Red Crossroads Station"
+  },
+  {
+   "code": "RestStop_Stanton_4_L5",
+   "name": "MIC-L5 Modern Icarus Station"
+  },
+  {
+   "code": "RestStop_Stanton_4_PortTressler",
+   "name": "Port Tressler"
+  },
+  {
+   "code": "RSI_Constellation_Surface_Stanton1",
+   "name": "Constellation"
+  },
+  {
+   "code": "RSI_Constellation_Surface_Stanton1_ConstellationCrashSiteA",
+   "name": "Constellation"
+  },
+  {
+   "code": "RSI_Constellation_Surface_Stanton1_ConstellationCrashSiteB",
+   "name": "Constellation"
+  },
+  {
+   "code": "RSI_Constellation_Surface_Stanton1_ConstellationCrashSiteC",
+   "name": "Constellation"
+  },
+  {
+   "code": "RSI_Constellation_Surface_Stanton1_ConstellationCrashSiteD",
+   "name": "Constellation"
+  },
+  {
+   "code": "RSI_Constellation_Surface_Stanton1b",
+   "name": "Constellation"
+  },
+  {
+   "code": "RSI_Constellation_Surface_Stanton1c",
+   "name": "Constellation"
+  },
+  {
+   "code": "RSI_Constellation_Surface_Stanton1d",
+   "name": "Constellation"
+  }
+ ]
+}

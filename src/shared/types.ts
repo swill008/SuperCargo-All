@@ -516,6 +516,10 @@ export interface Location {
   operator?: string
   /** parent moon/planet, e.g. "Cellin" */
   body?: string
+  /** fork (Other mode): where the place itself came from; unset = UEX (haul roster) */
+  source?: 'uex' | 'starmap'
+  /** fork (Other mode): where x/y/z came from; unset with coords = UEX */
+  coordsFrom?: 'uex' | 'starmap'
 }
 
 export interface LocationRoster {

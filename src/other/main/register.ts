@@ -29,6 +29,8 @@ import {
 } from './whereAmI'
 import { getAfkDiag, registerOtherAfkIpc, stopOtherAfk } from './afk'
 import { getBodiesDiag, registerOtherBodiesIpc } from './bodies'
+import { flushMemory, getMemoryDiag, registerOtherMemoryIpc } from './matchMemory'
+import { getGameDataStatus, registerOtherGameDataIpc } from './gameData'
 import { loadCachedLocations } from '../../main/uex'
 import { logger } from '../../main/logger'
 import { setOtherDiagSource } from '../../main/diagnostics'
@@ -58,6 +60,8 @@ export function registerOther({ watcher, getSettings, getMainWindow, reregisterH
   syncWhereLive(getSettings)
   registerOtherAfkIpc(getSettings)
   registerOtherBodiesIpc()
+  registerOtherMemoryIpc()
+  registerOtherGameDataIpc()
   // diagnostics export: each key becomes a '## <KEY>' section (sanitised there); zone crops only when images are opted in
   setOtherDiagSource({
     sections: () => {
@@ -68,7 +72,9 @@ export function registerOther({ watcher, getSettings, getMainWindow, reregisterH
         LIVE: w.live,
         HOTKEYS: w.hotkeys,
         'AFK LOG': getAfkDiag(),
-        BODIES: getBodiesDiag()
+        BODIES: getBodiesDiag(),
+        'MATCH MEMORY': getMemoryDiag(),
+        'GAME DATA': getGameDataStatus()
       }
     },
     images: () => getWhereImages()
@@ -76,6 +82,7 @@ export function registerOther({ watcher, getSettings, getMainWindow, reregisterH
   app.on('will-quit', () => {
     stopWhereLive()
     stopOtherAfk()
+    flushMemory()
   })
   wipeOtherOcrSession()
   hookOtherOcrSessionQuit()

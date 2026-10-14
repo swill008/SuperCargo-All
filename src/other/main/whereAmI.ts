@@ -1,13 +1,16 @@
 /**
  * WHERE AM I (main process): one screenshot of the map screen, two zones read with OCR.
  * Zone 2 (r_DisplayInfo text, upper right) first when otherWhereUseZone2, then zone 1 (map bottom line).
+ * OCR: own tesseract.js worker (psm 6 zone 2, psm 7 zone 1, Sauvola) on ocrPrep.ts output (grey, inverted, scaled for
+ * ~30 px text from the frame height); falls back to the shared engine (3x/2x upscale, psm 3) when it won't load.
  * Test seam: env SC_WHERE_TEXT_FILE = JSON {"zone1"?: string, "zone2"?: string} replaces capture + OCR.
  * Live position (otherWhereLive): zone 2 only, every otherWhereLiveSec (30-120 s); every result broadcast with why 'live'
  * (the overlay stays quiet until 3 live failures in a row).
  * Hotkeys: pauseOtherHotkeys() unregisters every app global shortcut while the recorder listens.
  */
 import * as fs from 'node:fs'
-import { BrowserWindow, globalShortcut, ipcMain, screen, type NativeImage } from 'electron'
+import * as path from 'node:path'
+import { app, BrowserWindow, globalShortcut, ipcMain, nativeImage, screen, type NativeImage } from 'electron'
 import { IPC } from '@shared/channels'
 import type { AppSettings, CropRect } from '@shared/types'
 import {
@@ -25,6 +28,7 @@ import { getBodies, onWhereRead } from './bodies'
 import { bodyRadiusFromTable } from '../otherBodies'
 import { captureGameWindow, captureDisplay, cropImage, toUpscaledPng, toPreviewDataUrl } from '../../main/capture'
 import { TesseractEngine } from '../../main/ocr/tesseractEngine'
+import { OCR_PARAMS, prepForOcr, ZONE_PSM } from './ocrPrep'
 import { logger } from '../../main/logger'
 import { trace } from '../../main/trace'
 
@@ -102,7 +106,7 @@ const history: WhereHistoryEntry[] = []
 let curTimings: WhereTimings = { ocrMs: {}, parseMs: 0 }
 let lastCapture: WhereCaptureDiag | null = null
 let curCapture: WhereCaptureDiag | null = null
-const lastCrops: { zone1?: Buffer; zone2?: Buffer } = {}
+const lastCrops: { zone1?: Buffer; zone2?: Buffer; zone2Prepped?: Buffer } = {}
 
 function displayList(): WhereCaptureDiag['displays'] {
   try {
@@ -166,6 +170,46 @@ function seamText(): { zone1?: string; zone2?: string } | null {
   }
 }
 
+// ---- own OCR worker (zone psm differs from the shared engine's psm 3) ----
+
+type TessWorker = {
+  recognize: (img: Buffer) => Promise<{ data: { text: string } }>
+  setParameters: (p: Record<string, unknown>) => Promise<unknown>
+}
+type CreateWorker = (lang: string, oem: number, opts: Record<string, unknown>) => Promise<TessWorker>
+
+let worker: TessWorker | null = null
+let workerLoading: Promise<TessWorker | null> | null = null
+let workerFailed = false
+let workerPsm = ''
+
+async function whereWorker(): Promise<TessWorker | null> {
+  if (worker || workerFailed) return worker
+  workerLoading ??= (async () => {
+    const t0 = Date.now()
+    try {
+      // same tessdata cache as the shared engine
+      const cachePath = path.join(app.getPath('userData'), 'tessdata')
+      fs.mkdirSync(cachePath, { recursive: true })
+      const t = (await import('tesseract.js')) as unknown as { createWorker?: CreateWorker; default?: { createWorker?: CreateWorker } }
+      const create = t.createWorker ?? t.default?.createWorker
+      if (!create) throw new Error('tesseract.js missing createWorker')
+      const w = await create('eng', 1, { cachePath, gzip: true })
+      await w.setParameters({ ...OCR_PARAMS })
+      worker = w
+      logger.info('other', 'where: ocr worker ready', { ms: Date.now() - t0 })
+      return w
+    } catch (e) {
+      workerFailed = true
+      logger.warn('other', 'where: own ocr worker failed, using shared engine', { error: errText(e) })
+      return null
+    } finally {
+      workerLoading = null
+    }
+  })()
+  return workerLoading
+}
+
 async function ocrZone(img: NativeImage, crop: CropRect, zone: Zone): Promise<string> {
   const cropped = cropImage(img, crop)
   // diagnostics: unscaled crop + its box
@@ -176,7 +220,21 @@ async function ocrZone(img: NativeImage, crop: CropRect, zone: Zone): Promise<st
   } catch (e) {
     logger.debug('other', 'where: crop keep failed', { zone, error: errText(e) })
   }
-  // zone 2's debug text is small: upscale more
+  // zone 1 (map line) keeps the old path until a real map-line crop is benchmarked; the tuned pipeline is zone 2 only
+  const w = zone === 2 ? await whereWorker() : null
+  if (w) {
+    const size = cropped.getSize()
+    const prep = prepForOcr({ data: cropped.toBitmap(), width: size.width, height: size.height }, img.getSize().height)
+    const png = nativeImage.createFromBitmap(Buffer.from(prep.data.buffer, prep.data.byteOffset, prep.data.byteLength), { width: prep.width, height: prep.height }).toPNG()
+    if (zone === 2) lastCrops.zone2Prepped = png
+    const psm = ZONE_PSM[zone]
+    if (workerPsm !== psm) {
+      await w.setParameters({ tessedit_pageseg_mode: psm })
+      workerPsm = psm
+    }
+    return (await w.recognize(png)).data.text ?? ''
+  }
+  // zone 1, or the worker failed: shared engine; zone 2's debug text is small: upscale more
   const png = toUpscaledPng(cropped, zone === 2 ? 3 : 2)
   engine ??= new TesseractEngine()
   const r = await engine.recognize(png)
@@ -617,10 +675,11 @@ export function getWhereDiag(): WhereDiag {
   }
 }
 
-/** diagnostics: last zone 1 / zone 2 crops, unscaled PNG */
+/** diagnostics: last zone 1 / zone 2 crops, unscaled PNG, plus zone 2 as the OCR saw it */
 export function getWhereImages(): { name: string; png: Buffer }[] {
   const out: { name: string; png: Buffer }[] = []
   if (lastCrops.zone1) out.push({ name: 'zone1', png: lastCrops.zone1 })
   if (lastCrops.zone2) out.push({ name: 'zone2', png: lastCrops.zone2 })
+  if (lastCrops.zone2Prepped) out.push({ name: 'zone2-prepped', png: lastCrops.zone2Prepped })
   return out
 }

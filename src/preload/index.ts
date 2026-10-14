@@ -37,6 +37,8 @@ import type { OtherAction } from '@other/otherActions'
 import type { WhereRunResult } from '@other/otherWhere'
 import type { AfkState } from '@other/otherAfk'
 import type { BodiesDoc, LearnedPlaceReport } from '@other/otherBodies'
+import type { MemoryDoc, ProofInput, SeenInput, SetInput } from '@other/otherMemory'
+import type { GameDataReply } from '@other/otherSiteCodes'
 
 type Unsubscribe = () => void
 
@@ -186,6 +188,16 @@ const api = {
   otherBodiesGet: (): Promise<BodiesDoc> => ipcRenderer.invoke(IPC.otherBodiesGet),
   otherLearnedPlace: (p: LearnedPlaceReport): void => ipcRenderer.send(IPC.otherLearnedPlace, p),
   onOtherBodies: (cb: (d: BodiesDoc) => void): Unsubscribe => on(IPC.evtOtherBodies, cb),
+  otherMemoryGet: (): Promise<MemoryDoc> => ipcRenderer.invoke(IPC.otherMemoryGet),
+  otherMemorySeen: (list: SeenInput[]): void => ipcRenderer.send(IPC.otherMemorySeen, list),
+  otherMemoryProof: (p: ProofInput): void => ipcRenderer.send(IPC.otherMemoryProof, p),
+  otherMemorySet: (p: SetInput): Promise<MemoryDoc> => ipcRenderer.invoke(IPC.otherMemorySet, p),
+  otherMemoryForget: (key: string): Promise<MemoryDoc> => ipcRenderer.invoke(IPC.otherMemoryForget, key),
+  otherMemoryUndo: (index: number): Promise<MemoryDoc> => ipcRenderer.invoke(IPC.otherMemoryUndo, index),
+  onOtherMemory: (cb: (d: MemoryDoc) => void): Unsubscribe => on(IPC.evtOtherMemory, cb),
+  otherGameDataGet: (): Promise<GameDataReply> => ipcRenderer.invoke(IPC.otherGameDataGet),
+  otherGameDataUpdate: (): Promise<GameDataReply> => ipcRenderer.invoke(IPC.otherGameDataUpdate),
+  onOtherGameData: (cb: (d: GameDataReply) => void): Unsubscribe => on(IPC.evtOtherGameData, cb),
   onObjective: (cb: (e: ObjectiveEvent) => void): Unsubscribe => on(IPC.evtObjective, cb),
   onContractEnded: (cb: (e: ContractEndedEvent) => void): Unsubscribe =>
     on(IPC.evtContractEnded, cb),

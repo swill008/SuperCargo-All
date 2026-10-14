@@ -401,6 +401,85 @@ match-j82-dropoff-site match-j74-marker match-lookalike-other-body match-two-equ
 - Address hints come only from "... on <body>" style text.
 - Rows marked `expect: null` in the case table (answers that the exports can't decide) are reported, not tested.
 
+## Match memory (batch 8)
+
+Rules 42-49 in [STANDALONE.md](../src/other/STANDALONE.md#match-memory-batch-8-user-2026-10-14); files in
+[SYSTEM-MAP.md](SYSTEM-MAP.md#other-mode-match-memory-batch-8-2026-10-14). What was wrong: the resolver had no memory.
+A stop it couldn't decide ("Shubin Mining Facility on Lyria": SAL-2 or SAL-5) stayed "? not sure" in every job, the
+user had no way to say which place was meant, and the game's own Objective Complete (which proves you were at the
+stop) was not used to check the answer.
+
+| # | Case | Expected | Test |
+|---|---|---|---|
+| M1 | "Shubin Mining Facility on Lyria" is "? not sure"; click the tag, ✗ Wrong, pick SAL-2 | "✓ you set" with a distance, confidence 10, a `user` entry and a `set` change in `other-matches.json`; still set after a restart | `memory-wrong-pick` |
+| M2 | Undo the set in Settings → LEARNED PLACES | back to "? not sure"; the entry is no longer the user's; an `undo` change is logged | `memory-undo` |
+| M3 | A display-info read at Covalex S1DC06, then Objective Complete for "Covalex Distribution Center S1DCO06 on Hurston"; twice (two jobs) | `confirmed` 1, then 2 (two `proof` changes by the game); a third job's stop is "✓ learned" with "learned: game confirmed ×2" | `memory-proof-learned` |
+| M4 | The user sets SAL-2; two completions of that stop while the reads place you at Covalex S1DC06 (Hurston) | `wrong` 2, `disputed`; SAL-2 still wins (status user, confidence 6); "⚠ the game disagrees" and "you were at Covalex Distribution Centre S1DC06" | `memory-disputed` |
+| M5 | Export diagnostics after a set | `## MATCH MEMORY` with the entry (text, SAL-2, user) and the `set` change; no player handle | `memory-diag-section` |
+| M6 | Every `otherMemory` function: caps (500, user entries kept, 50 changes), undo of set / forget / proof, disputed rule, learned thresholds | as rules 42-49 | `memory_checks.mjs` |
+
+Run only these app scenarios (after `npm run build`): `node test/replay/replay.mjs memory-wrong-pick memory-undo
+memory-proof-learned memory-disputed memory-diag-section`. Pure checks: `node test/replay/memory_checks.mjs`.
+
+**Known limits.**
+- No proof without a position read within 10 minutes of the completion (accuracy 7+); the inventory clue proves only by name.
+- Exact matches are not remembered, so the list only holds the stops that needed a decision.
+- A place you set stays yours even when the game disagrees; it is flagged, not changed (rule 47).
+
+## Data sources, OCR typo matching, OCR tune-up (batch 8 addendum 2)
+
+Rules 50-56 in [STANDALONE.md](../src/other/STANDALONE.md#data-sources-ocr-typo-matching-ocr-tune-up-batch-8-addendum-2-user-2026-10-14);
+files in [SYSTEM-MAP.md](SYSTEM-MAP.md#other-mode-data-sources-ocr-typo-matching-ocr-tune-up-batch-8-addendum-2-2026-10-14).
+What was wrong: the roster silently mixed UEX with the bundled starmap file, with no way to see or switch off what the
+starmap added (user: "If we use other data sources than UEX, I need the ability to select or deselect them"). OCR
+misreads one glyph off ("rn" for "m", "5" for "S" in a code) were "✗ not found". WHERE AM I shared the upstream OCR
+engine (page mode 3, fixed 3× upscale), about 5 s per zone 2 read.
+
+| # | Case | Expected | Test |
+|---|---|---|---|
+| S1 | J82 pickup "Covalex Distribution Center S1DCO06 on Hurston", read at Covalex S1DC06, starmap on | "≈ corrected" to Covalex Distribution Centre S1DC06 (a starmap-only place), ~0.3 km; evidence "· from starmap data" | `sources-starmap-off` |
+| S2 | Settings → DATA SOURCES | UEX row with counts, "base list", no switch; starmap row "adds N places, fills coordinates for M" | `sources-starmap-off` |
+| S3 | Switch the starmap off | the Centre place is gone; the stop is still listed with no distance (never the drop-off marker's 4 km); SNAPSHOT shows the source off; setting saved | `sources-starmap-off` |
+| S4 | Switch it on again | back to "≈ corrected", ~0.3 km | `sources-starmap-off` |
+| S5 | `mergeLocations` on/off | starmap-only places gone, starmap-filled coordinates stripped, UEX coordinates kept | `sources_checks.mjs` |
+| T1 | "CRU-L1 Ambitious Drearn Station" (rn for m) | "≈ corrected" to CRU-L1 Ambitious Dream Station with a distance, in the overlay, Next and `## MATCHES` | `typo-close-spelling` |
+| T2 | The case table's OCR misreads (CRU-LS5 Beautiful Glen Station, ARC-L dern Express Station, Deak Outpost on Yela, August Dunlow Sg Orison. Quy port in) | the right place or not placed; never a wrong place | `typo-close-spelling`, `resolve_checks.mjs` |
+| T3 | "Covalex Distribution Center S4DC05 on Hurston" | never Covalex S1DC06 (code words must fold equal) | `typo-close-spelling`, `resolve_checks.mjs` |
+| O1 | Real zone 2 crop at 5120×2160 | new pipeline (prep + page mode 6 + Sauvola) reads more fields in less time: old 26.5 s, 20/26 fields; new 13.4 s, 21/26. Global Otsu was dropped: it lost text over bright sky and glare. Zone 1 keeps the old path until a map-line crop is benchmarked | `ocr_bench.mjs` |
+| B1 | UEX "Covalex Distribution Center S4DC05" has coordinates but no body; the starmap's "…Centre S4DC05" is on microTech | the UEX place takes microTech (same place, Center/Centre, within 1 km), so "on <Body>" can be checked | `sources_checks.mjs` |
+
+Run only these app scenarios (after `npm run build`): `node test/replay/replay.mjs sources-starmap-off typo-close-spelling`.
+Pure checks: `node test/replay/sources_checks.mjs`, `node test/replay/resolve_checks.mjs`; OCR bench: `node test/replay/ocr_bench.mjs`.
+
+**Known limits.**
+- Switching the starmap off removes every place only it knows; their stops show no distance until it is on again.
+- The replay scenarios find the DATA SOURCES switch by the row that names "Starmap"; a renamed row needs the helper updated.
+- `typo-close-spelling` fails if a case-table misread resolves to a different place, which is the point; a row that newly resolves to its right place passes.
+- The DATA SOURCES row is now "Star Citizen Wiki game data (scunpacked-data)" (addendum 3); the replay helper finds it by its "Starmap positions" count line.
+
+## Star Citizen Wiki game data (batch 8 addendum 3)
+
+Rules 57-60 in [STANDALONE.md](../src/other/STANDALONE.md#star-citizen-wiki-game-data-batch-8-addendum-3-user-2026-10-14);
+files in [SYSTEM-MAP.md](SYSTEM-MAP.md#other-mode-star-citizen-wiki-game-data-batch-8-addendum-3-2026-10-14). What was
+missing: the app had no way to tell which place owns a generic site ("Security Compound"), so the contract parent was
+taken on the contract's word alone, and the bundled game data could not be refreshed without a release.
+
+| # | Case | Expected | Test |
+|---|---|---|---|
+| W1 | `DC_Stan_Covalex_S1_S1DC06_FOB` in `trade_locations.json` | site "Security Compound", parent "Covalex Distribution Center S1DC06" in `site-codes.json` | `sitecodes_checks.mjs` |
+| W2 | "Stanton1_DistributionCentre_Covalex_S1DC06" (panel style) and "[DC_…]" in a text | `codeFromText()` finds the code, mapped to the trade style | `sitecodes_checks.mjs` |
+| W3 | Security Compound with the contract parent Covalex S1DC06 | evidence "game data: Covalex … has a Security Compound ✓" (+2); a parent without one −2 | `resolve_checks.mjs` |
+| W4 | "Security Compound [DC_Stan_Covalex_S1_S1DC06_FOB]" | parent from the code exactly, "game code … ✓", confidence 10 | `resolve_checks.mjs` |
+| W5 | Game data switch off | no game-data evidence (the case table runs with an empty site table), no starmap places or coordinates | `resolve_checks.mjs`, `sources_checks.mjs`, `sources-starmap-off` |
+| W6 | UPDATE | downloads both files (timeout, 10 MB cap, shape check) into `userData/game-data/`; DATA SOURCES shows "downloaded" and the date; `## GAME DATA` in the export; on failure the error shows and the old copy stays | manual (network) |
+
+Pure checks: `node test/replay/sitecodes_checks.mjs`, `node test/replay/resolve_checks.mjs`.
+
+**Known limits.**
+- An UPDATE doesn't remove starmap-only places from the earlier positions file until the next REFRESH rebuilds the place list.
+- `data/uex/site-codes.json` is not in the `data/uex` hash sync, so only a release or an UPDATE changes it.
+- Game data is CIG's: fan use with credit to the Star Citizen Wiki, not for resale.
+
 ## Suggested order
 
 1. **Make it green:**

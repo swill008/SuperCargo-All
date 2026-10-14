@@ -398,3 +398,118 @@ Run only the batch 7 app scenarios (after `npm run build`):
 - A generic site with no marker and no place named in the contract shows no distance ('none').
 - Two equal candidates with no marker stay 'unsure' until the game gives a marker.
 - Address hints only come from "... on <body>" style text; a body named elsewhere in the text isn't used.
+
+## Other mode: match memory (batch 8, 2026-10-14)
+
+Rules 42-49 in [STANDALONE.md](../src/other/STANDALONE.md#match-memory-batch-8-user-2026-10-14); audit in
+[OTHER-MODE-AUDIT.md](OTHER-MODE-AUDIT.md#match-memory-batch-8). The resolver (batch 7) now also reads a local memory
+of past matches: what it saw, what the game proved (Objective Complete + a fresh position read) and what the user set.
+
+| File | Owns (batch 8) | Entry points |
+|---|---|---|
+| `src/other/otherMemory.ts` (new, pure) | The memory doc: entries, changes (before/after, last 50), caps (500 entries, user entries kept), proof counting, disputed rule, labels | `memoryKey()`, `lookupMemory()`, `recordSeen()`, `recordProof()`, `setUserPlace()`, `forgetEntry()`, `undoChange()`, `learnedPlace()`, `memoryLabel()`, `emptyMemoryDoc()`; `MEMORY_MAX`, `CHANGES_MAX`, `PROOF_WINDOW_MS`, `PROOF_METERS`; types `MemoryEntry`, `MemoryChange`, `MemoryDoc`, `MemoryWhere`, `MemoryOrigin` |
+| `src/other/main/matchMemory.ts` (new) | `userData/other-matches.json` (atomic write, saves coalesced to 1 per second, doc validation); IPC handlers; broadcast to every window; `## MATCH MEMORY` diagnostics section | registered from `src/other/main/register.ts` |
+| `src/shared/channels.ts`, `src/preload/index.ts` (Other blocks) | `otherMemory:get` / `:seen` / `:proof` / `:set` / `:forget` / `:undo`, `evt:other:memory` | `otherMemoryGet/Seen/Proof/Set/Forget/Undo`, `onOtherMemory` |
+| `src/other/otherResolve.ts` | `ResolveCtx.memory`; statuses `user` ("✓ you set") and `learned` ("✓ learned"); user entry wins outright (10, disputed 6); learned +4, proven wrong −4; `StopPlace.memoryKey` and `memory` | `resolveStopPlace()` |
+| `src/other/otherNext.ts` | `ListOpenStopsOpts.memory` passed into the resolver (also the step distance helpers) | `listOpenStops()` |
+| `src/other/renderer/state/otherMemoryStore.ts` (new) | Renderer copy of the doc; the main-window-only "seen" reporter (debounced 5 s) | `startOtherMemory()`, `memoryDoc()`, `memoryLookup()`, `useMemory()`, `useMemoryLookup()`, `startMemorySeenReporter()` |
+| `src/other/renderer/state/otherJobs.ts` | Game proof on Objective Complete, read before `where` moves to the step (main window only) | the `objective` case |
+| `src/other/renderer/state/otherDiag.ts` | Memory passed to `listOpenStops`; SNAPSHOT memory counts (entries, user, learned, disputed) | |
+| `src/other/renderer/components/MatchTag.tsx`, `MatchFix.tsx` (new), `LearnedPlaces.tsx` (new), `src/other/renderer/settingsBlock.tsx` | Tag as a button opening the fix panel (✓ Right / ✗ Wrong → pick / Forget); LEARNED PLACES table, filter, search, Change / Forget, Recent changes with Undo | `MatchFix`, `LearnedPlaces` |
+| `OtherOverlay.tsx`, `pages/NextPage.tsx`, `pages/JobsParts.tsx` | Pass `memory: useMemoryLookup()` into the resolver | |
+| `test/replay/memory_checks.mjs` (new) | Pure checks of every `otherMemory` function, caps, undo, disputed and learned thresholds | `node test/replay/memory_checks.mjs` |
+| `test/replay/replay.mjs` | Scenarios `memory-wrong-pick`, `memory-undo`, `memory-proof-learned`, `memory-disputed`, `memory-diag-section`; helpers `memLaunch()`, `memRead()`, `memSetVia()`, `uiWrongPick()`, `memFile()`; `MATCH MEMORY` added to the required export sections | see the command below |
+
+**Data flow.**
+
+```
+main window: listOpenStops (debounced 5 s) ─► non-exact stops ─► otherMemory:seen ─► recordSeen ─► other-matches.json
+Objective Complete (main window) ─► prev where (displayinfo/map/inventory, acc >= 7, <= 10 min)
+   ─► resolve the step's place ─► within 1.5 km? ─► otherMemory:proof ─► recordProof (confirmed / wrong + where you were)
+tag click / LEARNED PLACES ─► otherMemory:set / :forget / :undo ─► new doc returned + evt:other:memory to every window
+every window: useMemoryLookup() ─► resolveStopPlace ctx.memory
+   user entry ─► status user (10; disputed 6, "⚠ the game disagrees")   learned entry ─► +4 (status learned if it wins)
+   wrong >= 2 ─► −4   ─► tags, Next, Jobs, overlay ─► SNAPSHOT + ## MATCHES + ## MATCH MEMORY
+```
+
+Run only the batch 8 app scenarios (after `npm run build`):
+`node test/replay/replay.mjs memory-wrong-pick memory-undo memory-proof-learned memory-disputed memory-diag-section`
+
+**Known limits.**
+- Proof needs a position read near the completion (within 10 minutes, accuracy 7+); without one nothing is learned.
+- A stop the resolver gets exactly right is not remembered (exact matches are left out of the log).
+- The memory is per PC (`userData`); it is not shared or exported other than in diagnostics.
+
+## Other mode: data sources, OCR typo matching, OCR tune-up (batch 8 addendum 2, 2026-10-14)
+
+Rules 50-56 in [STANDALONE.md](../src/other/STANDALONE.md#data-sources-ocr-typo-matching-ocr-tune-up-batch-8-addendum-2-user-2026-10-14);
+audit in [OTHER-MODE-AUDIT.md](OTHER-MODE-AUDIT.md#data-sources-ocr-typo-matching-ocr-tune-up-batch-8-addendum-2). No new data
+source: the roster is still UEX plus the bundled starmap file, now tagged by source with a switch for the starmap.
+
+| File | Owns (addendum 2) | Entry points |
+|---|---|---|
+| `src/shared/types.ts` (upstream, re-tie 20) | `Location.source?` and `Location.coordsFrom?` (`'uex' \| 'starmap'`) | |
+| `src/other/main/uex.ts` | Sets the tags: `fillFromPositions` -> `coordsFrom: 'starmap'`, `addStarmapPlaces` -> `source: 'starmap'` | `loadOtherPlaces()`, `refreshOtherPlaces()` |
+| `src/other/workMode.ts` | Setting `otherSourceStarmap` (default on) in `OTHER_SETTING_DEFAULTS` | `otherSetting()` |
+| `src/other/renderer/state/otherPlaces.ts` | Off: drops starmap-only places and strips starmap-filled coordinates (and the body that came with them); `useMergedLocations` re-computes on the setting. Body fill: a place with coordinates but no body takes the body of the same place (same name or Center/Centre spelling) within 1 km | `mergeLocations()`, `useMergedLocations()` |
+| `src/other/renderer/components/DataSources.tsx` (new), `src/other/renderer/settingsBlock.tsx` | Settings → OTHER MODE → DATA SOURCES: one row per source with counts and its switch (UEX: "base list", always on) | `DataSources` |
+| `src/other/renderer/components/LearnedPlaces.tsx` | "(place's source is off)" on entries whose place isn't in the active sources | `LearnedPlaces` |
+| `src/other/renderer/state/otherDiag.ts` | `placeSource` uses the tags; SNAPSHOT shows the enabled sources | |
+| `src/other/otherResolve.ts` | Confusion-folded keys (`corrected` +5); weighted Damerau-Levenshtein "close spelling" (+4 / +3); code words must fold equal; "· from starmap data" on starmap candidates | `resolveStopPlace()`, `placeKey()` |
+| `src/other/main/whereAmI.ts` | Own tesseract.js worker for zone 2 only (page mode 6, interword spaces, Sauvola `thresholding_method` 2); zone 1 keeps the shared engine; falls back to it when the worker won't load; `zone2-prepped` picture in `## IMAGES` | `SC_WHERE_TEXT_FILE` seam unchanged |
+| `src/other/main/ocrPrep.ts` (new, pure JS on the BGRA bitmap) | Grey, invert, scale to ~30 px text (capped ~4 Mpx); `OCR_PARAMS`, `ZONE_PSM`. No global Otsu (it dropped text over bright sky/glare); Tesseract thresholds locally | `prepForOcr()` |
+| `test/replay/sources_checks.mjs` (new) | `mergeLocations` on/off: starmap-only places gone, filled coordinates stripped, UEX coordinates kept | `node test/replay/sources_checks.mjs` |
+| `test/replay/resolve_checks.mjs`, `test/replay/fixtures/stop_cases.json` | A row per typo rule; the OCR-misread rows re-decided (right place or `none`, never a wrong place) | `node test/replay/resolve_checks.mjs` |
+| `test/replay/ocr_bench.mjs` (new) | Old (3×, page mode 3) vs new pipeline on a real zone 2 crop: ms and parsed fields | `node test/replay/ocr_bench.mjs` |
+| `test/replay/replay.mjs` | Scenarios `sources-starmap-off`, `typo-close-spelling`; helpers `sourcesText()`, `sourcesToggle()`, `sourceCounts()`, `J82_PICKUP_STEP` | see the command below |
+
+**Data flow.**
+
+```
+main/uex.ts: UEX places (source uex) ─► fillFromPositions (coordsFrom starmap) ─► addStarmapPlaces (source starmap) ─► getOtherPlaces
+renderer: mergeLocations(haul, places, otherSourceStarmap)
+   off ─► drop source starmap, strip coordsFrom starmap ─► resolver / distances / LEARNED PLACES / SNAPSHOT
+resolver: exact (+6) ─► placeKey equal (+5) ─► confusion-folded equal (+5, corrected) ─► close spelling (+4 / +3, code words must fold equal)
+WHERE AM I zone 2: capture ─► ocrPrep (grey, invert, scale ~30 px) ─► own Tesseract (psm 6, Sauvola) ─► parseDisplayInfo
+WHERE AM I zone 1: capture ─► shared engine as before (until a map-line crop is benchmarked)
+```
+
+Run only the addendum 2 app scenarios (after `npm run build`):
+`node test/replay/replay.mjs sources-starmap-off typo-close-spelling`
+
+**Known limits.**
+- With the starmap off, places only it knows (aid shelters, wrecks, small outposts) and coordinates it filled are gone: those stops show no distance.
+- Close spelling can't tell apart two places whose names differ only by a code word; those stay "? not sure" or "✗ not found".
+- The OCR prep scales from the crop height and the game resolution; a panel font size far from the default needs the calibrator.
+- Bench (`ocr_bench.mjs`, real 5120×2160 zone 2 crop): old 26.5 s, 20/26 fields; new 13.4 s, 21/26.
+
+## Other mode: Star Citizen Wiki game data (batch 8 addendum 3, 2026-10-14)
+
+Rules 57-60 in [STANDALONE.md](../src/other/STANDALONE.md#star-citizen-wiki-game-data-batch-8-addendum-3-user-2026-10-14).
+The scunpacked-data project (Star Citizen Wiki) already fed the bundled starmap positions; its `trade_locations.json` now
+gives the site codes (which place has a Security Compound, Storehouse, …). One switch (`otherSourceStarmap`) covers both.
+
+| File | Owns (addendum 3) | Entry points |
+|---|---|---|
+| `scripts/gen-site-codes.mjs` (new) | Builds `data/uex/site-codes.json` from `trade_locations.json` | `node scripts/gen-site-codes.mjs` |
+| `data/uex/site-codes.json` (new, bundled) | `{ generatedAt, sites: [{ code, name, parentCode?, parentName? }] }` | |
+| `src/other/otherSiteCodes.ts` (new, pure) | Site table lookups and the builders shared by the script and the updater | `siteByCode()`, `sitesNamed()`, `gameDataPlace()`, `parentForCode()`, `tradeCodeForPanel()`, `codeFromText()`, `stripCode()`, `buildSiteCodes()`, `buildStarmapPlaces()`, `normalizeSiteCodesDoc()`, `setSiteCodes()`, `siteCodesDoc()`; types `SiteCode`, `SiteCodesDoc`, `GameDataStatus`, `GameDataReply` |
+| `src/other/main/gameData.ts` (new) | Bundled or `userData/game-data/` copy; UPDATE download (raw.githubusercontent.com, timeout, 10 MB cap, shape check) and rebuild; IPC; `## GAME DATA` | `registerOtherGameDataIpc()`, `getGameDataStatus()`, `getSiteCodes()`, `gameDataPositionsFile()`, `onGameDataUpdated()`, `updateGameData()`; `GAME_DATA_BASE`, `GAME_DATA_CREDIT` |
+| `src/other/main/uex.ts` | Prefers the `userData/game-data/` positions over the bundled file | |
+| `src/other/main/register.ts`, `src/shared/channels.ts`, `src/preload/index.ts` (re-tie 21) | `otherGameData:get` / `:update`, `evt:other:gameData`; `'GAME DATA'` diagnostics section | `otherGameDataGet()`, `otherGameDataUpdate()`, `onOtherGameData()` |
+| `src/other/renderer/state/otherGameDataStore.ts` (new) | Renderer copy of the site table; imported from `otherJobs.ts` so both windows have it | `startGameData()`, `updateGameData()`, `useGameData()` |
+| `src/other/renderer/components/DataSources.tsx` | Row "Star Citizen Wiki game data (scunpacked-data)": counts, bundled/downloaded date, UPDATE, credit, switch | `DataSources` |
+| `src/other/otherResolve.ts` | Generic site at the contract parent: "game data: <parent> has a <site> ✓" +2 / "has no" −2; "[CODE]" -> exact parent ("game code <code> ✓", confidence 10); nothing when the switch is off | `resolveStopPlace()` |
+| `test/replay/sitecodes_checks.mjs` (new) | Pure checks of the site table, code parsing and parents | `node test/replay/sitecodes_checks.mjs` |
+
+**Data flow.**
+
+```
+scunpacked-data trade_locations.json ─► gen-site-codes.mjs ─► data/uex/site-codes.json (bundled)
+UPDATE ─► otherGameData:update ─► download starmap_positions + trade_locations ─► userData/game-data/ ─► evt:other:gameData
+main/gameData ─► otherGameData:get ─► otherGameDataStore (both windows) ─► otherSiteCodes ─► resolver (+2 / −2, [CODE] exact)
+```
+
+**Known limits.**
+- An UPDATE doesn't remove starmap-only places from the earlier positions file until the next REFRESH rebuilds the place list.
+- `data/uex/site-codes.json` is not in the `data/uex` hash sync; it changes only with a release or an UPDATE.
