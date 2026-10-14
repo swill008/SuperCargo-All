@@ -6,6 +6,8 @@
 import type { Location } from '@shared/types'
 import { resolveLogLocation } from '@shared/logLocation'
 import type { ListOrder, OtherJob, OtherStep } from '@other/otherJob'
+import { compareTravel, formatShortDistance, travel, type GeoPoint, type Travel } from './otherGeo'
+import type { Where, WhereSource } from './otherWhere'
 
 export type { ListOrder }
 
@@ -78,27 +80,37 @@ export function snapLocationToUex(raw: string, locations: Location[]): string {
   return trimmed
 }
 
-export function rosterDistance(a?: Location, b?: Location): number | null {
-  if (!a || !b) return null
-  if (a.x == null || a.y == null || a.z == null) return null
-  if (b.x == null || b.y == null || b.z == null) return null
-  return Math.hypot(a.x - b.x, a.y - b.y, a.z - b.z)
+/** a roster place as a travel point (system/body carried); undefined without coords */
+export function locationPoint(l?: Location): GeoPoint | undefined {
+  if (!l || l.x == null || l.y == null || l.z == null) return undefined
+  return { x: l.x, y: l.y, z: l.z, system: l.system ?? null, body: l.body ?? null }
+}
+
+/** travel metres between two roster places (gateways need `locations`); null when unknown or no gateway */
+export function rosterDistance(a?: Location, b?: Location, locations: Location[] = []): number | null {
+  return travel(locationPoint(a), locationPoint(b), locations)?.meters ?? null
 }
 
 type Pos = { x?: number; y?: number; z?: number }
 
 const hasCoords = (p?: Pos): boolean => !!p && p.x != null && p.y != null && p.z != null
 
+/** marker positions are in the zone frame: treated as same system, unknown body (today's handling) */
+const markerPoint = (p: Pos): GeoPoint => ({ x: p.x!, y: p.y!, z: p.z!, system: null, body: null })
+
 /** where a step is: its active place's UEX coords, else (markers on) its marker position */
-function stepPoint(step: OtherStep, locations: Location[], useMarker: boolean): Pos | undefined {
-  const named = findRosterLocation(stepActivePlace(step), locations)
-  if (hasCoords(named)) return named
-  return useMarker && hasCoords(step.position) ? step.position : undefined
+function stepPoint(step: OtherStep, locations: Location[], useMarker: boolean): GeoPoint | undefined {
+  return stepPointWithSource(step, locations, useMarker)?.point
 }
 
-function pointDistance(a?: Pos, b?: Pos): number | null {
-  if (!a || !b || !hasCoords(a) || !hasCoords(b)) return null
-  return Math.hypot(a.x! - b.x!, a.y! - b.y!, a.z! - b.z!)
+/** travel from start to a step's place (marker fallback when markers are on) */
+export function stepTravelFromStart(
+  startName: string,
+  step: OtherStep,
+  locations: Location[],
+  useMarker = true
+): Travel | null {
+  return travel(locationPoint(findRosterLocation(startName, locations)), stepPoint(step, locations, useMarker), locations)
 }
 
 /** distanceFromStart for a step: falls back to its marker position when the place has no UEX coords */
@@ -108,17 +120,23 @@ export function stepDistanceFromStart(
   locations: Location[],
   useMarker = true
 ): number | null {
-  return pointDistance(findRosterLocation(startName, locations), stepPoint(step, locations, useMarker))
+  return stepTravelFromStart(startName, step, locations, useMarker)?.meters ?? null
 }
 
-function compareStepsFrom(start: Location | undefined, locations: Location[], a: OtherStep | undefined, b: OtherStep | undefined, useMarker: boolean): number {
+function compareStepsFrom(start: GeoPoint | undefined, locations: Location[], a: OtherStep | undefined, b: OtherStep | undefined, useMarker: boolean): number {
   if (!start) return 0
-  const da = a ? pointDistance(start, stepPoint(a, locations, useMarker)) : null
-  const db = b ? pointDistance(start, stepPoint(b, locations, useMarker)) : null
-  if (da == null && db == null) return 0
-  if (da == null) return 1
-  if (db == null) return -1
-  return da - db
+  const ta = a ? travel(start, stepPoint(a, locations, useMarker), locations) : null
+  const tb = b ? travel(start, stepPoint(b, locations, useMarker), locations) : null
+  return compareTravel(ta, tb)
+}
+
+/** travel between two named places; null when either is unknown or no gateway joins them */
+export function travelFromStart(startName: string, destName: string, locations: Location[]): Travel | null {
+  return travel(
+    locationPoint(findRosterLocation(startName, locations)),
+    locationPoint(findRosterLocation(destName, locations)),
+    locations
+  )
 }
 
 export function distanceFromStart(
@@ -126,7 +144,7 @@ export function distanceFromStart(
   destName: string,
   locations: Location[]
 ): number | null {
-  return rosterDistance(findRosterLocation(startName, locations), findRosterLocation(destName, locations))
+  return travelFromStart(startName, destName, locations)?.meters ?? null
 }
 
 /** UEX x/y/z are starmap meters. Large ranges: "38 Gm 302 Mm". */
@@ -148,12 +166,7 @@ export function formatMapDistance(meters: number | null): string {
 /** Short form for play: "830 km", "4.7 Mm", "57.9 Gm"; under 1 km in metres. */
 export function formatDistance(m: number | null): string {
   if (m == null || !Number.isFinite(m)) return '\u2014'
-  const km = Math.abs(m) / 1000
-  if (km < 1) return `${Math.round(Math.abs(m))} m`
-  if (Math.round(km) < 1000) return `${Math.round(km)} km`
-  const Mm = km / 1000
-  if (Number(Mm.toFixed(1)) < 1000) return `${Mm.toFixed(1)} Mm`
-  return `${(Mm / 1000).toFixed(1)} Gm`
+  return formatShortDistance(m)
 }
 
 export function compareByDistanceFrom(
@@ -162,23 +175,29 @@ export function compareByDistanceFrom(
   aName: string,
   bName: string
 ): number {
-  const start = findRosterLocation(startName, locations)
+  const start = locationPoint(findRosterLocation(startName, locations))
   if (!start) return 0
-  const da = rosterDistance(start, findRosterLocation(aName, locations))
-  const db = rosterDistance(start, findRosterLocation(bName, locations))
-  if (da == null && db == null) return 0
-  if (da == null) return 1
-  if (db == null) return -1
-  return da - db
+  return compareTravel(
+    travel(start, locationPoint(findRosterLocation(aName, locations)), locations),
+    travel(start, locationPoint(findRosterLocation(bName, locations)), locations)
+  )
 }
 
 export interface OpenStopRow {
   job: OtherJob
   step: OtherStep
-  /** metres from start to this row's place; null when unknown or no start */
+  /** metres from start to this row's place (gateway route across systems); null when unknown or no start */
   distance: number | null
+  /** jump-point crossings from start to this place; set when distance is */
+  jumps?: number
+  /** distance measured over the surface of the body both sit on */
+  surface?: boolean
   /** metres from the previous row's place in this order (start for the first row); null if unknown */
   leg: number | null
+  /** jump-point crossings on the leg; set when leg is */
+  legJumps?: number
+  /** leg measured over a body's surface */
+  legSurface?: boolean
   /** where the place's position came from: UEX roster coords, or the step's marker position */
   distanceSource: 'uex' | 'marker' | null
   /** a start is set but this row's distance can't be computed */
@@ -189,10 +208,10 @@ export interface OpenStopRow {
   pickup: boolean
   /** the step's delivery / location */
   dest: string
-  /** why distance/leg is missing: place has no coords, or no origin to measure from */
-  noDistanceWhy: 'not-in-uex' | 'no-start' | null
+  /** why distance/leg is missing: place has no coords, no origin to measure from, or no gateway joins the systems */
+  noDistanceWhy: 'not-in-uex' | 'no-start' | 'no-gateway' | null
   /** place position used for distance/leg (UEX coords or marker); absent when unknown */
-  point?: { x: number; y: number; z: number }
+  point?: GeoPoint
 }
 
 /** true while the step's next place is a pickup not yet collected */
@@ -207,22 +226,59 @@ export function stepDest(step: OtherStep): string {
 
 const STALE_MS = 5 * 60 * 1000
 
-/** Origin for distances: typed start wins; else the current location when autoStart. */
+const timeOf = (iso?: string | number | null): number =>
+  typeof iso === 'number' ? iso : iso ? Date.parse(iso) : NaN
+
+export interface ResolvedOrigin {
+  /** roster / typed name to measure from; null for open space or nothing set */
+  name: string | null
+  /** what the UI shows */
+  label: string | null
+  /** position to measure from (pass as listOpenStops opts.origin) */
+  point?: GeoPoint
+  kind: WhereSource | null
+  /** a location clue (not typed) older than 5 min */
+  stale: boolean
+}
+
+/**
+ * Origin for distances. fixed: the typed start only. auto: the newer of the typed start (typedAt)
+ * and the latest location clue (where.at); a typed start with no time loses to a clue.
+ */
 export function resolveOrigin(o: {
   typed?: string
-  current?: string | null
-  /** ISO string or epoch ms */
-  currentAt?: string | number | null
-  autoStart: boolean
+  typedAt?: string
+  where?: Where | null
+  mode: 'auto' | 'fixed'
   now?: number
-}): { name: string | null; kind: 'typed' | 'current' | null; stale: boolean } {
+  locations: Location[]
+}): ResolvedOrigin {
+  const none: ResolvedOrigin = { name: null, label: null, kind: null, stale: false }
   const typed = o.typed?.trim()
-  if (typed) return { name: typed, kind: 'typed', stale: false }
-  const cur = o.current?.trim()
-  if (!o.autoStart || !cur) return { name: null, kind: null, stale: false }
-  const t = typeof o.currentAt === 'number' ? o.currentAt : o.currentAt ? Date.parse(o.currentAt) : NaN
+  const fromTyped = (): ResolvedOrigin => {
+    const point = locationPoint(findRosterLocation(typed!, o.locations))
+    return { name: typed!, label: typed!, ...(point ? { point } : {}), kind: 'typed', stale: false }
+  }
+  if (o.mode === 'fixed') return typed ? fromTyped() : none
+  const w = o.where
+  const wName = w?.name?.trim() || null
+  const wUsable = !!w && (!!wName || !!w.point)
+  if (!wUsable) return typed ? fromTyped() : none
+  if (typed) {
+    const tt = timeOf(o.typedAt)
+    const wt = timeOf(w.at)
+    if (Number.isFinite(tt) && (!Number.isFinite(wt) || tt >= wt)) return fromTyped()
+  }
+  const point = w.point ?? (wName ? locationPoint(findRosterLocation(wName, o.locations)) : undefined)
+  const at = timeOf(w.at)
   const now = o.now ?? Date.now()
-  return { name: cur, kind: 'current', stale: Number.isFinite(t) && now - t > STALE_MS }
+  return {
+    name: wName,
+    label: w.label?.trim() || wName,
+    ...(point ? { point } : {}),
+    kind: w.source,
+    stale: w.source !== 'typed' && Number.isFinite(at) && now - at > STALE_MS
+  }
 }
 
 export interface StopGroup {
@@ -230,15 +286,22 @@ export interface StopGroup {
   pickup: boolean
   rows: OpenStopRow[]
   distance: number | null
+  jumps?: number
+  surface?: boolean
   leg: number | null
+  legJumps?: number
+  legSurface?: boolean
   distanceSource: 'uex' | 'marker' | null
   noDistanceWhy: OpenStopRow['noDistanceWhy']
 }
 
 const placeKey = (p: string): string => p.toLowerCase().replace(/\s+/g, ' ').trim()
 
-/** Rows with the same place become one stop at the position of their first row; legs recomputed between stops. */
-export function groupByPlace(rows: OpenStopRow[]): StopGroup[] {
+/**
+ * Rows with the same place become one stop at the position of their first row; legs recomputed between stops.
+ * Pass the roster so cross-system legs (gateways) and surface legs (body centre) can be measured.
+ */
+export function groupByPlace(rows: OpenStopRow[], locations: Location[] = []): StopGroup[] {
   const groups: StopGroup[] = []
   const byKey = new Map<string, StopGroup>()
   const groupOfRow: StopGroup[] = []
@@ -251,6 +314,8 @@ export function groupByPlace(rows: OpenStopRow[]): StopGroup[] {
         pickup: false,
         rows: [],
         distance: r.distance,
+        ...(r.jumps != null ? { jumps: r.jumps } : {}),
+        ...(r.surface ? { surface: true } : {}),
         leg: null,
         distanceSource: r.distanceSource,
         noDistanceWhy: r.noDistanceWhy
@@ -264,29 +329,48 @@ export function groupByPlace(rows: OpenStopRow[]): StopGroup[] {
   }
   groups.forEach((g, i) => {
     const first = g.rows[0]
+    const setLeg = (leg: number | null, jumps?: number, surface?: boolean): void => {
+      g.leg = leg
+      if (leg != null) {
+        g.legJumps = jumps ?? 0
+        if (surface) g.legSurface = true
+      }
+    }
     if (i === 0) {
-      g.leg = first.distance
+      setLeg(first.distance, first.jumps, first.surface)
     } else {
       const prev = groups[i - 1].rows[0]
-      const d = pointDistance(prev.point, first.point)
-      if (d != null) g.leg = d
+      const t = travel(prev.point, first.point, locations)
+      if (t) setLeg(t.meters, t.jumps, t.surface)
       else {
-        // no points carried: the original leg is right only when the row before it was in the previous stop
+        // not measurable here: the original leg is right only when the row before it was in the previous stop
         const at = rows.indexOf(first)
-        g.leg = at > 0 && groupOfRow[at - 1] === groups[i - 1] ? first.leg : null
+        if (at > 0 && groupOfRow[at - 1] === groups[i - 1]) setLeg(first.leg, first.legJumps, first.legSurface)
+        else setLeg(null)
       }
     }
     g.noDistanceWhy =
-      first.noDistanceWhy === 'not-in-uex' ? 'not-in-uex' : g.distance == null && g.leg == null ? 'no-start' : null
+      first.noDistanceWhy === 'not-in-uex' || first.noDistanceWhy === 'no-gateway'
+        ? first.noDistanceWhy
+        : g.distance == null && g.leg == null
+          ? 'no-start'
+          : null
   })
   return groups
 }
 
-/** Stops left from fromIndex (inclusive) and the sum of their legs (the leg into fromIndex included); null when any is unknown. */
-export function remainingRoute(groups: StopGroup[], fromIndex: number): { stops: number; distance: number | null } {
+/**
+ * Stops left from fromIndex (inclusive), the sum of their legs (the leg into fromIndex included; null when any
+ * is unknown) and the jumps on those legs.
+ */
+export function remainingRoute(
+  groups: StopGroup[],
+  fromIndex: number
+): { stops: number; distance: number | null; jumps: number } {
   const from = Math.max(0, fromIndex)
   const stops = Math.max(0, groups.length - from)
   let distance: number | null = 0
+  let jumps = 0
   for (let i = from; i < groups.length; i++) {
     const leg = groups[i].leg
     if (leg == null) {
@@ -294,8 +378,9 @@ export function remainingRoute(groups: StopGroup[], fromIndex: number): { stops:
       break
     }
     distance += leg
+    jumps += groups[i].legJumps ?? 0
   }
-  return { stops, distance }
+  return { stops, distance, jumps }
 }
 
 /** Place the list should sort / show for this step's current phase. */
@@ -321,6 +406,8 @@ export type ListOpenStopsOpts = {
   withdrawnSteps?: 'grey' | 'hide'
   /** settings.otherMarkerDistance: sort steps with no UEX place by their marker position. Default true. */
   markerDistance?: boolean
+  /** measure from this point (resolveOrigin().point) instead of looking up startLocation */
+  origin?: GeoPoint
 }
 
 /** first open step that the game has not withdrawn; withdrawn steps are never "next" */
@@ -350,14 +437,13 @@ function sortStep(job: OtherJob, hideCompleted: boolean, hideWithdrawn: boolean)
 
 function sortJobsByFirstStep(
   jobs: OtherJob[],
-  startLocation: string,
+  start: GeoPoint | undefined,
   locations: Location[],
   hideCompleted: boolean,
   hideWithdrawn: boolean,
   useMarker: boolean
 ): OtherJob[] {
-  if (!startLocation.trim()) return jobs
-  const start = findRosterLocation(startLocation, locations)
+  if (!start) return jobs
   return [...jobs].sort((a, b) =>
     compareStepsFrom(start, locations, sortStep(a, hideCompleted, hideWithdrawn), sortStep(b, hideCompleted, hideWithdrawn), useMarker)
   )
@@ -370,32 +456,33 @@ function stepPointWithSource(
   step: OtherStep,
   locations: Location[],
   useMarker: boolean
-): { point: Pos; source: 'uex' | 'marker' } | undefined {
-  const named = findRosterLocation(stepActivePlace(step), locations)
-  if (hasCoords(named)) return { point: named!, source: 'uex' }
-  if (useMarker && hasCoords(step.position)) return { point: step.position!, source: 'marker' }
+): { point: GeoPoint; source: 'uex' | 'marker' } | undefined {
+  const named = locationPoint(findRosterLocation(stepActivePlace(step), locations))
+  if (named) return { point: named, source: 'uex' }
+  if (useMarker && hasCoords(step.position)) return { point: markerPoint(step.position!), source: 'marker' }
   return undefined
 }
 
 type Placed = BaseRow & {
-  point?: Pos
+  point?: GeoPoint
   source?: 'uex' | 'marker'
+  travel: Travel | null
   distance: number | null
   distanceSource: 'uex' | 'marker' | null
 }
 
-/** greedy nearest-neighbour from start over rows with a known point; ties keep input order */
-function routeOrder(rows: Placed[], start: Pos): Placed[] {
+/** greedy nearest-neighbour (fewest jumps, then shortest) from start over rows with a known point; ties keep input order */
+function routeOrder(rows: Placed[], start: GeoPoint, locations: Location[]): Placed[] {
   const left = rows.slice()
   const out: Placed[] = []
   let cur = start
   while (left.length) {
     let best = 0
-    let bestD = Infinity
+    let bestT: Travel | null = null
     for (let i = 0; i < left.length; i++) {
-      const d = pointDistance(cur, left[i].point)!
-      if (d < bestD) {
-        bestD = d
+      const t = travel(cur, left[i].point, locations)
+      if (t && compareTravel(t, bestT) < 0) {
+        bestT = t
         best = i
       }
     }
@@ -415,46 +502,63 @@ export function listOpenStops(
 ): OpenStopRow[] {
   const listOrder: ListOrder = opts?.listOrder ?? 'distance'
   const useMarker = opts?.markerDistance !== false
-  const hasStart = !!startLocation.trim()
-  const startLoc = hasStart ? findRosterLocation(startLocation, locations) : undefined
-  const start: Pos | undefined = hasCoords(startLoc) ? startLoc : undefined
+  const origin = opts?.origin && hasCoords(opts.origin) ? opts.origin : undefined
+  const hasStart = !!origin || !!startLocation.trim()
+  const start: GeoPoint | undefined =
+    origin ?? (startLocation.trim() ? locationPoint(findRosterLocation(startLocation, locations)) : undefined)
 
   // route chains from the log order, not the distance sort
-  const base = baseOpenStops(jobs, startLocation, locations, opts, listOrder === 'route' ? 'manual-free' : listOrder)
+  const base = baseOpenStops(jobs, start, locations, opts, listOrder === 'route' ? 'manual-free' : listOrder)
   const placed: Placed[] = base.map((r) => {
     const hit = stepPointWithSource(r.step, locations, useMarker)
-    const distance = hit && start ? pointDistance(start, hit.point) : null
-    return { ...r, point: hit?.point, source: hit?.source, distance, distanceSource: distance == null ? null : hit!.source }
+    const t = hit && start ? travel(start, hit.point, locations) : null
+    return {
+      ...r,
+      point: hit?.point,
+      source: hit?.source,
+      travel: t,
+      distance: t?.meters ?? null,
+      distanceSource: t ? hit!.source : null
+    }
   })
 
   let ordered: Placed[] = placed
   if (hasStart && listOrder !== 'manual') {
-    const known = placed.filter((r) => r.distance != null)
-    const unknown = placed.filter((r) => r.distance == null)
-    ordered = [...(listOrder === 'route' && start ? routeOrder(known, start) : known), ...unknown]
+    const known = placed.filter((r) => r.travel != null)
+    const unknown = placed.filter((r) => r.travel == null)
+    // distance: baseOpenStops already sorted by compareTravel (jumps, then metres)
+    ordered = [...(listOrder === 'route' && start ? routeOrder(known, start, locations) : known), ...unknown]
   }
 
-  let prev: Pos | undefined = start
+  let prev: GeoPoint | undefined = start
   return ordered.map((r) => {
-    const leg = prev && r.point ? pointDistance(prev, r.point) : null
+    const legT = prev && r.point ? travel(prev, r.point, locations) : null
+    const hadPrev = !!prev
     prev = r.point
+    const leg = legT?.meters ?? null
     const noDistanceWhy: OpenStopRow['noDistanceWhy'] = !r.point
       ? 'not-in-uex'
-      : !start && leg == null
-        ? 'no-start'
-        : null
+      : start && !r.travel
+        ? 'no-gateway'
+        : !start && leg == null
+          ? hadPrev
+            ? 'no-gateway'
+            : 'no-start'
+          : null
     return {
       job: r.job,
       step: r.step,
       distance: r.distance,
+      ...(r.travel ? { jumps: r.travel.jumps, ...(r.travel.surface ? { surface: true } : {}) } : {}),
       leg,
+      ...(legT ? { legJumps: legT.jumps, ...(legT.surface ? { legSurface: true } : {}) } : {}),
       distanceSource: r.distanceSource ?? (leg != null ? r.source ?? null : null),
       noDistance: hasStart && r.distance == null,
       place: stepActivePlace(r.step),
       pickup: stepIsPickup(r.step),
       dest: stepDest(r.step),
       noDistanceWhy,
-      ...(r.point ? { point: { x: r.point.x!, y: r.point.y!, z: r.point.z! } } : {})
+      ...(r.point ? { point: r.point } : {})
     }
   })
 }
@@ -471,10 +575,15 @@ export function routeTotal(rows: OpenStopRow[]): number | null {
   return total
 }
 
+/** Jumps on the legs routeTotal sums. */
+export function routeTotalJumps(rows: OpenStopRow[]): number {
+  return rows.filter((r) => r.distance != null).reduce((a, r) => a + (r.legJumps ?? 0), 0)
+}
+
 /** today's row set and order; 'manual-free' = no manual order and no distance sort (log order) */
 function baseOpenStops(
   jobs: OtherJob[],
-  startLocation: string,
+  start: GeoPoint | undefined,
   locations: Location[],
   opts: ListOpenStopsOpts | undefined,
   mode: 'distance' | 'manual' | 'manual-free'
@@ -494,8 +603,7 @@ function baseOpenStops(
       const step = nextLiveStep(job)
       if (step) rows.push({ job, step })
     }
-    if (manual || unsorted || !startLocation.trim()) return rows
-    const start = findRosterLocation(startLocation, locations)
+    if (manual || unsorted || !start) return rows
     return [...rows].sort((a, b) => compareStepsFrom(start, locations, a.step, b.step, useMarker))
   }
 
@@ -504,7 +612,7 @@ function baseOpenStops(
     ? sortJobsByManualOrder(withSteps, opts?.jobOrder ?? [])
     : unsorted
       ? withSteps
-      : sortJobsByFirstStep(withSteps, startLocation, locations, hideCompleted, hideWithdrawn, useMarker)
+      : sortJobsByFirstStep(withSteps, start, locations, hideCompleted, hideWithdrawn, useMarker)
   const rows: BaseRow[] = []
   for (const job of ordered) {
     for (const step of visibleSteps(job, hideCompleted, hideWithdrawn)) {

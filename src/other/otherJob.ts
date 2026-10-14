@@ -5,6 +5,7 @@
  * box breakdowns, pickups, and a hold pack. Other jobs are a checklist:
  * go to a place, pick up a named item, or turn in a count at one pad.
  */
+import type { Where } from './otherWhere'
 
 export type OtherJobKind = 'delivery' | 'collection' | 'mining' | 'salvage' | 'hauling'
 
@@ -133,10 +134,10 @@ export interface OtherJobsDoc {
   markerZones?: Record<string, Record<string, OtherMarkerZone>>
   /** game build of the newest log session seen, so markers after a restart use the right zones */
   markerBuild?: string
-  /** where the player is, from the newest 'location' log event; null = left the known place */
-  currentLocation?: string | null
-  /** log time (ISO) of that 'location' event */
-  currentLocationAt?: string
+  /** where the player is: the newest location clue (tick, objective, inventory, map, display info); null = unknown */
+  where?: Where | null
+  /** wall-clock ISO time STARTING AT was last typed non-empty; auto start mode uses the newer of it and where.at */
+  startTypedAt?: string
   /** bumped on every save so a window can tell its own save from the other window's */
   rev?: number
 }

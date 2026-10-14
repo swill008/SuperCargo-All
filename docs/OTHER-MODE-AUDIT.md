@@ -126,6 +126,32 @@ changes that sit outside `src/other` but are not in STANDALONE.md:
 The target is about 8 one-line hooks in upstream files: main, preload, App, nav, overlay gate,
 settings, the scanSession guard, and the alias config.
 
+## WHERE AM I and start modes
+
+Added 2026-10-14 after this audit (approved by the user). Files, entry points and data flow are in
+[SYSTEM-MAP.md](SYSTEM-MAP.md#other-mode-where-am-i-and-start-modes-features-2026-10-14); the rules are in
+[STANDALONE.md](../src/other/STANDALONE.md) (rules 9-13).
+
+- **A. Start modes.** `otherStartMode` replaces `otherAutoStart` (no compatibility: unreleased fork). **auto**: the newer of the typed start (`startTypedAt`) and the latest clue (`where.at`) wins. **fixed**: the typed start only. The AUTO / FIXED toggle replaces AUTO / PINNED.
+- **B. Clues** (each sets `where` with its source, newest wins in auto): `tick` (DONE / GO HERE / TURN IN, the step's place before the tick), `objective` (log Objective Complete), `inventory` (RequestLocationInventory / Update Inventory Location; see `otherCurrentLocation.ts` for the 36/36 log check), `map`, `displayinfo`, plus `typed`. The UI shows the source.
+  - **B4 quantum / ATC: dropped.** Quantum and ATC lines in the logs name no destination or current place, so they cannot set a position.
+- **C. WHERE AM I.** Hotkey `otherWhereHotkey` (default CommandOrControl+Shift+L) and one button on the overlay card's start line. One screenshot, two zones: zone 2 (r_DisplayInfo text, upper right) first when `otherWhereUseZone2`, zone 1 (map bottom line) as fallback. Failure: "couldn't read the map, try again".
+- **D. Multi-system and surface.** Distances go through gateways ("+ 1 jump") and sort by jumps, then metres. Gateways are roster places named `<Other> Gateway` in the system they sit in (Stanton, Pyro, Nyx; Terra and Magnus ignored); each system's coordinates have its own star at the origin. Two points on the same body are measured over the surface ("≈490 km surface").
+
+**Map bottom line** (checked against the user's screenshots): `SYSTEM [SYSTEM] > [BODY] > [PLACE] > lat° lon° distGM`, e.g.
+`STANTON SYSTEM > 0.00° 1.06° 12.47GM`, `STANTON > HURSTON > 0.00° 0.00° 12.85GM`.
+- Star frame: x = r·cosLat·cosLon, y = r·cosLat·sinLon, z = r·sinLat.
+- Accuracy about ±5-10 Mm (distance truncated to 0.01 Gm). On a planet or moon it is the body centre. `0.00° / 0.00°` is ignored as a position.
+- The most specific name wins (place, then body); coordinates only cross-check it (a gap over 50 Mm goes to a debug log).
+
+**r_DisplayInfo 3** (upper right):
+- `CamPos Planet Zone: x y z` is metres in the body's own frame, which turns with the body and matches the roster's surface coordinates. On Hurston, body centre + this vector lands 22.8 km from HDRSO-Stott; the game showed 22.82 km.
+- `Zone: SolarSystem_… Pos: x y z` is km in the star frame, but rotated by the body's spin, so it must not be used for surface places.
+- `Planet:OOC_Stanton_1_Hurston` names the body; `Current player location : Stanton1` / `StantonSolarSystem` the system; `Radius`, `Altitude` in metres.
+- Rule: altitude under 100 km → body centre + planet vector; otherwise the solar position. Name = nearest roster place within 50 km on a body or 100 km in space, else none. Labels: "HDRSO-Stott · 22.8 km", "Open space · 443,380 km from Hurston".
+
+**Known limits.** Zone 2 needs `r_DisplayInfo 3` and recalibration after a resolution change; surface data is a fixed snapshot in the body frame; the map on a planet gives only the body centre; `0°/0°` is ignored.
+
 ## Suggested order
 
 1. **Make it green:**

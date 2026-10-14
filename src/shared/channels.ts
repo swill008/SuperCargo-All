@@ -69,6 +69,10 @@ export const IPC = {
   otherAction: 'otherJobs:action', // overlay -> main (send), one OtherAction
   evtOtherAction: 'evt:other:action', // main -> main window only, relayed OtherAction
   otherJobsScanEvents: 'otherJobs:scanEvents',
+  otherWhereRun: 'otherWhere:run', // WHERE AM I: capture + read, result also broadcast on evtOtherWhere
+  otherWhereCalPreview: 'otherWhere:calPreview', // fresh screenshot data URL for the zone calibrator
+  otherWhereCalTest: 'otherWhere:calTest', // read one zone (1 | 2), not broadcast
+  evtOtherWhere: 'evt:other:where', // main -> all windows, one WhereRunResult
   evtObjective: 'evt:objective',
   evtContractEnded: 'evt:contract:ended',
   evtContractPaid: 'evt:contract:paid',

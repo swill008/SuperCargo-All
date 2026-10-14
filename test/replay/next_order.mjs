@@ -49,6 +49,18 @@ esbuild.buildSync({
   alias: { '@shared': path.join(root, 'src/shared'), '@other': path.join(root, 'src/other') }
 })
 const S = await import(pathToFileURL(snapFile).href)
+const geoFile = path.join(tmp, 'otherGeo.mjs')
+esbuild.buildSync({
+  entryPoints: [path.join(root, 'src/other/otherGeo.ts')],
+  bundle: true,
+  platform: 'node',
+  format: 'esm',
+  outfile: geoFile,
+  logLevel: 'error',
+  tsconfig: path.join(root, 'tsconfig.node.json'),
+  alias: { '@shared': path.join(root, 'src/shared'), '@other': path.join(root, 'src/other') }
+})
+const G = await import(pathToFileURL(geoFile).href)
 
 const locations = JSON.parse(fs.readFileSync(path.join(root, 'data/uex/locations.json'), 'utf8')).locations
 const byName = (n) => locations.find((l) => l.name === n)
@@ -230,20 +242,107 @@ safe('resolveOrigin', () => {
   if (!has('resolveOrigin', 'resolveOrigin')) return
   const now = Date.parse('2026-10-14T12:00:00Z')
   const min = 60000
-  const typed = N.resolveOrigin({ typed: 'Port Tressler', current: 'Everus Harbor', currentAt: now - min, autoStart: true, now })
-  check('resolveOrigin', 'typed start wins over current', typed?.name === 'Port Tressler' && typed?.kind === 'typed', JSON.stringify(typed))
-  const cur = N.resolveOrigin({ typed: '', current: 'Everus Harbor', currentAt: now - 4 * min, autoStart: true, now })
-  check('resolveOrigin', 'no typed + auto -> current, not stale at 4 min', cur?.name === 'Everus Harbor' && cur?.kind === 'current' && cur?.stale === false, JSON.stringify(cur))
-  const old = N.resolveOrigin({ typed: '', current: 'Everus Harbor', currentAt: now - 6 * min, autoStart: true, now })
-  check('resolveOrigin', 'current older than 5 min is stale', old?.name === 'Everus Harbor' && old?.stale === true, JSON.stringify(old))
-  const off = N.resolveOrigin({ typed: '', current: 'Everus Harbor', currentAt: now - min, autoStart: false, now })
-  check('resolveOrigin', 'auto start off ignores current', !off?.name && off?.kind !== 'current', JSON.stringify(off))
-  const none = N.resolveOrigin({ typed: '  ', current: null, currentAt: null, autoStart: true, now })
-  check('resolveOrigin', 'nothing set -> no name', !none?.name && none?.stale !== true, JSON.stringify(none))
-  const iso = N.resolveOrigin({ typed: '', current: 'Everus Harbor', currentAt: new Date(now - 6 * min).toISOString(), autoStart: true, now })
-  check('resolveOrigin', 'currentAt as ISO string also goes stale', iso?.stale === true, JSON.stringify(iso))
-  const typedOld = N.resolveOrigin({ typed: 'Port Tressler', current: 'Everus Harbor', currentAt: now - 60 * min, autoStart: true, now })
-  check('resolveOrigin', 'typed start is never stale', typedOld?.stale === false, JSON.stringify(typedOld))
+  const iso = (ms) => new Date(ms).toISOString()
+  const where = (name, ago, source = 'inventory') => ({ name, label: name, system: 'stanton', body: null, source, at: iso(now - ago) })
+  const R = (o) => N.resolveOrigin({ locations, now, ...o })
+  const show = (r) => JSON.stringify({ name: r?.name, kind: r?.kind, stale: r?.stale, point: !!r?.point })
+
+  const newerWhere = R({ typed: 'Port Tressler', typedAt: iso(now - 10 * min), where: where('Everus Harbor', 2 * min), mode: 'auto' })
+  check('resolveOrigin', 'auto: newer clue beats older typed start', newerWhere.name === 'Everus Harbor' && newerWhere.kind === 'inventory', show(newerWhere))
+  check('resolveOrigin', 'auto: clue place gets a roster point', near(newerWhere.point?.x, byName('Everus Harbor').x) && newerWhere.point?.system === 'stanton', show(newerWhere))
+  const newerTyped = R({ typed: 'Port Tressler', typedAt: iso(now - min), where: where('Everus Harbor', 2 * min), mode: 'auto' })
+  check('resolveOrigin', 'auto: newer typed start beats older clue', newerTyped.name === 'Port Tressler' && newerTyped.kind === 'typed', show(newerTyped))
+  check('resolveOrigin', 'typed start gets a roster point', near(newerTyped.point?.x, byName('Port Tressler').x), show(newerTyped))
+  const onlyTyped = R({ typed: 'Port Tressler', typedAt: iso(now - 60 * min), where: null, mode: 'auto' })
+  check('resolveOrigin', 'auto: typed only -> typed, never stale', onlyTyped.name === 'Port Tressler' && onlyTyped.stale === false, show(onlyTyped))
+  const fresh = R({ typed: '', where: where('Everus Harbor', 4 * min, 'tick'), mode: 'auto' })
+  check('resolveOrigin', 'auto: clue at 4 min not stale, kind = source', fresh.name === 'Everus Harbor' && fresh.kind === 'tick' && fresh.stale === false, show(fresh))
+  const old = R({ typed: '', where: where('Everus Harbor', 6 * min, 'map'), mode: 'auto' })
+  check('resolveOrigin', 'auto: clue older than 5 min is stale', old.name === 'Everus Harbor' && old.stale === true, show(old))
+  const fixed = R({ typed: 'Port Tressler', typedAt: iso(now - 60 * min), where: where('Everus Harbor', min), mode: 'fixed' })
+  check('resolveOrigin', 'fixed: typed start only, newer clue ignored', fixed.name === 'Port Tressler' && fixed.kind === 'typed' && fixed.stale === false, show(fixed))
+  const fixedEmpty = R({ typed: '  ', where: where('Everus Harbor', min), mode: 'fixed' })
+  check('resolveOrigin', 'fixed: empty typed -> no start', fixedEmpty.name === null && fixedEmpty.kind === null && !fixedEmpty.point, show(fixedEmpty))
+  const none = R({ typed: '', where: null, mode: 'auto' })
+  check('resolveOrigin', 'nothing set -> no name', none.name === null && none.kind === null && none.stale === false, show(none))
+  const pt = { x: 1, y: 2, z: 3, system: 'stanton', body: null }
+  const space = R({ where: { name: null, label: 'Open space · 443,380 km from Hurston', point: pt, system: 'stanton', body: null, source: 'displayinfo', at: iso(now - min) }, mode: 'auto' })
+  check('resolveOrigin', 'open-space clue: no name, label + point carried', space.name === null && space.label?.startsWith('Open space') && space.point === pt && space.kind === 'displayinfo', show(space))
+})
+
+// ---- multi-system + surface (2026-10-14) ----
+safe('cross-system', () => {
+  const start = byName(START)
+  const pyro = locations.filter((l) => l.system === 'pyro' && l.x != null && !/gateway/i.test(l.name))
+  pyro.sort((a, b) => dist(start, a) - dist(start, b))
+  const P = pyro[0].name
+  const rawFarthest = Math.max(...PLACES.map((n) => dist(start, byName(n))))
+  check('cross-system', `fixture: ${P} (pyro) is nearer in raw coords than some Stanton stop`, dist(start, pyro[0]) < rawFarthest, `${Math.round(dist(start, pyro[0]) / 1e6)} Mm vs ${Math.round(rawFarthest / 1e6)} Mm`)
+  const mixJobs = [job(30, P), ...PLACES.map((p, i) => job(31 + i, p))]
+  for (const listOrder of ['distance', 'route']) {
+    const rows = N.listOpenStops(mixJobs, START, locations, { listOrder })
+    const name = `cross-system/${listOrder}`
+    const pr = rows.find((r) => placeOf(r) === P)
+    check(name, 'pyro stop has jumps 1', pr?.jumps === 1, `jumps=${pr?.jumps}`)
+    const gwA = byName('Pyro Gateway (Stanton)')
+    const gwB = byName('Stanton Gateway (Pyro)')
+    check(name, 'distance = start -> gateway + exit gateway -> place', near(pr?.distance, dist(start, gwA) + dist(gwB, pyro[0])), `got ${pr?.distance}`)
+    check(name, 'pyro stop sorts after every Stanton stop', placeOf(rows[rows.length - 1]) === P, rows.map(placeOf).join(' > '))
+    check(name, 'Stanton stops have jumps 0', rows.filter((r) => placeOf(r) !== P).every((r) => r.jumps === 0), rows.map((r) => r.jumps).join(','))
+    check(name, 'the leg into the pyro stop is a jump leg', pr?.legJumps === 1, `legJumps=${pr?.legJumps}`)
+    const groups = N.groupByPlace(rows, locations)
+    const left = N.remainingRoute(groups, 0)
+    check(name, 'remainingRoute counts the jump', left.jumps === 1 && left.distance != null, JSON.stringify(left))
+    if (typeof N.routeTotalJumps === 'function') check(name, 'routeTotalJumps = 1', N.routeTotalJumps(rows) === 1, String(N.routeTotalJumps(rows)))
+  }
+  // no gateway in the roster -> no distance, says why
+  const noGw = locations.filter((l) => !/gateway/i.test(l.name))
+  const rows = N.listOpenStops(mixJobs, START, noGw, { listOrder: 'distance' })
+  const pr = rows.find((r) => placeOf(r) === P)
+  check('cross-system', "missing gateway -> distance null, 'no-gateway', last", pr?.distance == null && pr?.noDistanceWhy === 'no-gateway' && pr?.noDistance === true && placeOf(rows[rows.length - 1]) === P, JSON.stringify({ d: pr?.distance, why: pr?.noDistanceWhy }))
+  check('cross-system', 'travel() null without gateways', G.travel(N.locationPoint(start), N.locationPoint(pyro[0]), noGw) === null)
+  // marker positions (zone frame) still measure as same system
+  const mk = { ...job(40, 'Nowhere Gulch Camp 7'), steps: [{ ...job(40, 'Nowhere Gulch Camp 7').steps[0], position: { x: start.x + 1000, y: start.y, z: start.z } }] }
+  const [m] = N.listOpenStops([mk], START, locations, { listOrder: 'distance' })
+  check('cross-system', 'marker step measured, jumps 0', m?.distanceSource === 'marker' && near(m?.distance, 1000) && m?.jumps === 0, JSON.stringify({ d: m?.distance, src: m?.distanceSource, j: m?.jumps }))
+})
+
+const positions = JSON.parse(fs.readFileSync(path.join(root, 'data/uex/other-positions.json'), 'utf8')).places
+safe('surface', () => {
+  const pit = positions.find((p) => p.name === '"The Pit"')
+  const wheel = positions.find((p) => p.name === '"Wheeler\'s"')
+  if (!pit || !wheel) return check('surface', 'fixture places exist', false, 'missing')
+  const chord = dist(pit, wheel)
+  const t = G.travel(pit, wheel, positions)
+  check('surface', 'fixture: chord ~398 km', Math.abs(chord / 1000 - 398) < 2, `${(chord / 1000).toFixed(1)} km`)
+  check('surface', 'same body -> arc ~490 km, surface true', t?.surface === true && t?.jumps === 0 && Math.abs(t.meters / 1000 - 490) < 5, JSON.stringify(t))
+  check('surface', 'arc formats as "≈4xx km surface"', /^≈49\d km surface$/.test(G.formatTravel(t)), G.formatTravel(t))
+  const noCentre = positions.filter((p) => p.name !== 'Lyria')
+  const t2 = G.travel(pit, wheel, noCentre)
+  check('surface', 'body centre unknown -> straight line', t2?.surface === false && near(t2?.meters, chord), JSON.stringify(t2))
+  const lyria = positions.find((p) => p.name === 'Lyria')
+  const above = { ...wheel, x: lyria.x + (wheel.x - lyria.x) * 3, y: lyria.y + (wheel.y - lyria.y) * 3, z: lyria.z + (wheel.z - lyria.z) * 3 }
+  check('surface', 'radii far apart -> straight line', G.travel(pit, above, positions)?.surface === false)
+  // the row path carries it too
+  const [r] = N.listOpenStops([job(50, wheel.name)], '', positions, { listOrder: 'distance', origin: { x: pit.x, y: pit.y, z: pit.z, system: pit.system, body: pit.body } })
+  check('surface', 'listOpenStops origin -> row surface distance', r?.surface === true && near(r?.distance, t?.meters), JSON.stringify({ d: r?.distance, s: r?.surface, why: r?.noDistanceWhy }))
+})
+
+safe('formatTravel', () => {
+  for (const [t, want] of [
+    [null, '—'],
+    [{ meters: 12.3e9, jumps: 0, surface: false }, '12.3 Gm'],
+    [{ meters: 830000, jumps: 0, surface: false }, '830 km'],
+    [{ meters: 490000, jumps: 0, surface: true }, '≈490 km surface'],
+    [{ meters: 38e9, jumps: 1, surface: false }, '38.0 Gm + 1 jump'],
+    [{ meters: 38e9, jumps: 2, surface: false }, '38.0 Gm + 2 jumps']
+  ]) {
+    const got = G.formatTravel(t)
+    check('formatTravel', `${JSON.stringify(t)} -> ${want}`, got === want, `got ${JSON.stringify(got)}`)
+  }
+  const c = [null, { meters: 1, jumps: 1, surface: false }, { meters: 5e9, jumps: 0, surface: false }, { meters: 2, jumps: 0, surface: false }]
+  const sorted = c.slice().sort(G.compareTravel).map((t) => (t ? `${t.jumps}/${t.meters}` : 'null'))
+  check('compareTravel', 'jumps first, then metres, null last', sorted.join(',') === '0/2,0/5000000000,1/1,null', sorted.join(','))
 })
 
 // two jobs pick up at Port Tressler: one stop group there, then the two drop-offs; no 0 km leg

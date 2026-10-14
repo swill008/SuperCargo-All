@@ -1,7 +1,9 @@
 /**
  * Other-only Settings rows. Re-tie: render after haul OCR Capture delay.
  */
-import React from 'react'
+import React, { useEffect, useState } from 'react'
+import { Btn } from '@renderer/components/ui'
+import OtherMapCalibrator from './components/OtherMapCalibrator'
 import { C, F } from '@renderer/theme'
 import { useStore } from '@renderer/state/store'
 import { dlog } from '@renderer/state/log'
@@ -42,7 +44,6 @@ const TOGGLES: { key: BoolKey; label: string; hint: string }[] = [
   { key: 'otherSharedBadge', label: 'Shared badge', hint: 'Mark contracts a party member shared with you.' },
   { key: 'otherSessionSummary', label: 'Session summary', hint: 'Group History by game session with a per-session summary.' },
   { key: 'otherMarkerDistance', label: 'Distance from mission markers', hint: 'For a step with no named place, use its mission marker from the game log for the distance.' },
-  { key: 'otherAutoStart', label: 'Start from where I am', hint: 'Use your current station from the game log when STARTING AT is empty.' },
   { key: 'otherOverlayDistance', label: 'Distances on the overlay', hint: 'Show how far the current and next stop are on the overlay card.' }
 ]
 
@@ -57,6 +58,18 @@ export default function OtherSettingsBlock({
 }): React.ReactElement | null {
   const settings = useStore((s) => s.settings)
   const updateSettings = useStore((s) => s.updateSettings)
+  const whereHotkeySaved = otherSetting(settings, 'otherWhereHotkey')
+  const [whereHotkey, setWhereHotkey] = useState(whereHotkeySaved)
+  const [zonesOpen, setZonesOpen] = useState(false)
+  useEffect(() => setWhereHotkey(whereHotkeySaved), [whereHotkeySaved])
+  useEffect(() => {
+    if (!zonesOpen) return
+    const onKey = (e: KeyboardEvent): void => {
+      if (e.key === 'Escape') setZonesOpen(false)
+    }
+    window.addEventListener('keydown', onKey)
+    return () => window.removeEventListener('keydown', onKey)
+  }, [zonesOpen])
   if (resolveWorkMode(settings.workMode) !== 'other') return null
 
   const set = (patch: Partial<AppSettings>): void => {
@@ -69,6 +82,11 @@ export default function OtherSettingsBlock({
   }
   const withdrawn = otherSetting(settings, 'otherWithdrawnSteps')
   const haulPrompt = otherSetting(settings, 'otherHaulSwitchPrompt')
+  const startMode = otherSetting(settings, 'otherStartMode')
+  const useZone2 = otherSetting(settings, 'otherWhereUseZone2')
+  // ✓ = a box the user placed; otherwise the default box is used
+  const zoneMark = (key: 'otherWhereZone1' | 'otherWhereZone2'): string => (settings[key] ? '\u2713' : 'default')
+  const zoneStatus = `zone 1 ${zoneMark('otherWhereZone1')} \u00b7 zone 2 ${useZone2 ? zoneMark('otherWhereZone2') : 'off'}`
 
   return (
     <>
@@ -91,31 +109,19 @@ export default function OtherSettingsBlock({
           Withdrawn steps
           <span style={hintStyle}>A step the game withdrew: grey it out or hide it.</span>
         </span>
-        <div style={{ display: 'flex', gap: 8 }}>
-          {(['grey', 'hide'] as const).map((v) => {
-            const on = withdrawn === v
-            return (
-              <button
-                key={v}
-                onClick={() => set({ otherWithdrawnSteps: v })}
-                style={{
-                  padding: '6px 14px',
-                  border: `1px solid ${on ? C.accBorder : C.lineStrong}`,
-                  background: on ? C.accFill : 'transparent',
-                  color: on ? C.acc : C.dim,
-                  fontFamily: F.display,
-                  fontSize: 12,
-                  letterSpacing: '0.08em',
-                  cursor: 'pointer'
-                }}
-              >
-                {v.toUpperCase()}
-              </button>
-            )
-          })}
-        </div>
+        {renderChoice(['grey', 'hide'] as const, withdrawn, (v) => set({ otherWithdrawnSteps: v }))}
       </div>
       {TOGGLES.slice(1).map((t) => renderToggle(t))}
+      <div style={rowStyle}>
+        <span style={keyStyle}>
+          Start mode
+          <span style={hintStyle}>
+            AUTO starts from what you type, then follows the newest location clue (ticks, objectives, inventory, WHERE AM I).
+            FIXED always uses what you typed.
+          </span>
+        </span>
+        {renderChoice(['auto', 'fixed'] as const, startMode, (v) => set({ otherStartMode: v }))}
+      </div>
       <div style={rowStyle}>
         <span style={keyStyle}>
           Hide short accept/drop loops
@@ -150,8 +156,129 @@ export default function OtherSettingsBlock({
           <span style={{ fontFamily: F.mono, fontSize: 13, color: C.body }}>SCU min</span>
         </div>
       </div>
+      <div style={sectionStyle}>WHERE AM I (MAP)</div>
+      <div style={rowStyle}>
+        <span style={keyStyle}>
+          Hotkey
+          <span style={hintStyle}>Reads your location from the map screen.</span>
+        </span>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+          <input
+            value={whereHotkey}
+            placeholder="e.g. CommandOrControl+Shift+L"
+            onChange={(e) => setWhereHotkey(e.target.value)}
+            onBlur={() => {
+              if (whereHotkey.trim() !== whereHotkeySaved) set({ otherWhereHotkey: whereHotkey.trim() })
+            }}
+            onKeyDown={(e) => {
+              if (e.key === 'Enter') (e.target as HTMLInputElement).blur()
+            }}
+            style={{
+              flex: 1,
+              background: 'transparent',
+              border: '1px solid rgba(255,255,255,0.16)',
+              color: C.text,
+              fontFamily: F.mono,
+              fontSize: 12,
+              padding: '8px 12px',
+              outline: 'none'
+            }}
+          />
+          <span style={{ fontFamily: F.body, fontSize: 11, color: C.faint, flex: 'none' }}>global, blank to disable</span>
+        </div>
+      </div>
+      <div style={rowStyle}>
+        <span style={keyStyle}>
+          Use zone 2
+          <span style={hintStyle}>r_DisplayInfo text, upper right of the map screen</span>
+        </span>
+        <Toggle on={useZone2} onClick={() => set({ otherWhereUseZone2: !useZone2 })} />
+      </div>
+      <div style={rowStyle}>
+        <span style={keyStyle}>
+          Zones
+          <span style={hintStyle}>Where on the map screen each text is read.</span>
+        </span>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
+          <Btn onClick={() => setZonesOpen(true)} style={choiceStyle(false)} hoverStyle={{ border: `1px solid ${C.acc}`, color: C.text }}>
+            SET UP ZONES
+          </Btn>
+          <span style={{ fontFamily: F.mono, fontSize: 12, color: C.body }}>{zoneStatus}</span>
+        </div>
+      </div>
+      {zonesOpen && (
+        <div
+          style={{
+            position: 'fixed',
+            inset: 0,
+            background: 'rgba(0,0,0,0.78)',
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+            padding: 40,
+            zIndex: 50
+          }}
+        >
+          <div
+            style={{
+              width: 940,
+              maxWidth: '100%',
+              maxHeight: '100%',
+              overflowY: 'auto',
+              background: C.black,
+              border: '1px solid rgba(255,255,255,0.22)',
+              fontFamily: F.body
+            }}
+          >
+            <div
+              style={{
+                display: 'flex',
+                justifyContent: 'space-between',
+                alignItems: 'center',
+                padding: '16px 20px',
+                borderBottom: `1px solid ${C.lineStrong}`
+              }}
+            >
+              <div style={{ fontFamily: F.display, fontSize: 16, letterSpacing: '0.08em', color: C.text }}>
+                WHERE AM I {'\u00b7'} ZONES
+              </div>
+              <Btn onClick={() => setZonesOpen(false)} style={{ ...choiceStyle(false), border: 0 }}>
+                CLOSE
+              </Btn>
+            </div>
+            <div style={{ padding: 20 }}>
+              <OtherMapCalibrator />
+            </div>
+          </div>
+        </div>
+      )}
     </>
   )
+
+  function choiceStyle(on: boolean): React.CSSProperties {
+    return {
+      padding: '6px 14px',
+      border: `1px solid ${on ? C.accBorder : C.lineStrong}`,
+      background: on ? C.accFill : 'transparent',
+      color: on ? C.acc : C.dim,
+      fontFamily: F.display,
+      fontSize: 12,
+      letterSpacing: '0.08em',
+      cursor: 'pointer'
+    }
+  }
+
+  function renderChoice<V extends string>(values: readonly V[], current: V, pick: (v: V) => void): React.ReactElement {
+    return (
+      <div style={{ display: 'flex', gap: 8 }}>
+        {values.map((v) => (
+          <button key={v} onClick={() => pick(v)} style={choiceStyle(current === v)}>
+            {v.toUpperCase()}
+          </button>
+        ))}
+      </div>
+    )
+  }
 
   function renderToggle(t: { key: BoolKey; label: string; hint: string }): React.ReactElement {
     const on = otherSetting(settings, t.key)

@@ -126,3 +126,47 @@ The compact overlay is the same renderer bundle at `#compact`, in a second alway
 | `scripts/train/` | `drain_supabase.mjs` (pulls uploaded samples with the secret key) → `train.py` (CRNN + CTC) → `export_onnx.py`; `auto/` sets up the Windows scheduled tasks; the trained model is deployed by hand to userData/ocr-model |
 | `db/usage_pings.sql`, `db/box_size_reports.sql` | Supabase tables (insert-only RLS) and owner views |
 | `.github/workflows/release-linux.yml` | Tag push → Linux AppImage draft release. Windows releases are built locally. **No CI on PRs or pushes.** |
+
+## Other mode: WHERE AM I and start modes (`features`, 2026-10-14)
+
+Not part of upstream v0.8.3; lives under `src/other/` with the re-tie points listed in
+[STANDALONE.md](../src/other/STANDALONE.md) (rules 9-13 and re-tie points 9-11). Map and display-info
+facts are in [OTHER-MODE-AUDIT.md](OTHER-MODE-AUDIT.md#where-am-i-and-start-modes).
+
+| File | Owns | Entry points |
+|---|---|---|
+| `src/other/otherGeo.ts` | Travel distance between two star-frame points: same system, other system via gateways (`jumps`), or over a body's surface | `travel()`, `compareTravel()`, `formatTravel()`; types `GeoPoint`, `Travel` |
+| `src/other/otherWhere.ts` | The `Where` model and its sources; parsing and resolving the map bottom line and the r_DisplayInfo text against the location roster | `parseMapLine()`, `parseDisplayInfo()`, `resolveMapLine()`, `resolveDisplayInfo()`; types `Where`, `WhereSource`, `MapLine`, `DisplayInfo`, `WhereRunResult` |
+| `src/other/main/whereAmI.ts` | Main side of WHERE AM I: global hotkey, one screen capture, OCR of zone 2 then zone 1, parse/resolve, broadcast; calibration preview and per-zone test; test seam `SC_WHERE_TEXT_FILE` (JSON `{zone1?, zone2?}` used instead of capture + OCR) | `registerOtherWhereHotkey(getSettings)` (re-exported by `main/register.ts`, called from upstream `registerHotkey()`); `registerOtherWhereIpc(getSettings)` (called by `registerOther()`) for IPC `otherWhere:run`, `otherWhere:calPreview`, `otherWhere:calTest`; `runWhere()` (a second run while one is running returns `error: 'busy'`, not broadcast); sends `evt:other:where`; `WHERE_FAIL_MESSAGE`; `getRecentWhereRuns()` for diagnostics |
+| `src/other/renderer/components/OtherMapCalibrator.tsx` | Settings UI (shown in `renderer/settingsBlock.tsx`, Other block) to set the two capture zones (`otherWhereZone1`, `otherWhereZone2`) on a preview grab and test each | `window.supercargo.otherWhereCalPreview()`, `otherWhereCalTest(zone)` |
+| `test/replay/where_checks.mjs` | Parse/resolve checks for `otherWhere.ts`: map bottom lines and r_DisplayInfo 3 blocks transcribed from real screenshots, OCR-noisy variants and garbage, against the roster `data/uex/other-positions.json` | `node test/replay/where_checks.mjs` (bundles with esbuild; no build needed; separate from `run_all.mjs`) |
+
+Settings (`src/other/workMode.ts`, defaults in `OTHER_SETTING_DEFAULTS`): `otherStartMode` ('auto' | 'fixed',
+replaces `otherAutoStart`), `otherWhereHotkey` (CommandOrControl+Shift+L), `otherWhereZone1`, `otherWhereZone2`,
+`otherWhereUseZone2`. Doc fields: `where` (replaces `currentLocation` / `currentLocationAt`), `startTypedAt`.
+
+**Data flow (WHERE AM I).**
+
+```
+hotkey otherWhereHotkey ──┐
+overlay WHERE AM I button ┴─► otherWhere:run ─► main/whereAmI: one capture + Tesseract (or SC_WHERE_TEXT_FILE)
+   ─► OCR zone 2 (if otherWhereUseZone2) ─► parseDisplayInfo ─► resolveDisplayInfo ─┐
+   └► else / fallback OCR zone 1 ─► parseMapLine ─► resolveMapLine ─────────────────┤
+                                                    WhereRunResult {ok, where, zone, raw, ms}
+   ─► evt:other:where to ALL windows
+        main window store: applyWhere(where) ─► doc.where ─► saveOtherJobs ─► jobsChanged
+        overlay: shows the message only, reloads on jobsChanged
+   ─► resolveOrigin({typed, typedAt, where, mode}) ─► listOpenStops(origin) ─► overlay card / Next page
+```
+
+Other clues take the same last step: a tick or a log Objective Complete sets `where` to that step's place;
+inventory log events set or clear it. None of them moves the log watermark (`lastLogEventAt` / `lastLogEventCount`).
+
+**Known limits.**
+- Zone 2 needs `r_DisplayInfo 3` on in game, and both zones need recalibrating after a resolution or UI-scale change.
+- Surface positions use a fixed snapshot of place coordinates in each body's own (turning) frame; the game's solar
+  `Pos` line is rotated by the body's spin and is not used near a body.
+- The map on a planet or moon gives only the body centre (its bottom line has no surface position).
+- Map coordinates `0.00° 0.00°` are ignored as a position (not a real direction; the name is used instead); the
+  distance is truncated to 0.01 Gm, so map positions are good to about 5-10 Mm.
+- Quantum travel and ATC log lines are not used: none names the place.

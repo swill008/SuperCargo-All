@@ -5,16 +5,25 @@
  */
 import type { Location } from '@shared/types'
 import type { ListOrder, OtherHistoryEntry, OtherJob, OtherStep } from '@other/otherJob'
-import { findRosterLocation, listOpenStops, stepActivePlace } from '@other/otherNext'
+import { findRosterLocation, listOpenStops, resolveOrigin, stepActivePlace } from '@other/otherNext'
+import type { GeoPoint } from '@other/otherGeo'
+import type { Where } from '@other/otherWhere'
 import { isRootFrame, isSmallZone, type MarkerPos } from '@other/otherMarkers'
 import { OTHER_SETTING_DEFAULTS, otherSetting, resolveWorkMode } from '@other/workMode'
 import { useStore } from '@renderer/state/store'
-import { useOtherJobs, otherMissionMarkers } from './otherJobs'
+import { useOtherJobs, otherMissionMarkers, otherLastWhereRun } from './otherJobs'
 import { useOtherHistory } from './otherHistory'
 import { mergeLocations } from './otherPlaces'
 
 const hasCoords = (p?: { x?: number; y?: number; z?: number } | null): boolean => !!p && p.x != null && p.y != null && p.z != null
 const round = (n: number | null | undefined): number | null => (n == null || !Number.isFinite(n) ? null : Math.round(n))
+const roundPoint = (p?: GeoPoint): Record<string, unknown> | null =>
+  p ? { x: round(p.x), y: round(p.y), z: round(p.z), system: p.system ?? null, body: p.body ?? null } : null
+
+function compactWhere(w: Where | null): Record<string, unknown> | null {
+  if (!w) return null
+  return { name: w.name, label: w.label, source: w.source, at: w.at, system: w.system, body: w.body, point: roundPoint(w.point) }
+}
 
 function compactStep(s: OtherStep): Record<string, unknown> {
   return {
@@ -59,12 +68,15 @@ function noDistanceWhy(
   step: OtherStep,
   missionId: string | undefined,
   start: Location | undefined,
+  startPoint: GeoPoint | undefined,
   locations: Location[],
   useMarker: boolean,
   zones: Record<string, { bad?: boolean }>
 ): string {
-  if (!start) return 'no start'
-  if (!hasCoords(start)) return 'start not in UEX (no coords)'
+  if (!startPoint) {
+    if (!start) return 'no start'
+    if (!hasCoords(start)) return 'start not in UEX (no coords)'
+  }
   const place = stepActivePlace(step)
   const named = findRosterLocation(place, locations)
   if (named && !hasCoords(named)) return 'place in UEX without coords'
@@ -93,9 +105,10 @@ export function otherDiagSnapshot(): Record<string, unknown> {
     const locations = mergeLocations(useStore.getState().locations)
     const history = useOtherHistory.getState().history
 
-    // same start the Next page uses: typed wins, else the log's current station (otherAutoStart)
-    const autoStart = !s.startLocation.trim() && otherSetting(settings, 'otherAutoStart') && s.currentLocation ? s.currentLocation : null
-    const start = autoStart ?? s.startLocation
+    // same origin the Next page uses (otherStartMode: auto = newer of typed and where, fixed = typed only)
+    const startMode = otherSetting(settings, 'otherStartMode')
+    const origin = resolveOrigin({ typed: s.startLocation, typedAt: s.startTypedAt, where: s.where, mode: startMode, locations })
+    const start = origin.name ?? ''
     const startLoc = start.trim() ? findRosterLocation(start, locations) : undefined
     const useMarker = otherSetting(settings, 'otherMarkerDistance')
     const withdrawn = otherSetting(settings, 'otherWithdrawnSteps')
@@ -114,7 +127,8 @@ export function otherDiagSnapshot(): Record<string, unknown> {
         listOrder: order,
         jobOrder: s.jobOrder,
         markerDistance: useMarker,
-        withdrawnSteps: withdrawn
+        withdrawnSteps: withdrawn,
+        origin: origin.point
       })
       distanceTable[order] = rows.map((r) => {
         const place = stepActivePlace(r.step)
@@ -128,9 +142,13 @@ export function otherDiagSnapshot(): Record<string, unknown> {
           position: r.step.position,
           distance: round(r.distance),
           leg: round(r.leg),
+          jumps: r.jumps,
+          surface: r.surface,
+          legJumps: r.legJumps,
+          legSurface: r.legSurface,
           distanceSource: r.distanceSource,
           noDistance: r.noDistance,
-          why: r.distance == null ? noDistanceWhy(r.step, r.job.missionId, startLoc, locations, useMarker, zones) : undefined
+          why: r.distance == null ? noDistanceWhy(r.step, r.job.missionId, startLoc, origin.point, locations, useMarker, zones) : undefined
         }
       })
     }
@@ -174,8 +192,31 @@ export function otherDiagSnapshot(): Record<string, unknown> {
       markersThisRun: markerCount,
       settings: otherSettings,
       startLocation: s.startLocation,
-      currentLocation: s.currentLocation,
-      start: { used: start, auto: !!autoStart, uex: startLoc ? { name: startLoc.name, coords: hasCoords(startLoc) } : null },
+      startTypedAt: s.startTypedAt,
+      startMode,
+      where: compactWhere(s.where),
+      whereAmI: (() => {
+        const r = otherLastWhereRun()
+        if (!r) return null
+        const clip = (t?: string): string | undefined => (t == null ? undefined : t.slice(0, 600))
+        return {
+          receivedAt: r.receivedAt,
+          ok: r.ok,
+          zone: r.zone,
+          error: r.error,
+          ms: r.ms,
+          where: compactWhere(r.where ?? null),
+          raw: { zone1: clip(r.raw?.zone1), zone2: clip(r.raw?.zone2) }
+        }
+      })(),
+      start: {
+        used: start,
+        label: origin.label,
+        kind: origin.kind,
+        stale: origin.stale,
+        point: roundPoint(origin.point),
+        uex: startLoc ? { name: startLoc.name, coords: hasCoords(startLoc) } : null
+      },
       locations: { count: locations.length, withCoords: locations.filter(hasCoords).length },
       distanceTable
     }

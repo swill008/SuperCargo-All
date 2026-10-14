@@ -70,8 +70,16 @@ declare module '@shared/types' {
     otherHaulSwitchMinScu?: number
     /** distance for steps with no UEX place, from the objective's CreateMarker position */
     otherMarkerDistance?: boolean
-    /** use the player's current station from the log as STARTING AT until one is typed */
-    otherAutoStart?: boolean
+    /** STARTING AT: auto = the newest of the typed start and the latest location clue; fixed = the typed start only */
+    otherStartMode?: 'auto' | 'fixed'
+    /** global hotkey for WHERE AM I (reads the map screen) */
+    otherWhereHotkey?: string
+    /** WHERE AM I zone 1: the map's bottom location line (fractions of the captured screen) */
+    otherWhereZone1?: import('@shared/types').CropRect
+    /** WHERE AM I zone 2: the r_DisplayInfo text, upper right */
+    otherWhereZone2?: import('@shared/types').CropRect
+    /** read zone 2 first; off = zone 1 only */
+    otherWhereUseZone2?: boolean
     /** distances on the overlay card */
     otherOverlayDistance?: boolean
   }
@@ -89,7 +97,11 @@ export const OTHER_SETTING_DEFAULTS = {
   otherHaulSwitchPrompt: true,
   otherHaulSwitchMinScu: 100,
   otherMarkerDistance: true,
-  otherAutoStart: true,
+  otherStartMode: 'auto' as 'auto' | 'fixed',
+  otherWhereHotkey: 'CommandOrControl+Shift+L',
+  otherWhereZone1: { x: 0.15, y: 0.81, w: 0.4, h: 0.06 },
+  otherWhereZone2: { x: 0.78, y: 0, w: 0.22, h: 0.24 },
+  otherWhereUseZone2: true,
   otherOverlayDistance: true
 }
 

@@ -18,7 +18,7 @@ import { prunePending } from './ocr/samples'
 import * as contractData from './contractData'
 import * as telemetry from './telemetry'
 import * as usageStats from './usageStats'
-import { registerOther, routeAccepted } from '@other/main/register'
+import { registerOther, routeAccepted, registerOtherWhereHotkey } from '@other/main/register'
 import { EventEmitter } from 'node:events'
 import * as boxReports from './boxReports'
 import * as crew from './crew'
@@ -514,6 +514,7 @@ function scheduleAutoCapture(targetMissionId?: string): void {
 
 function registerHotkey(): void {
   globalShortcut.unregisterAll()
+  registerOtherWhereHotkey(() => settings)
   const hotkey = settings.ocrHotkey
   if (!hotkey) return
   try {
@@ -772,7 +773,10 @@ function registerIpc(): void {
     ) {
       startWatcher()
     }
-    if (patch.ocrHotkey !== undefined && patch.ocrHotkey !== prev.ocrHotkey) {
+    if (
+      (patch.ocrHotkey !== undefined && patch.ocrHotkey !== prev.ocrHotkey) ||
+      (patch.otherWhereHotkey !== undefined && patch.otherWhereHotkey !== prev.otherWhereHotkey)
+    ) {
       registerHotkey()
     }
     if (

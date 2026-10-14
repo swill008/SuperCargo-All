@@ -3,6 +3,8 @@
  * Re-tie after an upstream pull:
  *   1. registerOther() in app.whenReady, after the single-instance lock
  *   2. routeAccepted() in the Game.log accepted handler (skip Manifest in Other mode)
+ *   3. registerOtherWhereHotkey(getSettings) at the end of registerHotkey() (after its unregisterAll),
+ *      and registerHotkey() again when patch.otherWhereHotkey changes
  */
 import type { BrowserWindow } from 'electron'
 import { IPC } from '@shared/channels'
@@ -14,6 +16,7 @@ import { refreshOtherPlaces } from './uex'
 import type { OtherLogEvent } from '@other/otherEvents'
 import { createTracedOtherParser, createLocationEmitter, currentLocationRoster, lineTime } from './scanLog'
 import { wipeOtherOcrSession, hookOtherOcrSessionQuit } from './ocrSession'
+import { registerOtherWhereIpc, registerOtherWhereHotkey as registerWhereHotkey } from './whereAmI'
 import { loadCachedLocations } from '../../main/uex'
 import { logger } from '../../main/logger'
 
@@ -35,6 +38,7 @@ export function registerOther({ watcher, getSettings, getMainWindow }: RegisterO
   started = true
   registerOtherJobsIpc(getSettings)
   registerOtherActionRelay(getMainWindow)
+  registerOtherWhereIpc(getSettings)
   wipeOtherOcrSession()
   hookOtherOcrSessionQuit()
   void refreshOtherPlaces(loadCachedLocations()?.locations ?? [])
@@ -75,4 +79,9 @@ export function routeAccepted(
   const route = mode === 'other' ? 'other' : isHauling ? 'haul' : 'none'
   logger.info('other', 'route accepted', { id: e.missionId.slice(0, 8), isHauling, workMode: mode, route })
   return route
+}
+
+/** WHERE AM I hotkey; call after upstream registerHotkey()'s globalShortcut.unregisterAll() */
+export function registerOtherWhereHotkey(getSettings: () => AppSettings): void {
+  registerWhereHotkey(getSettings)
 }

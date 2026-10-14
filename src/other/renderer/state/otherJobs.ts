@@ -15,7 +15,9 @@ import {
   type OtherStep
 } from '@other/otherJob'
 import { calibrateZone, resolveMarker, type MarkerPos } from '@other/otherMarkers'
-import { findRosterLocation } from '@other/otherNext'
+import { findRosterLocation, stepActivePlace } from '@other/otherNext'
+import type { Where, WhereRunResult, WhereSource } from '@other/otherWhere'
+import { mergeLocations } from './otherPlaces'
 import type { OtherLogEvent } from '@other/otherEvents'
 import type { OtherAction } from '@other/otherActions'
 import { useStore } from '@renderer/state/store'
@@ -61,10 +63,10 @@ interface OtherJobsState {
   sessionAt?: string
   /** marker zone centres per build (doc field) */
   markerZones: Record<string, Record<string, OtherMarkerZone>>
-  /** where the player is, from 'location' log events (doc field, so the overlay sees it) */
-  currentLocation: string | null
-  /** log time (ISO) of the 'location' event that set currentLocation (doc field) */
-  currentLocationAt?: string
+  /** where the player is: newest location clue (tick, objective, inventory, map, display info); doc field */
+  where: Where | null
+  /** wall-clock ISO time STARTING AT was last typed non-empty (doc field; auto start mode compares it with where.at) */
+  startTypedAt?: string
   /** build of the newest log session (doc field) */
   markerBuild?: string
   /** start-up: last game session crashed and active log jobs were kept (rule 6) */
@@ -89,6 +91,8 @@ interface OtherJobsState {
   restoreJob: (id: string) => void
   completeJob: (id: string) => void
   toggleStep: (jobId: string, stepId: string) => void
+  /** WHERE AM I result: main window applies + saves (newest wins); the overlay ignores it. Never moves the log watermark. */
+  applyWhere: (w: Where) => void
 }
 
 let seq = 0
@@ -220,8 +224,7 @@ interface Draft {
   expandedId: string | null
   markerZones: Record<string, Record<string, OtherMarkerZone>>
   markerBuild?: string
-  currentLocation: string | null
-  currentLocationAt?: string
+  where: Where | null
 }
 
 // latest marker per objective, per mission; this run only (markers come before their objectives)
@@ -310,6 +313,41 @@ function findObjective(d: Draft, missionId: string | undefined, text: string): {
     if (idx >= 0) return { job, idx }
   }
   return null
+}
+
+const whenMs = (iso: string | undefined): number => (iso ? Date.parse(iso) : NaN)
+
+/** newest wins: an incoming clue older than the current where is dropped (scan replays carry older times) */
+function isNewer(cur: Where | null, next: { at: string }): boolean {
+  if (!cur) return true
+  const a = whenMs(cur.at)
+  const b = whenMs(next.at)
+  if (!Number.isFinite(a) || !Number.isFinite(b)) return true
+  return b >= a
+}
+
+/** a Where for a named place; system, body and point from the roster when it knows the place */
+function whereFromPlace(name: string, source: WhereSource, at: string): Where {
+  const loc = findRosterLocation(name, mergeLocations(useStore.getState().locations))
+  const point =
+    loc && loc.x != null && loc.y != null && loc.z != null
+      ? { x: loc.x, y: loc.y, z: loc.z, system: loc.system ?? null, body: loc.body ?? null }
+      : undefined
+  return { name, label: name, system: loc?.system ?? null, body: loc?.body ?? null, source, at, ...(point ? { point } : {}) }
+}
+
+/** set where from a clue when it is not older than the current one; trace either way */
+function takeWhere(cur: Where | null, next: Where, why?: Record<string, unknown>): Where | null {
+  const from = cur ? { name: cur.name, source: cur.source, at: cur.at } : null
+  const to = { name: next.name, source: next.source, at: next.at, roster: !!next.point }
+  if (!isNewer(cur, next)) {
+    decide('where: older clue ignored', undefined, { from, to, ...why })
+    dlog.debug('other', 'where: older clue ignored', { from, to })
+    return cur
+  }
+  decide(`where: ${next.source}`, undefined, { from, to, ...why })
+  dlog.debug('other', 'where set', { from, to })
+  return next
 }
 
 function reduce(d: Draft, e: OtherLogEvent, ctx: Ctx): void {
@@ -497,6 +535,11 @@ function reduce(d: Draft, e: OtherLogEvent, ctx: Ctx): void {
       })
       if (s.done) break
       dlog.info('other', 'step ticked from log', { ref: hit.job.ref, stepKey: stepKey(s) })
+      // B2: the place of the step as it was before the tick
+      {
+        const place = stepActivePlace(s).trim()
+        if (place) d.where = takeWhere(d.where, whereFromPlace(place, 'objective', e.at), { ref: hit.job.ref, step: stepKey(s) })
+      }
       setStep(d, hit.job.id, hit.idx, { done: true, have: s.need, pickedUp: s.pickupLocation ? true : s.pickedUp })
       break
     }
@@ -577,9 +620,13 @@ function reduce(d: Draft, e: OtherLogEvent, ctx: Ctx): void {
       break
 
     case 'location':
-      if (d.currentLocation !== e.name) decide('location', undefined, { from: d.currentLocation, to: e.name })
-      d.currentLocation = e.name
-      d.currentLocationAt = e.at
+      // B3: inventory clue; null (left the known place) clears only an inventory where
+      if (e.name) d.where = takeWhere(d.where, whereFromPlace(e.name, 'inventory', e.at))
+      else if (d.where?.source === 'inventory' && isNewer(d.where, e)) {
+        decide('where: cleared (inventory left place)', undefined, { from: { name: d.where.name, source: d.where.source, at: d.where.at }, to: null })
+        dlog.debug('other', 'where cleared by inventory', { from: d.where.name })
+        d.where = null
+      } else decide('where: inventory left place, kept', undefined, { from: d.where ? { name: d.where.name, source: d.where.source, at: d.where.at } : null })
       break
   }
   // exact watermark: the scan skips the first lastLogEventCount events at lastLogEventAt
@@ -623,8 +670,8 @@ export function buildOtherDoc(): OtherJobsDoc {
     lastLogEventCount: s.lastLogEventCount,
     markerZones: s.markerZones,
     markerBuild: s.markerBuild,
-    currentLocation: s.currentLocation,
-    currentLocationAt: s.currentLocationAt,
+    where: s.where,
+    startTypedAt: s.startTypedAt,
     rev: s.rev
   }
 }
@@ -664,6 +711,11 @@ function sendAction(a: OtherAction): void {
 }
 
 let listenersBound = false
+/** diagnostics: the newest WHERE AM I read this window received (main window only) */
+let lastWhereRun: (WhereRunResult & { receivedAt: string }) | null = null
+export function otherLastWhereRun(): (WhereRunResult & { receivedAt: string }) | null {
+  return lastWhereRun
+}
 /** init's promise, once per window (see init) */
 let initOnce: Promise<void> | null = null
 let jobsChangedBound = false
@@ -683,15 +735,13 @@ export const useOtherJobs = create<OtherJobsState>((set, get) => {
       expandedId: s.expandedId,
       markerZones: s.markerZones,
       markerBuild: s.markerBuild,
-      currentLocation: s.currentLocation,
-      currentLocationAt: s.currentLocationAt
+      where: s.where
     }
     const ctx: Ctx = { live, settings: settingsNow(), accepted: [] }
     for (const e of events) reduce(d, e, ctx)
     if (live) for (const e of events) sampleLatency(e)
     set({
-      currentLocation: d.currentLocation,
-      currentLocationAt: d.currentLocationAt,
+      where: d.where,
       jobs: d.jobs,
       lastLogEventAt: d.lastLogEventAt,
       lastLogEventCount: d.lastLogEventCount,
@@ -716,8 +766,8 @@ export const useOtherJobs = create<OtherJobsState>((set, get) => {
       lastLogEventCount: typeof doc.lastLogEventCount === 'number' ? doc.lastLogEventCount : 0,
       markerZones: doc.markerZones && typeof doc.markerZones === 'object' ? doc.markerZones : {},
       markerBuild: typeof doc.markerBuild === 'string' ? doc.markerBuild : undefined,
-      currentLocation: typeof doc.currentLocation === 'string' ? doc.currentLocation : null,
-      currentLocationAt: typeof doc.currentLocationAt === 'string' ? doc.currentLocationAt : undefined,
+      where: doc.where && typeof doc.where === 'object' ? doc.where : null,
+      startTypedAt: typeof doc.startTypedAt === 'string' ? doc.startTypedAt : undefined,
       rev: doc.rev ?? 0
     })
     useOtherHistory.getState().load(doc)
@@ -746,6 +796,12 @@ export const useOtherJobs = create<OtherJobsState>((set, get) => {
         else if (a.type === 'abandon') get().abandonJob(a.jobId)
       })
       window.addEventListener('beforeunload', flushSave)
+      // WHERE AM I (hotkey or overlay button): main process broadcasts each read to every window
+      window.supercargo.onOtherWhere?.((r) => {
+        lastWhereRun = { ...r, receivedAt: new Date().toISOString() }
+        dlog.info('other', 'where am i result', { ok: r.ok, zone: r.zone, error: r.error, ms: r.ms, label: r.where?.label })
+        if (r.ok && r.where) get().applyWhere(r.where)
+      })
       // steps filled outside the reducer (OCR, edit) have no objectiveId: link this run's markers by order
       let placing = false
       useOtherJobs.subscribe((st, prev) => {
@@ -759,8 +815,7 @@ export const useOtherJobs = create<OtherJobsState>((set, get) => {
           expandedId: st.expandedId,
           markerZones: st.markerZones,
           markerBuild: st.markerBuild,
-          currentLocation: st.currentLocation,
-          currentLocationAt: st.currentLocationAt
+          where: st.where
         }
         placeSteps(d, { live: false, settings: settingsNow(), accepted: [] })
         if (d.jobs.every((j, i) => j === st.jobs[i])) return
@@ -876,8 +931,8 @@ export const useOtherJobs = create<OtherJobsState>((set, get) => {
     sessionAt: undefined,
     markerZones: {},
     markerBuild: undefined,
-    currentLocation: null,
-    currentLocationAt: undefined,
+    where: null,
+    startTypedAt: undefined,
     crashNotice: null,
     dismissCrashNotice: () => set({ crashNotice: null }),
 
@@ -910,8 +965,9 @@ export const useOtherJobs = create<OtherJobsState>((set, get) => {
 
     setExpanded: (id) => set({ expandedId: id }),
     setStartLocation: (v) => {
-      decide('user start location', undefined, { from: get().startLocation, to: v })
-      set({ startLocation: v })
+      const typedAt = v.trim() ? new Date().toISOString() : get().startTypedAt
+      decide('user start location', undefined, { from: get().startLocation, to: v, typedAt })
+      set({ startLocation: v, startTypedAt: typedAt })
       get().persist()
     },
     setGroupBy: (v) => set({ groupBy: v }),
@@ -1073,6 +1129,16 @@ export const useOtherJobs = create<OtherJobsState>((set, get) => {
 
     toggleStep: (jobId, stepId) => {
       if (get().passive) return sendAction({ type: 'toggleStep', jobId, stepId })
+      // B1: ticking DONE / GO HERE / TURN IN (not UNDO) puts you at the step's place before the tick
+      // (overlay presses arrive here too, via onOtherAction)
+      const before = get().jobs.find((j) => j.id === jobId)?.steps.find((s) => s.id === stepId)
+      if (before && !before.done) {
+        const place = stepActivePlace(before).trim()
+        if (place) {
+          const w = takeWhere(get().where, whereFromPlace(place, 'tick', new Date().toISOString()), { step: stepKey(before) })
+          if (w !== get().where) set({ where: w })
+        }
+      }
       set({
         jobs: get().jobs.map((j) => {
           if (j.id !== jobId) return j
@@ -1109,6 +1175,15 @@ export const useOtherJobs = create<OtherJobsState>((set, get) => {
           return { ...j, steps }
         })
       })
+      get().persist()
+    },
+
+    applyWhere: (w) => {
+      if (get().passive) return
+      const cur = get().where
+      const next = takeWhere(cur, w, { label: w.label })
+      if (next === cur) return
+      set({ where: next })
       get().persist()
     }
   }

@@ -7,6 +7,7 @@
 import { spawn, spawnSync } from 'node:child_process'
 import { createRequire } from 'node:module'
 import * as fs from 'node:fs'
+import * as net from 'node:net'
 import * as os from 'node:os'
 import * as path from 'node:path'
 
@@ -117,8 +118,8 @@ function setup(name, settings, jobsDoc) {
   }
 }
 
-async function launch(env, extraArgs = []) {
-  const appEnv = { ...process.env, HOME: env.home, USERPROFILE: env.home, APPDATA: path.join(env.home, 'AppData', 'Roaming'), XDG_CONFIG_HOME: path.join(env.home, '.config') }
+async function launch(env, extraArgs = [], extraEnv = {}) {
+  const appEnv = { ...process.env, HOME: env.home, USERPROFILE: env.home, APPDATA: path.join(env.home, 'AppData', 'Roaming'), XDG_CONFIG_HOME: path.join(env.home, '.config'), ...extraEnv }
   delete appEnv.ELECTRON_RENDERER_URL
   const args = [root, '--no-sandbox', ...extraArgs]
   const child = useXvfb
@@ -151,6 +152,104 @@ async function launch(env, extraArgs = []) {
     await sleep(1500)
   }
 }
+
+// Chrome DevTools Protocol: launch with cdpArgs(port) to run JS in a window (main = index.html, overlay = #compact)
+const freePort = () =>
+  new Promise((resolve, reject) => {
+    const srv = net.createServer()
+    srv.unref()
+    srv.on('error', reject)
+    srv.listen(0, '127.0.0.1', () => {
+      const { port } = srv.address()
+      srv.close(() => resolve(port))
+    })
+  })
+const cdpArgs = (port) => [`--remote-debugging-port=${port}`, '--remote-allow-origins=*']
+async function cdpTarget(port, which, ms = 15000) {
+  const want = (t) => t.type === 'page' && (which === 'overlay' ? /#compact$/.test(t.url) : /index\.html$/.test(t.url) || /^https?:\/\/[^#]*$/.test(t.url))
+  for (let t0 = Date.now(); Date.now() - t0 < ms; await sleep(250)) {
+    try {
+      const list = await (await fetch(`http://127.0.0.1:${port}/json/list`)).json()
+      const t = list.find(want)
+      if (t?.webSocketDebuggerUrl) return t
+    } catch {
+      // not listening yet
+    }
+  }
+  throw new Error(`cdp: no ${which} window on port ${port}`)
+}
+/** evaluate an expression (promises awaited) in a window; returns its value, throws on a JS exception */
+async function cdpEval(port, which, expression, ms = 20000) {
+  const t = await cdpTarget(port, which)
+  const ws = new WebSocket(t.webSocketDebuggerUrl)
+  await new Promise((resolve, reject) => {
+    ws.onopen = resolve
+    ws.onerror = () => reject(new Error('cdp: websocket failed'))
+  })
+  try {
+    return await new Promise((resolve, reject) => {
+      const timer = setTimeout(() => reject(new Error(`cdp: no answer in ${ms} ms`)), ms)
+      ws.onmessage = (m) => {
+        const msg = JSON.parse(String(m.data))
+        if (msg.id !== 1) return
+        clearTimeout(timer)
+        const r = msg.result
+        if (msg.error) reject(new Error(`cdp: ${msg.error.message}`))
+        else if (r?.exceptionDetails) reject(new Error(`js: ${r.exceptionDetails.exception?.description ?? r.exceptionDetails.text}`))
+        else resolve(r?.result?.value)
+      }
+      ws.send(JSON.stringify({ id: 1, method: 'Runtime.evaluate', params: { expression, awaitPromise: true, returnByValue: true } }))
+    })
+  } finally {
+    ws.close()
+  }
+}
+const windowText = (port, which) => cdpEval(port, which, 'document.body.innerText')
+// poll fn() until it returns truthy (or ms passes); returns the last value
+async function until(fn, ms = 12000) {
+  let v
+  for (let t0 = Date.now(); Date.now() - t0 < ms; await sleep(250)) {
+    try {
+      v = await fn()
+    } catch {
+      v = undefined
+    }
+    if (v) return v
+  }
+  return v
+}
+// SNAPSHOT section of a diagnostics export -> object
+function snapshotJson(text) {
+  const snap = diagSections(text)['SNAPSHOT'] ?? ''
+  try {
+    return JSON.parse(snap.slice(snap.indexOf('{'), snap.lastIndexOf('}') + 1))
+  } catch {
+    return null
+  }
+}
+// roster coordinates for test maths (straight line, same system)
+const ROSTER = (() => {
+  try {
+    const d = JSON.parse(fs.readFileSync(path.join(root, 'data', 'uex', 'locations.json'), 'utf8'))
+    return Object.values(d).flat().filter((l) => l && typeof l === 'object' && l.name)
+  } catch {
+    return []
+  }
+})()
+const rosterDist = (a, b) => {
+  const p = ROSTER.find((l) => l.name === a)
+  const q = ROSTER.find((l) => l.name === b)
+  return p?.x != null && q?.x != null ? Math.hypot(p.x - q.x, p.y - q.y, p.z - q.z) : null
+}
+// r_DisplayInfo 3 on Hurston's surface (user's screenshot, CONTRACT); 22.8 km from HDRSO-Stott
+const DISPLAY_INFO_HURSTON = [
+  'Zone: OOC_Stanton_1_Hurston Pos: -663.0188km -725.4411km -190.4883km',
+  'Zone: SolarSystem_862399811847 Pos: 12850255.8664km 961.9598km -190.4883km',
+  'Current player location : Stanton1',
+  'Planet:OOC_Stanton_1_Hurston (working) (Load Complete)',
+  'CamPos Planet Zone: -663018.807425 -725441.096333 -190488.315800',
+  'Radius: 1000000.000000 ElevationUnderCam: 1064.250000 Altitude 7.436596'
+].join('\n')
 
 // --export-diagnostics <file>: the app writes it ~6 s after the main window loads
 const DIAG_SECTIONS = ['SUMMARY', 'SETTINGS', 'SNAPSHOT', 'UNKNOWN LINES', 'DECISIONS', 'PERF', 'USAGE', 'ERRORS', 'DEBUG LOG', 'LOG EXCERPT']
@@ -692,7 +791,7 @@ const scenarios = {
     ]
   },
 
-  // no start location set: the inventory request line fills currentLocation from the roster
+  // no start location set: the inventory request line becomes `where` (source inventory) and the start in AUTO
   'auto-start': async () => {
     const e = setup('auto-start')
     const out = path.join(e.data, 'diag-auto-start.txt')
@@ -706,7 +805,8 @@ const scenarios = {
     const doc = e.jobs()
     return [
       ['diagnostics file written within 20 s', text != null, `file=${out}`],
-      ['SNAPSHOT currentLocation is CRU-L1', snap.includes(want), `snapshot=${JSON.stringify(snap.slice(0, 300))} saved currentLocation=${doc?.currentLocation}`]
+      ['SNAPSHOT shows CRU-L1 as where you are', snap.includes(want), `snapshot=${JSON.stringify(snap.slice(0, 300))} saved where=${JSON.stringify(doc?.where)}`],
+      ['saved where is CRU-L1 from the inventory line', doc?.where?.name === want && doc?.where?.source === 'inventory', `where=${JSON.stringify(doc?.where)}`]
     ]
   },
 
@@ -738,7 +838,7 @@ const scenarios = {
     ]
   },
 
-  // the inventory line's place and time are saved in the doc and survive a restart
+  // the inventory line's place and time are saved in the doc (`where`) and survive a restart
   'location-persisted': async () => {
     const e = setup('location-persisted')
     let stop = await launch(e)
@@ -748,17 +848,171 @@ const scenarios = {
     await stop()
     const want = 'CRU-L1 Ambitious Dream Station'
     const first = e.jobs()
-    const savedAt = typeof first?.currentLocationAt === 'number' ? first.currentLocationAt : Date.parse(first?.currentLocationAt ?? '')
+    const savedAt = Date.parse(first?.where?.at ?? '')
     stop = await launch(e)
     e.append(L.accept(mission(), 'Patrol')) // forces a save after the reload
     await sleep(3000)
     await stop()
     const again = e.jobs()
     return [
-      ['currentLocation saved', first?.currentLocation === want, `currentLocation=${first?.currentLocation}`],
-      ['currentLocationAt is the line time', Number.isFinite(savedAt) && Math.abs(savedAt - at) < 120000, `currentLocationAt=${first?.currentLocationAt}`],
-      ['currentLocation kept after a restart', again?.currentLocation === want, `currentLocation=${again?.currentLocation}`],
-      ['currentLocationAt kept after a restart', again?.currentLocationAt === first?.currentLocationAt, `before=${first?.currentLocationAt} after=${again?.currentLocationAt}`]
+      ['where.name saved', first?.where?.name === want, `where=${JSON.stringify(first?.where)}`],
+      ['where.at is the line time', Number.isFinite(savedAt) && Math.abs(savedAt - at) < 120000, `where.at=${first?.where?.at}`],
+      ['old currentLocation fields gone', !('currentLocation' in (first ?? {})) && !('currentLocationAt' in (first ?? {})), `keys=${Object.keys(first ?? {}).join(',')}`],
+      ['where.name kept after a restart', again?.where?.name === want, `where=${JSON.stringify(again?.where)}`],
+      ['where.at kept after a restart', again?.where?.at === first?.where?.at, `before=${first?.where?.at} after=${again?.where?.at}`]
+    ]
+  },
+
+  // B3: inventory clue sets where (source inventory, log time); leaving clears it; a repeat arrival
+  // resolves from the learned hash
+  'where-inventory': async () => {
+    const e = setup('where-inventory')
+    const stop = await launch(e)
+    const at = ago(5)
+    const want = 'CRU-L1 Ambitious Dream Station'
+    e.append(L.arrive('1510935576', 'PLAYER', at), L.inventory('RR_CRU_L1', 'PLAYER', at))
+    const arrived = await until(() => (e.jobs()?.where?.name ? e.jobs().where : null))
+    // leave: landing 0, location moves to another hash
+    e.append(`${stamp()} [Notice] <Update Inventory Location> Player [PLAYER] is changing location. Landing [1510935576] -> [0]. Location [1510935576] -> [2000000001]. Pending [0] [Team_CoreGameplayFeatures][Inventory]`)
+    const left = await until(() => e.jobs()?.where === null || e.jobs()?.where === undefined, 6000)
+    const afterLeave = e.jobs()?.where
+    e.append(L.arrive('1510935576'))
+    const back = await until(() => (e.jobs()?.where?.name === want ? e.jobs().where : null))
+    await stop()
+    const doc = e.jobs()
+    return [
+      ['where.name is the station', arrived?.name === want, `where=${JSON.stringify(arrived)}`],
+      ['where.source is inventory', arrived?.source === 'inventory', `source=${arrived?.source}`],
+      ['where.at is the log time', Math.abs(Date.parse(arrived?.at ?? '') - at) < 2000, `at=${arrived?.at} want=${iso(at)}`],
+      ['leaving clears the inventory where', !!left, `where=${JSON.stringify(afterLeave)}`],
+      ['repeat arrival resolves from the hash', back?.name === want && back?.source === 'inventory', `where=${JSON.stringify(back)}`],
+      ['saved after the repeat arrival', doc?.where?.name === want, `where=${JSON.stringify(doc?.where)}`]
+    ]
+  },
+
+  // B2: Objective Complete ticks a step -> where = that step's place, source objective, log time
+  'where-objective': async () => {
+    const e = setup('where-objective')
+    const stop = await launch(e)
+    const id = mission()
+    e.append(L.accept(id, 'Bounty Hunt'), L.objective(id, 'Go to Port Tressler'), L.objective(id, 'Neutralize Vanduul Scout'))
+    await until(() => findJob(e.jobs(), id)?.steps?.length === 2)
+    const at = Date.now()
+    e.append(L.objectiveComplete(id, 'Go to Port Tressler', at))
+    const w = await until(() => (e.jobs()?.where?.source ? e.jobs().where : null))
+    await stop()
+    return [
+      ['where.source is objective', w?.source === 'objective', `where=${JSON.stringify(w)}`],
+      ['where.name is the step place', /Port Tressler/.test(w?.name ?? ''), `name=${w?.name}`],
+      ['where.at is the log time', Math.abs(Date.parse(w?.at ?? '') - at) < 2000, `at=${w?.at} want=${iso(at)}`]
+    ]
+  },
+
+  // C: WHERE AM I through the test seam (SC_WHERE_TEXT_FILE instead of capture + OCR), run from the main window
+  'where-am-i': async () => {
+    const e = setup('where-am-i')
+    const textFile = path.join(e.home, 'where-text.json')
+    fs.writeFileSync(textFile, JSON.stringify({ zone2: DISPLAY_INFO_HURSTON, zone1: 'STANTON > HURSTON > 0.00° 0.00° 12.85GM' }))
+    const port = await freePort()
+    const stop = await launch(e, cdpArgs(port), { SC_WHERE_TEXT_FILE: textFile })
+    let r1
+    let r2
+    let err = ''
+    let w1
+    let w2
+    e.append(L.accept(mission(), 'Bounty Hunt', ago(20)))
+    const mark = await until(() => e.jobs()?.lastLogEventAt)
+    try {
+      r1 = await cdpEval(port, 'main', 'window.supercargo.otherWhereRun()')
+      w1 = await until(() => (e.jobs()?.where?.source === 'displayinfo' ? e.jobs().where : null))
+      // second run: zone 2 empty -> zone 1 (map line in open space)
+      fs.writeFileSync(textFile, JSON.stringify({ zone2: '', zone1: 'STANTON SYSTEM > 0.00° 1.06° 12.47GM' }))
+      r2 = await cdpEval(port, 'main', 'window.supercargo.otherWhereRun()')
+      w2 = await until(() => (e.jobs()?.where?.source === 'map' ? e.jobs().where : null))
+    } catch (x) {
+      err = String(x?.message ?? x)
+    }
+    await stop()
+    const after = e.jobs()?.lastLogEventAt
+    return [
+      ['run 1 ok from zone 2', r1?.ok === true && r1?.zone === 2, `result=${JSON.stringify(r1)?.slice(0, 300)} ${err}`],
+      ['where.source displayinfo', w1?.source === 'displayinfo', `where=${JSON.stringify(w1)}`],
+      ['where.name HDRSO-Stott', w1?.name === 'HDRSO-Stott', `name=${w1?.name}`],
+      ['label shows 22.8 km', /22\.8 km/.test(w1?.label ?? ''), `label=${w1?.label}`],
+      ['where has a point on Hurston', !!w1?.point && /hurston/i.test(w1?.body ?? ''), `body=${w1?.body} point=${JSON.stringify(w1?.point)}`],
+      ['run 2 ok from zone 1', r2?.ok === true && r2?.zone === 1, `result=${JSON.stringify(r2)?.slice(0, 300)} ${err}`],
+      ['where.source map', w2?.source === 'map', `where=${JSON.stringify(w2)}`],
+      ['open space: where.name null', w2 != null && w2.name === null, `name=${w2?.name}`],
+      ['map where has a point', !!w2?.point, `point=${JSON.stringify(w2?.point)}`],
+      ['WHERE AM I does not move the log watermark', !!mark && after === mark, `before=${mark} after=${after}`]
+    ]
+  },
+
+  // A: STARTING AT modes. Typed start 10 min old, then a newer inventory clue:
+  // AUTO measures from the clue, FIXED keeps the typed start
+  'start-mode-auto-fixed': async () => {
+    const want = 'CRU-L1 Ambitious Dream Station'
+    const typed = 'Seraphim Station'
+    const run = async (mode) => {
+      const step = { id: 's1', kind: 'go', label: 'Go to Port Tressler', location: 'Port Tressler', have: 0, need: 1, done: false }
+      const e = setup(`start-mode-${mode}`, { otherStartMode: mode }, { jobs: [logJob(mission(), { steps: [step] })], history: [], startLocation: typed, startTypedAt: iso(ago(600)), listOrder: 'distance' })
+      const out = path.join(e.data, `diag-${mode}.txt`)
+      const port = await freePort()
+      const stop = await launch(e, [`--export-diagnostics=${out}`, ...cdpArgs(port)])
+      e.append(L.arrive('1510935576'), L.inventory('RR_CRU_L1'))
+      const text = await waitForFile(out)
+      let overlay = ''
+      try {
+        overlay = await until(() => windowText(port, 'overlay').then((t) => (/Port Tressler/.test(t) ? t : '')), 8000)
+      } catch {
+        // checked below
+      }
+      await stop()
+      const snap = snapshotJson(text)
+      const row = (snap?.other?.distanceTable?.distance ?? []).find((r) => /Port Tressler/.test(String(r.place)))
+      const used = snap?.other?.start?.used ?? snap?.other?.origin?.name ?? null
+      return { doc: e.jobs(), snap, row, used, overlay }
+    }
+    const [auto, fixed] = await Promise.all([run('auto'), run('fixed')])
+    const fromClue = rosterDist(want, 'Port Tressler')
+    const fromTyped = rosterDist(typed, 'Port Tressler')
+    const near = (d, x) => d != null && x != null && Math.abs(d - x) / x < 0.01
+    return [
+      ['setting otherStartMode in SNAPSHOT', auto.snap?.other?.settings?.otherStartMode === 'auto' && fixed.snap?.other?.settings?.otherStartMode === 'fixed', `auto=${auto.snap?.other?.settings?.otherStartMode} fixed=${fixed.snap?.other?.settings?.otherStartMode}`],
+      ['the clue is saved (both modes)', auto.doc?.where?.name === want && fixed.doc?.where?.name === want, `auto=${auto.doc?.where?.name} fixed=${fixed.doc?.where?.name}`],
+      ['typed start kept in the doc', auto.doc?.startLocation === typed && fixed.doc?.startLocation === typed, `auto=${auto.doc?.startLocation} fixed=${fixed.doc?.startLocation}`],
+      ['AUTO: origin is the newer clue', auto.used ? auto.used === want : near(auto.row?.distance, fromClue), `used=${auto.used} distance=${auto.row?.distance} fromClue=${fromClue} fromTyped=${fromTyped}`],
+      ['AUTO: distance measured from the clue', near(auto.row?.distance, fromClue), `distance=${auto.row?.distance} want=${fromClue}`],
+      ['FIXED: origin is the typed start', fixed.used ? fixed.used === typed : near(fixed.row?.distance, fromTyped), `used=${fixed.used}`],
+      ['FIXED: distance measured from the typed start', near(fixed.row?.distance, fromTyped), `distance=${fixed.row?.distance} want=${fromTyped}`],
+      ['AUTO overlay names the clue as the origin', auto.overlay.includes(want) || /CRU-L1/.test(auto.overlay), `overlay=${JSON.stringify(auto.overlay.slice(0, 300))}`]
+    ]
+  },
+
+  // D: a stop in Pyro measured from Stanton goes through the gateway: "+ 1 jump" on the overlay and in the table
+  'multi-system-jump': async () => {
+    const step = { id: 's1', kind: 'go', label: 'Go to Ruin Station', location: 'Ruin Station', have: 0, need: 1, done: false }
+    const e = setup('multi-system-jump', { otherStartMode: 'fixed' }, { jobs: [logJob(mission(), { steps: [step] })], history: [], startLocation: 'Seraphim Station', startTypedAt: iso(ago(60)), listOrder: 'distance' })
+    const out = path.join(e.data, 'diag-jump.txt')
+    const port = await freePort()
+    const stop = await launch(e, [`--export-diagnostics=${out}`, ...cdpArgs(port)])
+    const text = await waitForFile(out)
+    let overlay = ''
+    let err = ''
+    try {
+      overlay = (await until(() => windowText(port, 'overlay').then((t) => (/jump/.test(t) ? t : '')), 10000)) ?? ''
+      if (!overlay) overlay = await windowText(port, 'overlay')
+    } catch (x) {
+      err = String(x?.message ?? x)
+    }
+    await stop()
+    const snap = snapshotJson(text)
+    const row = (snap?.other?.distanceTable?.distance ?? []).find((r) => /Ruin Station/.test(String(r.place)))
+    // gateway leg: Seraphim -> Pyro Gateway (Stanton) + Stanton Gateway (Pyro) -> Ruin Station
+    const viaGate = (rosterDist('Seraphim Station', 'Pyro Gateway (Stanton)') ?? 0) + (rosterDist('Stanton Gateway (Pyro)', 'Ruin Station') ?? 0)
+    return [
+      ['overlay shows "+ 1 jump"', /\+\s*1 jump/.test(overlay), `overlay=${JSON.stringify(overlay.slice(0, 300))} ${err}`],
+      ['distance goes through the gateways', row?.distance > 0 && Math.abs(row.distance - viaGate) / viaGate < 0.02, `distance=${row?.distance} viaGate=${Math.round(viaGate)}`]
     ]
   },
 

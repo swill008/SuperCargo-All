@@ -34,6 +34,7 @@ import type {
 import type { OtherJobsDoc } from '@other/otherJob'
 import type { OtherLogEvent, OtherScanResult } from '@other/otherEvents'
 import type { OtherAction } from '@other/otherActions'
+import type { WhereRunResult } from '@other/otherWhere'
 
 type Unsubscribe = () => void
 
@@ -164,6 +165,11 @@ const api = {
   otherAction: (a: OtherAction): void => ipcRenderer.send(IPC.otherAction, a),
   onOtherAction: (cb: (a: OtherAction) => void): Unsubscribe => on(IPC.evtOtherAction, cb),
   scanOtherEvents: (since?: string): Promise<OtherScanResult> => ipcRenderer.invoke(IPC.otherJobsScanEvents, since),
+  /** WHERE AM I: read the map screen; the result is also broadcast to every window */
+  otherWhereRun: (): Promise<WhereRunResult> => ipcRenderer.invoke(IPC.otherWhereRun),
+  otherWhereCalPreview: (): Promise<string | null> => ipcRenderer.invoke(IPC.otherWhereCalPreview),
+  otherWhereCalTest: (zone: 1 | 2): Promise<WhereRunResult> => ipcRenderer.invoke(IPC.otherWhereCalTest, zone),
+  onOtherWhere: (cb: (r: WhereRunResult) => void): Unsubscribe => on(IPC.evtOtherWhere, cb),
   onObjective: (cb: (e: ObjectiveEvent) => void): Unsubscribe => on(IPC.evtObjective, cb),
   onContractEnded: (cb: (e: ContractEndedEvent) => void): Unsubscribe =>
     on(IPC.evtContractEnded, cb),
