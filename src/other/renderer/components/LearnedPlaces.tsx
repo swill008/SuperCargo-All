@@ -1,28 +1,39 @@
 /**
- * Settings → LEARNED PLACES (M6/M7): what each remembered game text resolves to and how that was learned,
- * with Change (same picker as MatchFix), Forget, search and filter; then the last 50 changes with Undo.
- * Main owns other-matches.json; every write comes back as the evt:other:memory broadcast.
+ * LEARNED DATA → Places (M6/M7, S1/S3/S4): summary bar (each count a filter), "Needs your eye",
+ * disputed entries pinned on top of the table with KEEP MINE / USE WHERE I WAS, then every remembered game text with its
+ * place and how it was learned: sortable, searchable, with Change (same picker as MatchFix) and Forget;
+ * then the last 50 changes with Undo. Main owns other-matches.json; every write comes back as evt:other:memory.
  */
-import React, { useMemo, useState } from 'react'
+import React, { useEffect, useMemo, useState } from 'react'
 import { C, F } from '@renderer/theme'
 import { Btn } from '@renderer/components/ui'
 import { dlog } from '@renderer/state/log'
 import { useStore } from '@renderer/state/store'
-import { memoryLabel, type MemoryChange, type MemoryEntry } from '@other/otherMemory'
+import { learnedPlace, memoryLabel, type MemoryChange, type MemoryEntry, type SetInput } from '@other/otherMemory'
+import { formatDistance, formatPlaceWithBodySystem } from '@other/otherNext'
 import { placeKey } from '@other/otherResolve'
 import { useMemory } from '../state/otherMemoryStore'
 import { offSourcePlaces, useMergedLocations } from '../state/otherPlaces'
+import { clearLearnedFocus, useLearnedFocus } from '../state/learnedFocus'
+import NeedsYourEye from './NeedsYourEye'
 import { PlacePicker, fixBtn, memoryForget, memorySet } from './MatchFix'
 
-type Filter = 'all' | 'user' | 'game' | 'disputed'
+export type Kind = 'user' | 'learned' | 'unproven' | 'disputed'
+type Filter = 'all' | 'game' | Kind
+type SortCol = 'text' | 'place' | 'how' | 'seen' | 'last'
+
 const FILTERS: { v: Filter; label: string }[] = [
   { v: 'all', label: 'ALL' },
   { v: 'user', label: 'YOU SET' },
   { v: 'game', label: 'GAME' },
+  { v: 'learned', label: 'LEARNED' },
+  { v: 'unproven', label: 'UNPROVEN' },
   { v: 'disputed', label: 'DISPUTED' }
 ]
 /** rows drawn at once; the rest are reached with search */
 const ROWS_MAX = 100
+/** how long a focused row stays lit */
+const FLASH_MS = 4000
 
 const WHAT: Record<MemoryChange['what'], string> = {
   'seen-new': 'new',
@@ -33,8 +44,16 @@ const WHAT: Record<MemoryChange['what'], string> = {
   undo: 'undo'
 }
 
+/** one bucket per entry, matching its HOW LEARNED label: the four summary counts add up to the total */
+export function kindOf(e: MemoryEntry): Kind {
+  if (memoryLabel(e).startsWith('⚠')) return 'disputed'
+  if (e.origin === 'user') return 'user'
+  if (learnedPlace(e)) return 'learned'
+  return 'unproven'
+}
+
 /** "just now", "5 min ago", "3 h ago", "2 d ago" */
-function ago(iso: string | undefined, now: number): string {
+export function ago(iso: string | undefined, now: number): string {
   const t = iso ? Date.parse(iso) : NaN
   if (!Number.isFinite(t)) return '—'
   const s = Math.max(0, (now - t) / 1000)
@@ -44,10 +63,12 @@ function ago(iso: string | undefined, now: number): string {
   return `${Math.floor(s / 86400)} d ago`
 }
 
-function labelColor(e: MemoryEntry): string {
-  if (e.disputed) return C.amber
-  if (e.origin === 'user') return C.green
-  return e.confirmed >= 2 && e.confirmed > e.wrong ? C.green : C.dim
+const rowId = (key: string): string => `learned-row-${placeKey(key).replace(/[^a-z0-9]+/g, '-')}`
+
+function labelColor(k: Kind): string {
+  if (k === 'disputed') return C.amber
+  if (k === 'user' || k === 'learned') return C.green
+  return C.dim
 }
 
 function undo(index: number): void {
@@ -57,35 +78,119 @@ function undo(index: number): void {
   )
 }
 
+/** KEEP MINE: keep the user's place and clear the dispute (wrong 0, no wrongAt) */
+function keepMine(e: MemoryEntry): void {
+  if (!e.place) return
+  const p: SetInput = { key: e.key, text: e.text, context: e.context || undefined, place: e.place, reset: true }
+  dlog.info('other', 'match memory keep mine by user', { key: e.key, place: e.place })
+  void window.supercargo.otherMemorySet(p).catch((err: unknown) =>
+    dlog.warn('other', 'match memory keep mine failed', { error: (err as Error)?.message ?? String(err) })
+  )
+}
+
 function changeText(c: MemoryChange): string {
   const before = c.before ? c.before.place ?? 'no place' : 'nothing'
   const after = c.after ? c.after.place ?? 'no place' : 'removed'
   return before === after ? after : `${before} → ${after}`
 }
 
+/** "you were at X (2 d ago)" / "you were 4 km from X (2 d ago)" */
+function whereLine(e: MemoryEntry, now: number): string | null {
+  const w = e.wrongAt?.[0]
+  if (!w?.name) return null
+  const at = w.meters != null && w.meters > 1000 ? `${formatDistance(w.meters)} from ${w.name}` : `at ${w.name}`
+  return `you were ${at} (${ago(w.at, now)})`
+}
+
+function compare(col: SortCol, a: MemoryEntry, b: MemoryEntry): number {
+  switch (col) {
+    case 'text': return a.text.localeCompare(b.text, undefined, { sensitivity: 'base' })
+    case 'place': return (a.place ?? '￿').localeCompare(b.place ?? '￿', undefined, { sensitivity: 'base' })
+    case 'how': return memoryLabel(a).localeCompare(memoryLabel(b))
+    case 'seen': return (a.seen ?? 0) - (b.seen ?? 0)
+    case 'last': return (a.lastAt || '').localeCompare(b.lastAt || '')
+  }
+}
+
+const COLS: { col: SortCol | null; label: string; width: string; align?: 'right' }[] = [
+  { col: 'text', label: 'TEXT AS READ', width: '22%' },
+  { col: 'place', label: 'PLACE', width: '28%' },
+  { col: 'how', label: 'HOW LEARNED', width: '15%' },
+  { col: 'seen', label: 'SEEN', width: '7%', align: 'right' },
+  { col: 'last', label: 'LAST USED', width: '11%' },
+  { col: null, label: '', width: '17%' }
+]
+
 export default function LearnedPlaces(): React.ReactElement {
   const doc = useMemory()
   const [filter, setFilter] = useState<Filter>('all')
   const [q, setQ] = useState('')
+  const [sort, setSort] = useState<{ col: SortCol; desc: boolean }>({ col: 'last', desc: true })
   const [changing, setChanging] = useState<string | null>(null)
+  const [flash, setFlash] = useState<string | null>(null)
   const now = Date.now()
+  const locations = useMergedLocations()
   // places a switched-off data source took away: the resolver can't use them, so say so on the row
   const haul = useStore((s) => s.locations)
-  const merged = useMergedLocations()
-  const off = useMemo(() => offSourcePlaces(haul ?? []), [haul, merged])
+  const off = useMemo(() => offSourcePlaces(haul ?? []), [haul, locations])
+
+  const counts = useMemo(() => {
+    const c: Record<Kind, number> = { user: 0, learned: 0, unproven: 0, disputed: 0 }
+    for (const e of doc.entries) c[kindOf(e)]++
+    return c
+  }, [doc.entries])
+
+  // S7: MatchFix "Open in Learned Data" lands here on that entry; no entry → "Needs your eye"
+  const focus = useLearnedFocus()
+  useEffect(() => {
+    if (focus === null) return
+    const hit = focus ? doc.entries.some((e) => e.key === focus) : false
+    clearLearnedFocus()
+    if (hit) {
+      setFilter('all')
+      setQ('')
+      setFlash(focus)
+    } else setFlash('')
+    // after the filter/search reset has rendered
+    const id = hit ? rowId(focus) : 'learned-needs'
+    // not cancelled on cleanup: clearing the focus re-runs this effect before the timer fires
+    window.setTimeout(() => document.getElementById(id)?.scrollIntoView({ block: 'center', behavior: 'smooth' }), 50)
+    dlog.debug('other', 'learned data focus', { key: focus, hit })
+  }, [focus, doc.entries])
+  useEffect(() => {
+    if (flash === null) return
+    const t = window.setTimeout(() => setFlash(null), FLASH_MS)
+    return () => window.clearTimeout(t)
+  }, [flash])
 
   const rows = useMemo(() => {
     const words = placeKey(q).split(' ').filter(Boolean)
     const keep = (e: MemoryEntry): boolean => {
-      if (filter === 'user' && e.origin !== 'user') return false
       if (filter === 'game' && e.origin !== 'game') return false
-      if (filter === 'disputed' && !e.disputed) return false
+      if (filter !== 'all' && filter !== 'game' && kindOf(e) !== filter) return false
       if (!words.length) return true
       const hay = placeKey(`${e.text} ${e.place ?? ''} ${e.context ?? ''}`)
       return words.every((w) => hay.includes(w))
     }
-    return doc.entries.filter(keep).sort((a, b) => (b.lastAt || '').localeCompare(a.lastAt || ''))
-  }, [doc.entries, filter, q])
+    const dir = sort.desc ? -1 : 1
+    // disputed pinned on top, then the chosen column
+    return doc.entries.filter(keep).sort((a, b) => {
+      const pa = kindOf(a) === 'disputed' ? 0 : 1
+      const pb = kindOf(b) === 'disputed' ? 0 : 1
+      if (pa !== pb) return pa - pb
+      return dir * compare(sort.col, a, b) || (b.lastAt || '').localeCompare(a.lastAt || '')
+    })
+  }, [doc.entries, filter, q, sort])
+
+  const shown = useMemo(() => {
+    const head = rows.slice(0, ROWS_MAX)
+    // a focused row past the cut still shows
+    if (flash && !head.some((e) => e.key === flash)) {
+      const e = rows.find((x) => x.key === flash)
+      if (e) head.push(e)
+    }
+    return head
+  }, [rows, flash])
 
   const choiceStyle = (on: boolean): React.CSSProperties => ({
     padding: '4px 10px',
@@ -97,19 +202,48 @@ export default function LearnedPlaces(): React.ReactElement {
     letterSpacing: '0.08em',
     cursor: 'pointer'
   })
-  const cell: React.CSSProperties = { padding: '6px 8px 6px 0', borderBottom: `1px dotted ${C.lineFaint}`, verticalAlign: 'top' }
-  const head: React.CSSProperties = { ...cell, fontFamily: F.display, fontSize: 11, letterSpacing: '0.12em', color: C.dim, textAlign: 'left', fontWeight: 'normal' }
+  const cell: React.CSSProperties = { padding: '7px 8px 7px 0', borderBottom: `1px dotted ${C.lineFaint}`, verticalAlign: 'top' }
+  const head: React.CSSProperties = {
+    ...cell, fontFamily: F.display, fontSize: 11, letterSpacing: '0.12em', color: C.dim, textAlign: 'left', fontWeight: 'normal',
+    borderBottom: `1px solid ${C.lineStrong}`
+  }
+  const SUMMARY: { k: Kind; label: string; color: string }[] = [
+    { k: 'user', label: 'you set', color: C.green },
+    { k: 'learned', label: 'learned', color: C.green },
+    { k: 'unproven', label: 'unproven', color: C.dim },
+    { k: 'disputed', label: '⚠ disputed', color: C.amber }
+  ]
 
   return (
     <div style={{ fontFamily: F.body, fontSize: 13, color: C.textBody, padding: '8px 0 4px' }}>
-      <div style={{ fontSize: 12, color: C.dim, marginBottom: 8 }}>
-        Game place names the app was not sure about, and what it now takes them to mean. Fix one here or by clicking a
-        match tag on a stop.
+      <div data-testid="learned-summary" style={{ display: 'flex', alignItems: 'center', gap: 6, flexWrap: 'wrap', margin: '6px 0 2px' }}>
+        {SUMMARY.map((s, i) => (
+          <React.Fragment key={s.k}>
+            {i ? <span style={{ color: C.ghost }}>{'·'}</span> : null}
+            <button
+              type="button"
+              data-testid={`learned-count-${s.k}`}
+              title={filter === s.k ? 'Show all' : `Show only: ${s.label}`}
+              onClick={() => setFilter(filter === s.k ? 'all' : s.k)}
+              style={{
+                background: filter === s.k ? C.accFill : 'transparent',
+                border: `1px solid ${filter === s.k ? C.accBorder : 'transparent'}`,
+                padding: '3px 8px', cursor: 'pointer', fontFamily: F.body, fontSize: 14, color: C.textBody
+              }}
+            >
+              <span style={{ fontFamily: F.mono, fontSize: 16, color: counts[s.k] ? s.color : C.ghost, marginRight: 6 }}>{counts[s.k]}</span>
+              {s.label}
+            </button>
+          </React.Fragment>
+        ))}
       </div>
-      <div style={{ display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap', marginBottom: 8 }}>
+
+      <NeedsYourEye highlight={flash === ''} />
+
+      <div style={{ display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap', margin: '14px 0 8px' }}>
         <input
           value={q}
-          placeholder="Search"
+          placeholder="Search text or place"
           onChange={(e) => setQ(e.target.value)}
           style={{
             width: 220, background: 'rgba(0,0,0,0.4)', border: `1px solid ${C.lineStrong}`, color: C.text,
@@ -126,34 +260,68 @@ export default function LearnedPlaces(): React.ReactElement {
         </span>
       </div>
       {rows.length ? (
-        <table style={{ width: '100%', borderCollapse: 'collapse', tableLayout: 'fixed' }}>
+        <table data-testid="learned-table" style={{ width: '100%', borderCollapse: 'collapse', tableLayout: 'fixed' }}>
           <thead>
             <tr>
-              <th style={{ ...head, width: '42%' }}>GAME TEXT {'→'} PLACE</th>
-              <th style={{ ...head, width: '24%' }}>HOW LEARNED</th>
-              <th style={{ ...head, width: '13%' }}>LAST USED</th>
-              <th style={{ ...head, width: '21%' }} />
+              {COLS.map((c, i) => (
+                <th
+                  key={i}
+                  style={{ ...head, width: c.width, textAlign: c.align ?? 'left', cursor: c.col ? 'pointer' : 'default', color: c.col && sort.col === c.col ? C.acc : C.dim }}
+                  data-sort={c.col ?? undefined}
+                  title={c.col ? 'Sort by this column' : undefined}
+                  onClick={() => {
+                    const col = c.col
+                    if (!col) return
+                    setSort((s) => (s.col === col ? { col, desc: !s.desc } : { col, desc: col === 'seen' || col === 'last' }))
+                  }}
+                >
+                  {c.label}
+                  {c.col && sort.col === c.col ? (sort.desc ? ' ▼' : ' ▲') : ''}
+                </th>
+              ))}
             </tr>
           </thead>
           <tbody>
-            {rows.slice(0, ROWS_MAX).map((e) => {
-              const where = e.disputed ? e.wrongAt?.[0] : undefined
+            {shown.map((e) => {
+              const k = kindOf(e)
+              const disputed = k === 'disputed'
+              const where = disputed ? whereLine(e, now) : null
+              const whereName = e.wrongAt?.[0]?.name
+              const [placeName, ...chips] = e.place ? formatPlaceWithBodySystem(e.place, locations).split(' · ') : []
+              const lit = flash === e.key
               return (
-                <tr key={e.key}>
-                  <td style={{ ...cell, wordBreak: 'break-word' }}>
+                <tr
+                  key={e.key}
+                  id={rowId(e.key)}
+                  data-testid="learned-row"
+                  data-key={e.key}
+                  data-kind={k}
+                  style={{
+                    background: lit ? C.accFillStrong : disputed ? 'rgba(230,182,94,0.07)' : 'transparent',
+                    outline: lit ? `1px solid ${C.acc}` : 'none',
+                    transition: 'background 0.6s'
+                  }}
+                >
+                  <td style={{ ...cell, paddingLeft: 4, wordBreak: 'break-word' }}>
                     <span style={{ color: C.text }}>{e.text}</span>
-                    {e.context ? <span style={{ color: C.dim }}>{` (at ${e.context})`}</span> : null}
-                    <span style={{ color: C.dim }}>{' → '}</span>
-                    <span style={{ color: e.place ? C.textBody : C.dim }}>{e.place ?? 'no place'}</span>
+                    {e.context ? <div style={{ color: C.dim, fontSize: 11 }}>{`at ${e.context}`}</div> : null}
+                  </td>
+                  <td style={{ ...cell, wordBreak: 'break-word' }}>
+                    {e.place ? (
+                      <>
+                        <span style={{ color: C.text }}>{placeName}</span>
+                        {chips.length ? <div style={{ color: C.dim, fontSize: 11 }}>{chips.join(' · ')}</div> : null}
+                      </>
+                    ) : <span style={{ color: C.dim }}>no place</span>}
                     {e.place && off.has(e.place.toLowerCase()) ? (
-                      <span
-                        style={{ color: C.amber }}
+                      <div
+                        style={{ color: C.amber, fontSize: 11 }}
                         title={
                           off.get(e.place.toLowerCase()) === 'coords'
                             ? 'its coordinates come from a data source that is off; not used until it is back on'
                             : 'it comes from a data source that is off; not used until it is back on'
                         }
-                      >{" (place's source is off)"}</span>
+                      >{"place's source is off"}</div>
                     ) : null}
                     {changing === e.key ? (
                       <div style={{ marginTop: 6 }}>
@@ -169,25 +337,44 @@ export default function LearnedPlaces(): React.ReactElement {
                       </div>
                     ) : null}
                   </td>
-                  <td style={{ ...cell, color: labelColor(e) }}>
+                  <td style={{ ...cell, color: labelColor(k) }}>
                     {memoryLabel(e)}
-                    {where?.name ? (
-                      <div style={{ fontSize: 11, color: C.amber }}>{`you were at ${where.name}`}</div>
-                    ) : null}
+                    {where ? <div data-testid="learned-where" style={{ fontSize: 11, color: C.amber }}>{where}</div> : null}
                   </td>
-                  <td style={{ ...cell, fontFamily: F.mono, fontSize: 12, color: C.dim }} title={e.lastAt}>
+                  <td style={{ ...cell, fontFamily: F.mono, fontSize: 12, color: C.dim, textAlign: 'right' }}>{e.seen ?? 0}</td>
+                  <td style={{ ...cell, paddingLeft: 10, fontFamily: F.mono, fontSize: 12, color: C.dim }} title={e.lastAt}>
                     {ago(e.lastAt, now)}
                   </td>
-                  <td style={{ ...cell, textAlign: 'right', whiteSpace: 'nowrap' }}>
-                    <Btn
-                      type="button"
-                      onClick={() => setChanging(changing === e.key ? null : e.key)}
-                      style={{ ...fixBtn, marginRight: 6 }}
-                      hoverStyle={{ border: `1px solid ${C.acc}` }}
-                    >CHANGE</Btn>
-                    <Btn type="button" onClick={() => memoryForget(e.key)} style={fixBtn} hoverStyle={{ border: `1px solid ${C.acc}` }}>
-                      FORGET
-                    </Btn>
+                  <td style={{ ...cell, textAlign: 'right' }}>
+                    <div style={{ display: 'flex', gap: 6, justifyContent: 'flex-end', flexWrap: 'wrap' }}>
+                      {disputed && e.place ? (
+                        <Btn
+                          type="button"
+                          title={`Keep ${e.place} and clear the dispute`}
+                          onClick={() => keepMine(e)}
+                          style={{ ...fixBtn, color: C.green }}
+                          hoverStyle={{ border: `1px solid ${C.green}` }}
+                        >KEEP MINE</Btn>
+                      ) : null}
+                      {disputed && whereName ? (
+                        <Btn
+                          type="button"
+                          title={`Set this text to mean ${whereName}`}
+                          onClick={() => memorySet({ key: e.key, text: e.text, context: e.context || undefined, place: whereName })}
+                          style={{ ...fixBtn, color: C.amber }}
+                          hoverStyle={{ border: `1px solid ${C.amber}` }}
+                        >USE WHERE I WAS</Btn>
+                      ) : null}
+                      <Btn
+                        type="button"
+                        onClick={() => setChanging(changing === e.key ? null : e.key)}
+                        style={fixBtn}
+                        hoverStyle={{ border: `1px solid ${C.acc}` }}
+                      >CHANGE</Btn>
+                      <Btn type="button" onClick={() => memoryForget(e.key)} style={fixBtn} hoverStyle={{ border: `1px solid ${C.acc}` }}>
+                        FORGET
+                      </Btn>
+                    </div>
                   </td>
                 </tr>
               )
@@ -203,13 +390,14 @@ export default function LearnedPlaces(): React.ReactElement {
         <div style={{ fontSize: 12, color: C.dim, marginTop: 4 }}>{`Showing ${ROWS_MAX}; search to find the rest.`}</div>
       ) : null}
 
-      <div style={{ fontFamily: F.display, fontSize: 11, letterSpacing: '0.12em', color: C.dim, margin: '16px 0 4px' }}>
+      <div style={{ fontFamily: F.display, fontSize: 14, letterSpacing: '0.14em', color: C.text, margin: '22px 0 4px', paddingBottom: 6, borderBottom: `1px solid ${C.lineStrong}` }}>
         RECENT CHANGES
       </div>
       {doc.changes.length ? (
         doc.changes.map((c, i) => (
           <div
             key={`${c.at}-${i}`}
+            data-testid="learned-change"
             style={{ display: 'flex', gap: 10, alignItems: 'center', padding: '4px 0', borderBottom: `1px dotted ${C.lineFaint}`, fontSize: 12 }}
           >
             <span style={{ fontFamily: F.mono, color: C.dim, flex: 'none', width: 80 }} title={c.at}>{ago(c.at, now)}</span>

@@ -1,7 +1,7 @@
 /**
  * Fix a stop's match on the spot (M5): evidence lines, ✓ Right, ✗ Wrong → pick a place, Forget.
  * Writes go to main (otherMemorySet/Forget), which owns other-matches.json and broadcasts the new doc,
- * so this works in the overlay window too. PlacePicker is shared with Settings → LEARNED PLACES.
+ * so this works in the overlay window too. PlacePicker is shared with LEARNED DATA → Places; "Open in Learned Data" jumps there.
  */
 import React, { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
 import { createPortal } from 'react-dom'
@@ -12,6 +12,7 @@ import { matchWord, placeKey, type StopPlace } from '@other/otherResolve'
 import type { Location } from '@shared/types'
 import { useMergedLocations } from '../state/otherPlaces'
 import { useMemoryLookup } from '../state/otherMemoryStore'
+import { focusLearned } from '../state/learnedFocus'
 
 /** most picks shown at once */
 const PICK_MAX = 30
@@ -280,6 +281,21 @@ export function MatchFix({ match, anchor, onClose }: {
           ) : null}
         </div>
       )}
+      <div style={{ marginTop: 8, textAlign: 'right' }}>
+        <button
+          type="button"
+          data-testid="matchfix-open-learned"
+          title={entry ? 'Show this entry on the LEARNED DATA tab' : 'Open the LEARNED DATA tab'}
+          onClick={() => {
+            focusLearned(entry?.key ?? match.memoryKey)
+            onClose()
+          }}
+          style={{
+            background: 'transparent', border: 0, padding: 0, cursor: 'pointer', color: C.acc,
+            fontFamily: F.body, fontSize: 11, textDecoration: 'underline'
+          }}
+        >Open in Learned Data</button>
+      </div>
     </div>,
     document.body
   )

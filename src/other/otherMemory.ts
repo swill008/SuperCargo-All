@@ -89,6 +89,8 @@ export interface SetInput {
   text: string
   context?: string
   place: string
+  /** KEEP MINE: clear the dispute (wrong 0, no wrongAt); confirmed is kept */
+  reset?: boolean
 }
 
 export function emptyMemoryDoc(): MemoryDoc {
@@ -209,7 +211,7 @@ export function recordProof(doc: MemoryDoc, p: ProofInput, at: string): MemoryDo
   }
 }
 
-/** ✓ Right / pick: the user decides the place. Counts reset when the place changes. */
+/** ✓ Right / pick: the user decides the place. Counts reset when the place changes; `reset` clears a dispute. */
 export function setUserPlace(doc: MemoryDoc, p: SetInput, at: string): MemoryDoc {
   const before = lookupMemory(doc, p.key) ?? null
   const e: MemoryEntry = before ? { ...before } : { ...newEntry(p, at), seen: 1 }
@@ -217,6 +219,10 @@ export function setUserPlace(doc: MemoryDoc, p: SetInput, at: string): MemoryDoc
   if (p.context != null) e.context = p.context
   if (!samePlace(e.place, p.place)) {
     e.confirmed = 0
+    e.wrong = 0
+    delete e.wrongAt
+  }
+  if (p.reset) {
     e.wrong = 0
     delete e.wrongAt
   }

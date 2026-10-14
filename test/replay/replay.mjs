@@ -644,7 +644,7 @@ const NON_EXACT_TAG = /≈\s*corrected|📍\s*game marker|\?\s*guess|⚠\s*misma
 
 // CONTRACT9 (match memory, M1-M8). The app keeps userData/other-matches.json ({entries, changes}); the main window
 // reports non-exact stops ("seen", debounced 5 s), Objective Complete with a fresh read near it is a game proof, the
-// tag on a stop opens MatchFix (✓ Right / ✗ Wrong → pick / Forget), Settings → OTHER MODE → LEARNED PLACES lists entries + Undo.
+// tag on a stop opens MatchFix (✓ Right / ✗ Wrong → pick / Forget), the LEARNED DATA tab (CONTRACT12) lists entries + Undo.
 const SHUBIN = 'Shubin Mining Facility on Lyria'
 const SAL2 = 'Shubin Mining Facility SAL-2'
 const memFile = (e) => {
@@ -664,13 +664,15 @@ async function memSetVia(port, re, place) {
 }
 const goStep = (id, place) => ({ id, kind: 'go', label: `Deliver Scrap to ${place}`, location: place, have: 0, need: 1, done: false })
 // a fixed (Lorville) or read (Covalex 'planet') start; the jobs are seeded, more can arrive through e.append
-async function memLaunch(name, { jobs = [], read = false, typed = 'Lorville' } = {}) {
+// `files` ({ 'other-matches.json': doc, ... }) are written into the data folder before the app starts
+async function memLaunch(name, { jobs = [], read = false, typed = 'Lorville', files = {} } = {}) {
   const e = setup(name, { otherStartMode: read ? 'auto' : 'fixed' }, {
     jobs: jobs.map((j) => logJob(mission(), j)),
     history: [],
     listOrder: 'distance',
     ...(read ? { lastLogEventAt: iso(ago(30)) } : { startLocation: typed, startTypedAt: iso(ago(60)) })
   })
+  for (const [f, doc] of Object.entries(files)) fs.writeFileSync(path.join(e.data, f), JSON.stringify(doc))
   const textFile = path.join(e.home, 'where-text.json')
   if (read) fs.writeFileSync(textFile, JSON.stringify({ zone2: serverTimeNow(COVALEX_READS.planet), zone1: '' }))
   const port = await freePort()
@@ -738,6 +740,93 @@ const uiWrongPick = (port, which, tagRe, search, place) =>
   )
 const MEM_TAG = { user: /✓\s*you set/i, learned: /✓\s*learned/i, disputed: /⚠\s*the game disagrees/i }
 
+// CONTRACT12: the LEARNED DATA tab (Other mode bottom menu: NEXT | JOBS | HISTORY | LEARNED DATA | SETTINGS) holds
+// Places (summary, Needs your eye, disputed, table, RECENT CHANGES + UNDO), Sites and Planets. Learned places left
+// Settings → OTHER MODE, which keeps one line + OPEN LEARNED DATA. Opens the tab; text once it matches `want`.
+async function openLearnedData(port, want = /Needs your eye/i, ms = 10000) {
+  const tab = await clickButton(port, 'main', /^LEARNED DATA$/)
+  const text = (await until(() => windowText(port, 'main').then((t) => (want.test(t) ? t : '')), ms)) || (await windowText(port, 'main'))
+  return { tab, text }
+}
+// visible button texts of the bottom menu (the last row of buttons in the main window)
+const navButtons = (port) =>
+  cdpEval(
+    port,
+    'main',
+    `(() => {
+      const vis = (el) => !!(el.offsetWidth || el.offsetHeight || el.getClientRects().length)
+      const bs = [...document.querySelectorAll('button')].filter(vis)
+      const bottom = Math.max(...bs.map((b) => b.getBoundingClientRect().top))
+      return bs.filter((b) => Math.abs(b.getBoundingClientRect().top - bottom) < 4).map((b) => b.textContent.trim())
+    })()`
+  )
+// the LEARNED DATA page through its test ids: sections, summary counts (learned-count-*), table rows (data-key /
+// data-kind, in shown order), Needs your eye rows, Sites / Planets table text, the active sort header
+const learnedProbe = (port) =>
+  cdpEval(
+    port,
+    'main',
+    `(() => {
+      const q = (sel) => [...document.querySelectorAll(sel)]
+      const tid = (id) => document.querySelector('[data-testid="' + id + '"]')
+      const count = (k) => {
+        const b = tid('learned-count-' + k)
+        const n = b ? parseInt(b.textContent, 10) : NaN
+        return Number.isFinite(n) ? n : null
+      }
+      return {
+        sections: q('[data-testid^="learned-section-"]').map((x) => x.getAttribute('data-testid').replace('learned-section-', '')),
+        counts: { user: count('user'), learned: count('learned'), unproven: count('unproven'), disputed: count('disputed') },
+        rows: q('tr[data-testid="learned-row"]').map((r) => ({ key: r.getAttribute('data-key'), kind: r.getAttribute('data-kind'), text: r.textContent })),
+        needs: q('[data-testid="learned-needs-row"]').map((r) => ({ key: r.getAttribute('data-key'), text: r.textContent })),
+        needsText: tid('learned-needs')?.textContent ?? null,
+        where: q('[data-testid="learned-where"]').map((x) => x.textContent),
+        sites: q('[data-testid="learned-site"]').map((x) => x.textContent),
+        planets: q('[data-testid="learned-planet"]').map((x) => x.textContent)
+      }
+    })()`
+  )
+// click the button with text btnRe inside the table row for memory key `key`, or the element matching `sel`
+const clickRowButton = (port, key, btnRe) =>
+  cdpEval(
+    port,
+    'main',
+    `(() => {
+      const r = [...document.querySelectorAll('tr[data-testid="learned-row"]')].find((x) => x.getAttribute('data-key') === ${JSON.stringify(key)})
+      const b = r && [...r.querySelectorAll('button')].find((x) => ${btnRe}.test(x.textContent.trim()))
+      b?.click()
+      return { row: !!r, button: !!b }
+    })()`
+  )
+const clickSel = (port, sel) => cdpEval(port, 'main', `(() => { const b = document.querySelector(${JSON.stringify(sel)}); b?.click(); return !!b })()`)
+// the focused entry's row: in the window's view and lit (its background differs from the table body's)
+const learnedRowView = (port, key) =>
+  cdpEval(
+    port,
+    'main',
+    `(() => {
+      const r = [...document.querySelectorAll('tr[data-testid="learned-row"]')].find((x) => x.getAttribute('data-key') === ${JSON.stringify(key)})
+      if (!r) return null
+      const b = r.getBoundingClientRect()
+      const bg = getComputedStyle(r).backgroundColor
+      return { inView: b.top >= 0 && b.bottom <= window.innerHeight, top: Math.round(b.top), height: window.innerHeight, bg, marked: bg !== getComputedStyle(r.parentElement).backgroundColor && bg !== 'rgba(0, 0, 0, 0)' }
+    })()`
+  )
+// the summary buckets from a memory doc, one per entry (kindOf in LearnedPlaces.tsx: memoryLabel starting with ⚠ ->
+// disputed, a game entry with wrong >= 2 too; else user -> you set; else proven (confirmed >= 2 and > wrong) -> learned)
+const memCounts = (doc) => {
+  const c = { user: 0, learned: 0, unproven: 0, disputed: 0 }
+  for (const x of doc?.entries ?? []) {
+    const proven = !!x.place && x.origin === 'game' && x.confirmed >= 2 && x.confirmed > x.wrong
+    if (x.origin === 'user' ? x.disputed || x.wrong >= 2 : !proven && x.wrong >= 2) c.disputed++
+    else if (x.origin === 'user') c.user++
+    else if (proven) c.learned++
+    else c.unproven++
+  }
+  return c
+}
+const sameCounts = (a, b) => !!a && !!b && ['user', 'learned', 'unproven', 'disputed'].every((k) => a[k] === b[k])
+
 // CONTRACT9 ADDENDUM 2 S (data source switches): setting otherSourceStarmap (default on); Settings → OTHER MODE →
 // DATA SOURCES has one row per source with its counts and a switch (UEX always on, "base list").
 const J82_PICKUP_STEP = {
@@ -754,7 +843,7 @@ const J82_PICKUP_STEP = {
   position: { x: 12851198309.646416, y: 18566.685364, z: 672945.839535 }
 }
 const settingsGet = (port) => cdpEval(port, 'main', 'window.supercargo.getSettings()')
-// CONTRACT11: Settings has a tab bar GENERAL | OTHER MODE; every Other-only row (DATA SOURCES, LEARNED PLACES, zones,
+// CONTRACT11: Settings has a tab bar GENERAL | OTHER MODE; every Other-only row (DATA SOURCES, the LEARNED DATA link, zones,
 // hotkey, AFK) lives on OTHER MODE. Opens the Settings page, then that tab; returns which clicks found their button.
 async function openSettingsTab(port, tab = 'OTHER MODE') {
   const page = await clickButton(port, 'main', /^SETTINGS$/)
@@ -2463,7 +2552,7 @@ const scenarios = {
     ]
   },
 
-  // CONTRACT9 M7: set SAL-2 for the unsure stop, then Settings -> OTHER MODE -> LEARNED PLACES -> Undo on the newest change ->
+  // CONTRACT9 M7: set SAL-2 for the unsure stop, then the LEARNED DATA tab (CONTRACT12) -> UNDO on the newest change ->
   // the stop is '? not sure' again and the entry is no longer the user's
   'memory-undo': async () => {
     const name = 'memory-undo'
@@ -2476,8 +2565,7 @@ const scenarios = {
     try {
       setDoc = await memSetVia(port, /Shubin Mining Facility on Lyria/i, SAL2)
       await nextText(port, MEM_TAG.user)
-      await openSettingsTab(port, 'OTHER MODE')
-      listText = (await until(() => windowText(port, 'main').then((t) => (/LEARNED PLACES/i.test(t) && /SAL-2/.test(t) ? t : '')), 10000)) || (await windowText(port, 'main'))
+      listText = (await openLearnedData(port, /SAL-2[\s\S]*you set it|you set it[\s\S]*SAL-2/i)).text
       undone = await clickButton(port, 'main', /^Undo$/i)
       await until(() => (memEntry(memFile(e), /Shubin Mining Facility on Lyria/i)?.origin !== 'user' ? true : null), 8000)
       next = await nextText(port, TAG.unsure)
@@ -2489,7 +2577,7 @@ const scenarios = {
     const ent = memEntry(file, /Shubin Mining Facility on Lyria/i)
     return [
       ['otherMemorySet returned the doc with the user entry', memEntry(setDoc, /Shubin/i)?.origin === 'user', `doc=${short(setDoc, 400)} ${err}`],
-      ['LEARNED PLACES lists the text -> SAL-2, "you set it"', /LEARNED PLACES/i.test(listText) && /you set it/i.test(listText) && /SAL-2/.test(listText), `settings=${short(lineWith(listText, /LEARNED|Shubin|SAL-|you set/i))}`],
+      ['LEARNED DATA lists the text -> SAL-2, "you set it"', /RECENT CHANGES/i.test(listText) && /you set it/i.test(listText) && /SAL-2/.test(listText), `learned=${short(lineWith(listText, /RECENT|Shubin|SAL-|you set/i))}`],
       ['Undo button clicked', undone === true, `undone=${undone}`],
       ['Next tab: back to "? not sure"', TAG.unsure.test(next) && !MEM_TAG.user.test(lineWith(next, /Shubin|you set/i)), `next=${short(lineWith(next, /Shubin|not sure|you set/i))}`],
       ['other-matches.json: entry not the user\'s (game or gone)', !ent || ent.origin === 'game', `entry=${short(ent, 400)}`],
@@ -2945,7 +3033,7 @@ const scenarios = {
       ['tab bar: GENERAL and OTHER MODE buttons', ['GENERAL', 'OTHER MODE'].every((t) => r.gen?.tabs?.includes(t)), `tabs=${short(r.gen?.tabs)} page=${r.page} ${err}`],
       ['GENERAL is the first-visit tab: vanilla sections shown', GENERAL_SECTIONS.every((t) => new RegExp(`^${t}$`, 'm').test(r.general)), `missing=${short(GENERAL_SECTIONS.filter((t) => !new RegExp(`^${t}$`, 'm').test(r.general)))}`],
       ['GENERAL has no Other rows', !OTHER_ROWS.test(r.general), `found=${short(lineWith(r.general, OTHER_ROWS))}`],
-      ['OTHER MODE tab clicked: no vanilla sections, Other rows shown', r.tabClicked && !/^OCR CAPTURE$/m.test(r.other) && /Show reputation/i.test(r.other) && /DATA SOURCES/i.test(r.other) && /LEARNED PLACES/i.test(r.other), `clicked=${r.tabClicked} text=${short(r.other.slice(0, 300))}`],
+      ['OTHER MODE tab clicked: no vanilla sections, Other rows shown', r.tabClicked && !/^OCR CAPTURE$/m.test(r.other) && /Show reputation/i.test(r.other) && /DATA SOURCES/i.test(r.other) && /Learned places are on the LEARNED DATA tab/i.test(r.other), `clicked=${r.tabClicked} text=${short(r.other.slice(0, 300))}`],
       ['OTHER MODE: the 5 headings are there', hs.length === 5 && hs.every(Boolean), `headings=${short(hs.map((h) => h?.text ?? null))}`],
       ['OTHER MODE: sections jobs, distances, where, places, afk (data-other-section)', short(r.oth?.ids) === short(['jobs', 'distances', 'where', 'places', 'afk']), `ids=${short(r.oth?.ids)}`],
       ['GENERAL shows no OTHER MODE sections', !(r.gen?.ids ?? []).length, `ids=${short(r.gen?.ids)}`],
@@ -2990,6 +3078,125 @@ const scenarios = {
       ['typed start: "✓ you set" next to STARTING AT', MEM_TAG.user.test(startPart(next)), `start=${short(startPart(next))}`],
       ['scan confirm screen: "✓ you set" on the place', MEM_TAG.user.test(confirmPart(scan?.text)), `ui=${short(scan?.ui)} confirm=${short(lineWith(confirmPart(scan?.text), /Shubin|SAL-|you set|not sure/i), 500)}`],
       ['scan job after CONFIRM: place SAL-2, text as read kept', confirmed && scanStep?.location === SAL2 && scanStep.locationRaw === SHUBIN, `confirmed=${confirmed} step=${short(scanStep, 400)}`]
+    ]
+  },
+
+  // CONTRACT12 (main tab LEARNED DATA): the tab is in the bottom menu in Other mode only; Settings → OTHER MODE keeps one
+  // line + OPEN LEARNED DATA (no list); the summary counts match other-matches.json; the open '? not sure' stop is in
+  // "Needs your eye" and is fixed there (✗ Wrong → SAL-2); disputed entries: KEEP MINE clears the dispute, USE WHERE I
+  // WAS sets the place you were; the table sorts by TIMES SEEN; Sites and Planets show other-bodies.json; MatchFix
+  // "Open in Learned Data" lands on the stop's entry. A Haul-mode launch has no LEARNED DATA button.
+  'learned-data-tab': async () => {
+    const name = 'learned-data-tab'
+    const at = iso(ago(3600))
+    const ent = (key, text, place, origin, extra = {}) => ({ key, text, place, origin, confirmed: 0, wrong: 0, seen: 1, firstAt: at, lastAt: at, ...extra })
+    const matchesDoc = {
+      entries: [
+        ent('seed-user', 'Port Tresler Gate 3', 'Port Tressler', 'user', { seen: 5 }),
+        ent('seed-learned', 'Seraphim Stn Hab', 'Seraphim Station', 'game', { confirmed: 3, seen: 9 }),
+        ent('seed-unproven', 'Covalex S1DCO06 Hurstn', COVALEX, 'game', { seen: 2 }),
+        ent('seed-keep', 'Shubin SAL 5 Lyria', 'Shubin Mining Facility SAL-5', 'user', { confirmed: 1, wrong: 2, disputed: true, seen: 4, wrongAt: [{ name: COVALEX, meters: 120, at }, { name: COVALEX, meters: 140, at }] }),
+        ent('seed-use', 'Shubin SAL 2 Lyria', SAL2, 'user', { wrong: 2, disputed: true, seen: 3, wrongAt: [{ name: 'Port Tressler', meters: 300, at }, { name: 'Port Tressler', meters: 280, at }] })
+      ],
+      changes: []
+    }
+    const P = { x: 12850457093, y: 0, z: 0 }
+    const bodiesDoc = {
+      bodies: { hurston: { name: 'Hurston', system: 'Stanton', centre: P, radiusM: 1000000, radiusSource: 'panel', seen: 3, lastSeen: at } },
+      learned: [{ name: 'Security Compound', near: COVALEX, nearMeters: 850, body: 'Hurston', system: 'Stanton', point: { x: P.x + 1000, y: 0, z: 0 }, seen: 2, lastSeen: at }]
+    }
+    const { e, port, stop } = await memLaunch(name, {
+      jobs: [{ ref: 'J92', steps: [goStep('s1', SHUBIN)] }],
+      files: { 'other-matches.json': matchesDoc, 'other-bodies.json': bodiesDoc }
+    })
+    const r = { nav: null, settings: '', link: false, p0: null, file0: null, filter: null, filtered: null, ui: null, p1: null, keep: null, use: null, sort1: null, sort2: null, open: false, fixTag: false, view: null, key: null }
+    let err = ''
+    const seedOrder = (p) => (p?.rows ?? []).map((x) => x.key).filter((k) => ['seed-user', 'seed-learned', 'seed-unproven'].includes(k))
+    try {
+      r.nav = await until(() => navButtons(port).then((b) => (b?.includes('SETTINGS') ? b : null)), 10000)
+      // the live stop's "seen" entry first, so the counts below are stable
+      await until(() => memGet(port).then((d) => memEntry(d, /Shubin Mining Facility on Lyria/i) ?? null), 15000)
+      await openSettingsTab(port, 'OTHER MODE')
+      r.settings = (await until(() => windowText(port, 'main').then((t) => (/places\s*&\s*matching/i.test(t) && /DATA SOURCES/i.test(t) ? t : '')), 10000)) || (await windowText(port, 'main'))
+      r.settingsRows = await cdpEval(port, 'main', `document.querySelectorAll('tr[data-testid="learned-row"]').length`)
+      r.link = await clickButton(port, 'main', /^OPEN LEARNED DATA$/)
+      // S1: summary counts vs main's doc (read together; the seen reporter may still add the stop's entry)
+      const pair = await until(async () => {
+        const p = await learnedProbe(port)
+        const d = await memGet(port)
+        return p?.rows?.length && sameCounts(p.counts, memCounts(d)) ? { p, d } : null
+      }, 10000)
+      r.p0 = pair?.p ?? (await learnedProbe(port))
+      r.file0 = memCounts(pair?.d ?? (await memGet(port)))
+      // the disputed number filters the table; a second click shows all again
+      r.filter = await clickSel(port, '[data-testid="learned-count-disputed"]')
+      r.filtered = await until(() => learnedProbe(port).then((p) => (p?.rows?.length && p.rows.every((x) => x.kind === 'disputed') ? p : null)), 5000)
+      r.filtered = r.filtered ?? (await learnedProbe(port))
+      await clickSel(port, '[data-testid="learned-count-disputed"]')
+      // S2: Needs your eye, fixed there (its tag -> ✗ Wrong -> SAL-2)
+      r.ui = await uiWrongPick(port, 'main', TAG.unsure, 'SAL-2', SAL2)
+      await until(() => (memEntry(memFile(e), /Shubin Mining Facility on Lyria/i)?.place === SAL2 ? true : null), 10000)
+      r.p1 = (await until(() => learnedProbe(port).then((p) => (p && !p.needs.some((x) => /Shubin Mining Facility on Lyria/.test(x.text)) ? p : null)), 8000)) ?? (await learnedProbe(port))
+      // S3: disputed entries
+      r.keep = await clickRowButton(port, 'seed-keep', /^KEEP MINE$/i)
+      await until(() => (memEntry(memFile(e), /Shubin SAL 5 Lyria/)?.wrong === 0 ? true : null), 10000)
+      r.use = await clickRowButton(port, 'seed-use', /^USE WHERE I WAS$/i)
+      await until(() => (memEntry(memFile(e), /Shubin SAL 2 Lyria/)?.place === 'Port Tressler' ? true : null), 10000)
+      // S4: sort by TIMES SEEN (first click: most seen first), then the other way
+      r.sortClick1 = await clickSel(port, 'th[data-sort="seen"]')
+      await sleep(400)
+      r.sort1 = seedOrder(await learnedProbe(port))
+      r.sortClick2 = await clickSel(port, 'th[data-sort="seen"]')
+      await sleep(400)
+      r.sort2 = seedOrder(await learnedProbe(port))
+      // S7: MatchFix on the Next tab -> Open in Learned Data -> the entry's row, scrolled into view and lit
+      r.key = memEntry(await memGet(port), /Shubin Mining Facility on Lyria/i)?.key ?? null
+      await nextText(port, MEM_TAG.user)
+      r.fixTag = await clickButton(port, 'main', MEM_TAG.user)
+      r.open = !!(await until(() => clickSel(port, '[data-testid="matchfix-open-learned"]').then((ok) => ok || null), 5000))
+      r.view = (await until(() => learnedRowView(port, r.key).then((v) => (v?.inView && v.marked ? v : null)), 3500)) ?? (await learnedRowView(port, r.key))
+    } catch (x) {
+      err = String(x?.message ?? x)
+    }
+    await stop()
+    // Haul mode: no LEARNED DATA in the bottom menu
+    let haulNav = null
+    try {
+      const h = setup(`${name}-haul`, { workMode: 'haul' })
+      const hport = await freePort()
+      const hstop = await launch(h, cdpArgs(hport))
+      haulNav = await until(() => navButtons(hport).then((b) => (b?.includes('SETTINGS') ? b : null)), 10000)
+      await hstop()
+    } catch (x) {
+      err += ` haul: ${String(x?.message ?? x)}`
+    }
+    const file = memFile(e)
+    const keep = memEntry(file, /Shubin SAL 5 Lyria/)
+    const use = memEntry(file, /Shubin SAL 2 Lyria/)
+    const shubin = memEntry(file, /Shubin Mining Facility on Lyria/i)
+    const needs0 = (r.p0?.needs ?? []).find((x) => /Shubin Mining Facility on Lyria/.test(x.text))
+    const sites = (r.p1?.sites ?? []).join(' | ')
+    const planets = r.p1?.planets ?? []
+    // the planet itself, not a moon such as "Aberdeen of Hurston"
+    const hurston = planets.find((x) => /^\s*Hurston/.test(x)) ?? ''
+    return [
+      ['Other bottom menu: NEXT JOBS HISTORY LEARNED DATA SETTINGS', short(r.nav) === short(['NEXT', 'JOBS', 'HISTORY', 'LEARNED DATA', 'SETTINGS']), `nav=${short(r.nav)} ${err}`],
+      ['Haul bottom menu: no LEARNED DATA', !!haulNav && !haulNav.includes('LEARNED DATA'), `nav=${short(haulNav)}`],
+      ['Settings OTHER MODE: the line, no learned list', /Learned places are on the LEARNED DATA tab\./.test(r.settings) && r.settingsRows === 0 && !/RECENT CHANGES/i.test(r.settings), `rows=${r.settingsRows} places=${short(lineWith(r.settings, /learned|RECENT/i))}`],
+      ['OPEN LEARNED DATA opens the tab: Places, Sites, Planets', r.link && short(r.p0?.sections) === short(['places', 'sites', 'planets']), `clicked=${r.link} sections=${short(r.p0?.sections)}`],
+      ['summary counts match other-matches.json (one bucket per entry)', sameCounts(r.p0?.counts, r.file0) && r.file0.disputed === 2 && r.file0.learned === 1, `summary=${short(r.p0?.counts)} file=${short(r.file0)}`],
+      ['disputed number filters the table to the disputed rows', r.filter && (r.filtered?.rows ?? []).length === 2 && r.filtered.rows.every((x) => x.kind === 'disputed'), `rows=${short((r.filtered?.rows ?? []).map((x) => [x.key, x.kind]))}`],
+      ['disputed pinned on top with "you were at Covalex …"', ['seed-keep', 'seed-use'].every((k, i, a) => (r.p0?.rows ?? []).slice(0, a.length).some((x) => x.key === k)) && (r.p0?.where ?? []).some((w) => /you were at Covalex Distribution Centre S1DC06/i.test(w)), `top=${short((r.p0?.rows ?? []).slice(0, 3).map((x) => x.key))} where=${short(r.p0?.where)}`],
+      ['Needs your eye: the open stop with its job ref and "? not sure"', !!needs0 && /J92/.test(needs0.text) && TAG.unsure.test(needs0.text), `needs=${short(r.p0?.needs, 500)}`],
+      ['Needs your eye: fixed there (tag, ✗ Wrong, SAL-2) -> user entry, row gone', !!r.ui?.option && shubin?.origin === 'user' && shubin.place === SAL2 && !(r.p1?.needs ?? []).some((x) => /Shubin Mining Facility on Lyria/.test(x.text)), `ui=${short(r.ui)} entry=${short(shubin, 300)} needs=${short(r.p1?.needs)}`],
+      ['KEEP MINE: place kept, wrong 0, no wrongAt, not disputed, confirmed kept', !!r.keep?.button && keep?.origin === 'user' && keep.place === 'Shubin Mining Facility SAL-5' && keep.wrong === 0 && !(keep.wrongAt ?? []).length && !keep.disputed && keep.confirmed === 1, `ui=${short(r.keep)} entry=${short(keep, 400)}`],
+      ['USE WHERE I WAS: user entry -> Port Tressler', !!r.use?.button && use?.origin === 'user' && use.place === 'Port Tressler', `ui=${short(r.use)} entry=${short(use, 400)}`],
+      ['both logged as user "set" changes with before/after (UNDO works)', ['seed-keep', 'seed-use'].every((k) => (file?.changes ?? []).some((c) => c.key === k && c.what === 'set' && c.by === 'user' && c.before && c.after)), `changes=${short((file?.changes ?? []).map((c) => [c.key, c.what]))}`],
+      ['sort by TIMES SEEN: most first, then least first', r.sortClick1 && r.sortClick2 && short(r.sort1) === short(['seed-learned', 'seed-user', 'seed-unproven']) && short(r.sort2) === short(['seed-unproven', 'seed-user', 'seed-learned']), `first=${short(r.sort1)} second=${short(r.sort2)}`],
+      ['Sites: Security Compound at Covalex (850 m), Hurston', /Security Compound/.test(sites) && /Covalex/.test(sites) && /850\s*m|0[.,]85\s*km/.test(sites) && /Hurston/.test(sites), `sites=${short(r.p1?.sites)}`],
+      ['Planets: Hurston, Stanton, 1,000 km exact (panel); others estimated', /Stanton/.test(hurston) && /1[,.\s]?000\s*km/.test(hurston) && /exact \(panel\)/i.test(hurston) && planets.some((x) => /estimated/i.test(x)), `hurston=${short(hurston)} planets=${planets.length}`],
+      ['MatchFix "Open in Learned Data": tag and link found', r.fixTag && r.open, `tag=${r.fixTag} link=${r.open} key=${r.key}`],
+      ['lands on the entry: row in view and lit', !!r.view?.inView && !!r.view.marked, `view=${short(r.view)}`]
     ]
   }
 }

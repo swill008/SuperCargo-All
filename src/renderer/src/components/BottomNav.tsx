@@ -19,6 +19,7 @@ const OTHER_NAV: Array<{ id: ViewId; label: string }> = [
   { id: 'next', label: 'NEXT' },
   { id: 'jobs', label: 'JOBS' },
   { id: 'history', label: 'HISTORY' },
+  { id: 'learned', label: 'LEARNED DATA' },
   { id: 'settings', label: 'SETTINGS' }
 ]
 

@@ -91,7 +91,7 @@ function MainApp(): React.ReactElement {
 
   useEffect(() => {
     const haulOnly = view === 'manifest' || view === 'contracts' || view === 'grid'
-    const otherOnly = view === 'jobs' || view === 'next'
+    const otherOnly = view === 'jobs' || view === 'next' || view === 'learned'
     if (workMode === 'other' && haulOnly) useStore.getState().setView('jobs' as 'manifest')
     if (workMode === 'haul' && otherOnly) useStore.getState().setView('manifest')
   }, [workMode, view])

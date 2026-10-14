@@ -1,5 +1,5 @@
 // Match memory checks: bundles src/other/otherMemory.ts and checks every function: keys, seen log, proofs,
-// user set, forget, undo (of set / forget / proof), caps, the disputed rule, learnedPlace thresholds, labels.
+// user set, reset (KEEP MINE), forget, undo (of set / reset / forget / proof), caps, the disputed rule, learnedPlace thresholds, labels.
 // Usage: node test/replay/memory_checks.mjs   (no build needed)   --verbose prints every check
 
 import { createRequire } from 'node:module'
@@ -155,6 +155,34 @@ safe('disputed', () => {
   check('recordProof', 'user entry, proof ok at another place: wrong for the user place', M.lookupMemory(u, 'u').wrong === 1 && M.lookupMemory(u, 'u').place === 'A')
   u = M.recordProof(u, { key: 'u', text: 'U', place: 'X', ok: false, actual: where('A', 100) }, T(3))
   check('recordProof', 'user entry, proof elsewhere but you were at the user place: confirmed', M.lookupMemory(u, 'u').confirmed === 1)
+})
+
+safe('reset', () => {
+  let d = M.setUserPlace(M.emptyMemoryDoc(), { key: 'k', text: 'K', place: 'A' }, T(1))
+  d = M.recordProof(d, { key: 'k', text: 'K', place: 'A', ok: true, actual: where('A', 10) }, T(2))
+  d = M.recordProof(d, { key: 'k', text: 'K', place: 'A', ok: false, actual: where('B', 3000) }, T(3))
+  d = M.recordProof(d, { key: 'k', text: 'K', place: 'A', ok: false, actual: where('B', 2500) }, T(4))
+  const before = M.lookupMemory(d, 'k')
+  check('reset', 'setup: disputed user entry, confirmed 1', before.disputed === true && before.wrong === 2 && before.confirmed === 1 && before.wrongAt.length === 2, J(before))
+  const plain = M.lookupMemory(M.setUserPlace(d, { key: 'k', text: 'K', place: 'A' }, T(5)), 'k')
+  check('reset', 'without reset: same place keeps the dispute (as before)', plain.disputed === true && plain.wrong === 2, J(plain))
+  const r = M.setUserPlace(d, { key: 'k', text: 'K', place: 'A', reset: true }, T(5))
+  const e = M.lookupMemory(r, 'k')
+  check('reset', 'KEEP MINE: wrong 0, no wrongAt, not disputed', e.wrong === 0 && !e.wrongAt && !e.disputed, J(e))
+  check('reset', 'KEEP MINE: confirmed, place, origin kept', e.confirmed === 1 && e.place === 'A' && e.origin === 'user', J(e))
+  check('reset', 'label back to you set it', M.memoryLabel(e) === 'you set it', M.memoryLabel(e))
+  const c = r.changes[0]
+  check('reset', "logs 'set' by user with before (disputed) and after (clear)", c.what === 'set' && c.by === 'user' && c.before.disputed === true && c.before.wrong === 2 && c.after.wrong === 0 && !c.after.disputed, J(c))
+  check('reset', 'input doc unchanged', M.lookupMemory(d, 'k').disputed === true && M.lookupMemory(d, 'k').wrongAt.length === 2)
+  const u = M.undoChange(r, 0, T(6))
+  const ue = M.lookupMemory(u, 'k')
+  check('reset', 'UNDO restores the disputed entry', ue.disputed === true && ue.wrong === 2 && ue.confirmed === 1 && J(ue.wrongAt) === J(before.wrongAt) && ue.place === 'A', J(ue))
+  check('reset', "UNDO logs 'undo' (before = cleared, after = disputed)", u.changes[0].what === 'undo' && u.changes[0].before.wrong === 0 && u.changes[0].after.disputed === true)
+  const use = M.lookupMemory(M.setUserPlace(d, { key: 'k', text: 'K', place: 'B' }, T(5)), 'k')
+  check('reset', 'USE WHERE I WAS (another place): counts reset, not disputed', use.place === 'B' && use.confirmed === 0 && use.wrong === 0 && !use.wrongAt && !use.disputed, J(use))
+  const fresh = M.setUserPlace(M.emptyMemoryDoc(), { key: 'n', text: 'N', place: 'Q', reset: true }, T(1))
+  const f = M.lookupMemory(fresh, 'n')
+  check('reset', 'reset on a new key: plain user entry', f.origin === 'user' && f.place === 'Q' && f.wrong === 0 && f.confirmed === 0 && !f.disputed, J(f))
 })
 
 safe('forgetEntry', () => {

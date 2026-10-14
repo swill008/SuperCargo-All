@@ -427,7 +427,7 @@ of past matches: what it saw, what the game proved (Objective Complete + a fresh
 main window: listOpenStops (debounced 5 s) ─► non-exact stops ─► otherMemory:seen ─► recordSeen ─► other-matches.json
 Objective Complete (main window) ─► prev where (displayinfo/map/inventory, acc >= 7, <= 10 min)
    ─► resolve the step's place ─► within 1.5 km? ─► otherMemory:proof ─► recordProof (confirmed / wrong + where you were)
-tag click / LEARNED PLACES ─► otherMemory:set / :forget / :undo ─► new doc returned + evt:other:memory to every window
+tag click / LEARNED DATA tab ─► otherMemory:set / :forget / :undo ─► new doc returned + evt:other:memory to every window
 every window: useMemoryLookup() ─► resolveStopPlace ctx.memory
    user entry ─► status user (10; disputed 6, "⚠ the game disagrees")   learned entry ─► +4 (status learned if it wins)
    wrong >= 2 ─► −4   ─► tags, Next, Jobs, overlay ─► SNAPSHOT + ## MATCHES + ## MATCH MEMORY
@@ -591,9 +591,9 @@ GENERAL | OTHER MODE. No setting key or behaviour changed; only where the rows s
 | File | Owns (batch 10) | Entry points |
 |---|---|---|
 | `src/renderer/src/pages/SettingsPage.tsx` (upstream, re-tie 4) | Tab bar GENERAL / OTHER MODE, remembered tab (settings.json `otherSettingsTab`, default GENERAL); GENERAL = the upstream sections with no Other rows (OCR hotkey recorder, re-tie 14, stays) | renders `<OtherSettingsPage rowStyle keyStyle Toggle />` on OTHER MODE |
-| `src/other/renderer/OtherSettingsPage.tsx` (new) | The OTHER MODE tab: Haul-mode note, jump list (Jobs · Distances · Where Am I · Places · AFK), five sections with large headings and one-line descriptions: Jobs & Objectives, Distances & Route, Where Am I (position reading), Places & Matching (Data Sources, Learned Places), AFK | default `OtherSettingsPage({ rowStyle, keyStyle, Toggle })` |
+| `src/other/renderer/OtherSettingsPage.tsx` (new) | The OTHER MODE tab: Haul-mode note, jump list (Jobs · Distances · Where Am I · Places · AFK), five sections with large headings and one-line descriptions: Jobs & Objectives, Distances & Route, Where Am I (position reading), Places & Matching (Data Sources; since batch 11 a line + OPEN LEARNED DATA instead of Learned Places), AFK | default `OtherSettingsPage({ rowStyle, keyStyle, Toggle })` |
 | `src/other/renderer/OtherSettingsPage.tsx` (was settingsBlock.tsx, removed in batch 10) | The Other setting rows (one copy of each control), used by the page | as split by the batch (section components or a re-export) |
-| `src/other/renderer/components/DataSources.tsx`, `LearnedPlaces.tsx`, `OtherMapCalibrator.tsx`, `HotkeyRecorder.tsx` | Unchanged controls, now under Places & Matching / Where Am I | |
+| `src/other/renderer/components/DataSources.tsx`, `OtherMapCalibrator.tsx`, `HotkeyRecorder.tsx` | Unchanged controls, now under Places & Matching / Where Am I (`LearnedPlaces.tsx` moved to the LEARNED DATA tab in batch 11) | |
 | `test/replay/replay.mjs` | Scenario `settings-tabs`; helpers `openSettingsTab(port, tab)` (SETTINGS, then the tab button), `settingsProbe()` (tab buttons, GENERAL title and Other heading font sizes and positions, stored tab), `afkView()`, `clickJumpAfk()`, `clickRowToggle(port, labelRe)`; `sourcesText()` and `memory-undo` now open Settings → OTHER MODE | see the command below |
 
 **Data flow.**
@@ -606,3 +606,38 @@ SETTINGS ─► tab bar ─► settings.json otherSettingsTab (general | other)
 ```
 
 Run (after `npm run build`): `node test/replay/replay.mjs settings-tabs sources-starmap-off memory-undo`.
+
+## Other mode: LEARNED DATA tab (batch 11, 2026-10-14)
+
+Rules 74-80 in [STANDALONE.md](../src/other/STANDALONE.md#learned-data-tab-batch-11-user-2026-10-14); audit in
+[OTHER-MODE-AUDIT.md](OTHER-MODE-AUDIT.md#learned-data-tab-batch-11). A main tab (Other mode only) for what the app has
+learned: places (match memory), generic sites and planets. Learned places left Settings → OTHER MODE.
+
+| File | Owns (batch 11) | Entry points |
+|---|---|---|
+| `src/renderer/src/state/store.ts` (upstream, re-tie 8) | `ViewId` adds `learned` | |
+| `src/renderer/src/components/BottomNav.tsx` (upstream, re-tie 7) | `OTHER_NAV`: NEXT, JOBS, HISTORY, LEARNED DATA, SETTINGS | |
+| `src/renderer/src/App.tsx` (upstream, re-tie 3) | `otherOnly` adds `learned` (Haul mode on that view goes to MANIFEST) | |
+| `src/other/renderer/mountApp.tsx` | `OtherPages`: view `learned` → `<LearnedDataPage/>` | `OtherPages({ view })` |
+| `src/other/renderer/pages/LearnedDataPage.tsx` (new) | The tab: Places (summary filter buttons, Needs your eye, disputed pinned with KEEP MINE / USE WHERE I WAS, sortable table, RECENT CHANGES + UNDO), Sites and Planets (read-only, `useBodies()`); scroll to / highlight a focused entry | default `LearnedDataPage()` |
+| `src/other/renderer/components/LearnedPlaces.tsx`, `NeedsYourEye.tsx` (new), `LearnedBodies.tsx` (new) | Summary (one bucket per entry, `kindOf()`), the places table (sort headers `th[data-sort]`, filters all / you set / game / learned / unproven / disputed, search), disputed rows pinned with KEEP MINE / USE WHERE I WAS, RECENT CHANGES; Needs your eye; Sites and Planets tables | `LearnedPlaces`, `kindOf()`, `NeedsYourEye`, `LearnedSites`, `LearnedPlanets` |
+| `src/other/renderer/state/learnedFocus.ts` (new) | Pending focus (memory key, `''` = Needs your eye) and the view switch | `focusLearned(key?)`, `useLearnedFocus()`, `clearLearnedFocus()` |
+| `src/other/renderer/components/MatchFix.tsx` | "Open in Learned Data" link → `focusLearned(match.memoryKey)` | |
+| `src/other/renderer/OtherSettingsPage.tsx` | Places & Matching: Data Sources + "Learned places are on the LEARNED DATA tab." and OPEN LEARNED DATA | |
+| `src/other/otherMemory.ts`, `src/other/main/matchMemory.ts` | `SetInput.reset` (KEEP MINE: wrong 0, no wrongAt, not disputed, confirmed kept; logged as a `set` with before/after) passed through validation | `setUserPlace()` |
+| `test/replay/memory_checks.mjs` | `reset` checks, including undo | `node test/replay/memory_checks.mjs` |
+| `test/replay/replay.mjs` | Scenario `learned-data-tab`; helpers `openLearnedData(port, want)`, `navButtons()`, `learnedProbe()` (the page through its test ids: `learned-section-*`, `learned-count-*`, `learned-row[data-key][data-kind]`, `learned-needs-row`, `learned-where`, `learned-site`, `learned-planet`), `clickRowButton(port, key, re)`, `clickSel()`, `learnedRowView()`, `memCounts()` / `sameCounts()`; `memLaunch()` takes `files` (seeded data files, e.g. `other-matches.json`, `other-bodies.json`); `memory-undo` opens the LEARNED DATA tab; `settings-tabs` expects the line instead of LEARNED PLACES | see the command below |
+
+**Data flow.**
+
+```
+bottom menu LEARNED DATA / Settings OPEN LEARNED DATA / MatchFix "Open in Learned Data" ─► focusLearned(key?) ─► view learned
+LearnedDataPage
+  Places   ─► useMemory() (other-matches.json) ─► summary, disputed, table ─► otherMemory:set (reset / place) / :forget / :undo
+           ─► listOpenStops(+memory) ─► Needs your eye (unsure / guess / mismatch / none) ─► MatchTag ─► MatchFix
+  Sites    ─► useBodies().learned  (other-bodies.json)
+  Planets  ─► useBodies().bodies   (other-bodies.json)
+```
+
+Run (after `npm run build`): `node test/replay/replay.mjs learned-data-tab memory-undo settings-tabs`; pure:
+`node test/replay/memory_checks.mjs`.

@@ -412,7 +412,7 @@ stop) was not used to check the answer.
 | # | Case | Expected | Test |
 |---|---|---|---|
 | M1 | "Shubin Mining Facility on Lyria" is "? not sure"; click the tag, ✗ Wrong, pick SAL-2 | "✓ you set" with a distance, confidence 10, a `user` entry and a `set` change in `other-matches.json`; still set after a restart | `memory-wrong-pick` |
-| M2 | Undo the set in Settings → LEARNED PLACES | back to "? not sure"; the entry is no longer the user's; an `undo` change is logged | `memory-undo` |
+| M2 | Undo the set on the LEARNED DATA tab (Settings → LEARNED PLACES until batch 11) | back to "? not sure"; the entry is no longer the user's; an `undo` change is logged | `memory-undo` |
 | M3 | A display-info read at Covalex S1DC06, then Objective Complete for "Covalex Distribution Center S1DCO06 on Hurston"; twice (two jobs) | `confirmed` 1, then 2 (two `proof` changes by the game); a third job's stop is "✓ learned" with "learned: game confirmed ×2" | `memory-proof-learned` |
 | M4 | The user sets SAL-2; two completions of that stop while the reads place you at Covalex S1DC06 (Hurston) | `wrong` 2, `disputed`; SAL-2 still wins (status user, confidence 6); "⚠ the game disagrees" and "you were at Covalex Distribution Centre S1DC06" | `memory-disputed` |
 | M5 | Export diagnostics after a set | `## MATCH MEMORY` with the entry (text, SAL-2, user) and the `set` change; no player handle | `memory-diag-section` |
@@ -543,7 +543,7 @@ removed or renamed. The upstream footprint in `SettingsPage.tsx` is now the tab 
 | T3 | Jump list → AFK | the AFK heading is scrolled into view | `settings-tabs` |
 | T4 | Restart the app, open SETTINGS | OTHER MODE is open without a click (`otherSettingsTab` in settings.json) | `settings-tabs` |
 | T5 | Show reputation toggle on OTHER MODE | `otherShowRep` flips and is saved in settings.json | `settings-tabs` |
-| T6 | DATA SOURCES / LEARNED PLACES flows | still work from the OTHER MODE tab | `sources-starmap-off`, `memory-undo` (via `openSettingsTab()`) |
+| T6 | DATA SOURCES / LEARNED PLACES flows | still work from the OTHER MODE tab (since batch 11 learned places are on the LEARNED DATA tab, L2) | `sources-starmap-off` (via `openSettingsTab()`), `memory-undo` (via `openLearnedData()`) |
 
 Run (after `npm run build`): `node test/replay/replay.mjs settings-tabs sources-starmap-off memory-undo`.
 
@@ -554,6 +554,42 @@ Run (after `npm run build`): `node test/replay/replay.mjs settings-tabs sources-
   relabel of those rows needs the scenario's patterns updated.
 - The Haul-mode note line on OTHER MODE ("These settings apply when Work mode is Other.") is not covered by a replay
   scenario (all scenarios start in Other mode).
+
+## LEARNED DATA tab (batch 11)
+
+Rules 74-80 in [STANDALONE.md](../src/other/STANDALONE.md#learned-data-tab-batch-11-user-2026-10-14).
+
+**Why.** The learned places list sat at the bottom of Settings → OTHER MODE, and the learned sites and planet sizes
+were only in diagnostics. A stop the resolver couldn't place had to be found on the Next or Jobs tab, and a disputed
+entry could only be fixed by re-picking its place.
+
+**The change.** A main tab LEARNED DATA in the Other bottom menu (before SETTINGS; not in Haul mode), with three
+sections: Places (summary counts that filter, Needs your eye, disputed entries pinned with KEEP MINE / USE WHERE I WAS,
+a sortable table with search and filters, RECENT CHANGES with UNDO), Sites and Planets (read-only, from
+`other-bodies.json`). Settings → OTHER MODE keeps one line and an OPEN LEARNED DATA button. The fix panel (MatchFix) links
+to the entry. Upstream footprint: `ViewId` adds `learned` (re-tie 8), `OTHER_NAV` adds one item (re-tie 7), `otherOnly`
+in `App.tsx` adds `learned` (re-tie 3).
+
+| # | Case | Expected | Test |
+|---|---|---|---|
+| L1 | Bottom menu in Other mode / Haul mode | NEXT, JOBS, HISTORY, LEARNED DATA, SETTINGS / no LEARNED DATA | `learned-data-tab` |
+| L2 | Settings → OTHER MODE → Places & Matching | Data Sources, "Learned places are on the LEARNED DATA tab." and OPEN LEARNED DATA (opens the tab); no learned table | `learned-data-tab`, `settings-tabs` |
+| L3 | Seeded `other-matches.json` (1 you set, 1 learned, 1 unproven, 2 disputed) plus the open stop's seen entry | the four summary counts equal the file's buckets (one per entry); clicking the disputed count shows only the 2 disputed rows; clicking again shows all | `learned-data-tab` |
+| L4 | Open stop "Shubin Mining Facility on Lyria" ("? not sure", J92) | listed in Needs your eye with J92 and its tag; tag → ✗ Wrong → SAL-2 there: a user entry, the row leaves the list | `learned-data-tab` |
+| L5 | Disputed entries | pinned on top with "you were at Covalex Distribution Centre S1DC06 (…)"; KEEP MINE: place kept, wrong 0, no wrongAt, not disputed, confirmed kept; USE WHERE I WAS: a user entry at Port Tressler; both logged as user `set` changes with before / after | `learned-data-tab`, `memory_checks.mjs` (reset and its undo) |
+| L6 | Click TIMES SEEN twice | most seen first, then least seen first | `learned-data-tab` |
+| L7 | Seeded `other-bodies.json` | Sites: Security Compound at Covalex (850 m), Hurston; Planets: Hurston, Stanton, 1,000 km "exact (panel)", the others "estimated" | `learned-data-tab` |
+| L8 | Next tab tag → fix panel → Open in Learned Data | the tab opens, the stop's entry row is scrolled into view and lit; with no entry it scrolls to Needs your eye | `learned-data-tab` (entry case) |
+| L9 | UNDO on the newest change (a user set) | the stop is "? not sure" again; an `undo` change is logged | `memory-undo` |
+
+Run (after `npm run build`): `node test/replay/replay.mjs learned-data-tab memory-undo settings-tabs`; pure:
+`node test/replay/memory_checks.mjs`.
+
+**Known limits.**
+- L8's "no entry" case (scroll to Needs your eye) is not covered by a replay scenario.
+- The scenario seeds `other-bodies.json` directly; a panel radius recorded by a live WHERE AM I read reaching the
+  Planets table is not covered end to end here.
+- Unsure is the only Needs-your-eye status the scenario drives; guess / mismatch / none use the same list filter.
 
 ## Suggested order
 

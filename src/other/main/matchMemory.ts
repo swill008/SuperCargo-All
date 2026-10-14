@@ -211,7 +211,10 @@ export function memorySet(p: MemorySetInput): MemoryDoc {
     logger.debug('other', 'match memory: set rejected', {})
     return load()
   }
-  return apply(setUserPlace(load(), p, now()), 'set', { key: p.key, place: p.place })
+  const input: SetInput = { key: p.key, text: p.text, place: p.place }
+  if (isStr(p.context)) input.context = p.context
+  if (p.reset === true) input.reset = true
+  return apply(setUserPlace(load(), input, now()), 'set', { key: p.key, place: p.place, reset: !!input.reset })
 }
 
 export function memoryForget(key: string): MemoryDoc {

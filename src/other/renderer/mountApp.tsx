@@ -15,6 +15,7 @@ import { useHaulModeSwitch } from './state/haulModeSwitch'
 import JobsPage from './pages/JobsPage'
 import NextPage from './pages/NextPage'
 import OtherHistoryPage from './pages/OtherHistoryPage'
+import LearnedDataPage from './pages/LearnedDataPage'
 import WorkModeSection from './components/WorkModeSection'
 import OtherCaptureModal from './components/OtherCaptureModal'
 import OtherAutoOcrVeil from './components/OtherAutoOcrVeil'
@@ -38,6 +39,7 @@ export function OtherPages({ view }: { view: string }): React.ReactElement | nul
   if (view === 'next') return <NextPage />
   if (view === 'jobs') return <JobsPage />
   if (view === 'history') return <OtherHistoryPage />
+  if (view === 'learned') return <LearnedDataPage />
   if (view === 'settings') return <WorkModeSection />
   return null
 }

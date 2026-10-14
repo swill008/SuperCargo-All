@@ -6,7 +6,7 @@ import React, { useEffect, useState } from 'react'
 import { Btn } from '@renderer/components/ui'
 import OtherMapCalibrator from './components/OtherMapCalibrator'
 import HotkeyRecorder from './components/HotkeyRecorder'
-import LearnedPlaces from './components/LearnedPlaces'
+import { focusLearned } from './state/learnedFocus'
 import DataSources from './components/DataSources'
 import { C, F } from '@renderer/theme'
 import { useStore } from '@renderer/state/store'
@@ -81,7 +81,7 @@ const SECTIONS = [
     title: 'Where Am I (position reading)',
     desc: 'Reads your position from the game screen, so distances start from where you really are.'
   },
-  { id: 'places', jump: 'Places', title: 'Places & Matching', desc: 'Where place names come from, and what game text has been matched to which place.' },
+  { id: 'places', jump: 'Places', title: 'Places & Matching', desc: 'Where place names come from.' },
   { id: 'afk', jump: 'AFK', title: 'AFK', desc: 'Presses a key in the game at a set interval while you are away.' }
 ] as const
 
@@ -351,8 +351,12 @@ export default function OtherSettingsPage({
       <div style={subHeadingStyle}>Data Sources</div>
       <div style={descStyle}>Turn each list of place names on or off.</div>
       <DataSources rowStyle={rowStyle} keyStyle={keyStyle} Toggle={Toggle} />
-      <div style={subHeadingStyle}>Learned Places</div>
-      <LearnedPlaces />
+      <div style={rowStyle}>
+        <span style={keyStyle}>Learned places are on the LEARNED DATA tab.</span>
+        <Btn onClick={() => focusLearned()} style={choiceStyle(false)} hoverStyle={{ border: `1px solid ${C.acc}`, color: C.text }}>
+          OPEN LEARNED DATA
+        </Btn>
+      </div>
 
       {renderHeading('afk')}
       <div style={rowStyle}>

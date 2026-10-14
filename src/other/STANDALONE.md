@@ -6,12 +6,12 @@ After merging AquatikJustice/SuperCargo, restore:
 
 1. `src/main/index.ts` — `registerOther({ watcher, getSettings, getMainWindow })` inside `app.whenReady` (after the single-instance lock); each new `LogWatcher` relays its `'line'` events to it; `routeAccepted()` in the log `accepted` handler only to skip the haul manifest in Other mode.
 2. `src/main/logWatcher.ts` — `this.emit('line', line)` for every raw line (`'line'` in `LogWatcherEvents`).
-3. `src/renderer/src/App.tsx` — `bootOther()`, `<OtherPages>`, `<OtherModals>`, `useOtherEscape`, Other view guard.
+3. `src/renderer/src/App.tsx` — `bootOther()`, `<OtherPages>`, `<OtherModals>`, `useOtherEscape`, Other view guard (`otherOnly`, line ~94, lists the Other-only views `jobs`, `next` and, since batch 11, `learned`: switching to Haul mode on one of them sends you to MANIFEST).
 4. `src/renderer/src/pages/SettingsPage.tsx` — the tab bar GENERAL | OTHER MODE (remembered in settings.json `otherSettingsTab`): GENERAL renders the upstream sections unchanged; OTHER MODE renders `<OtherSettingsPage rowStyle keyStyle Toggle />` (`src/other/renderer/OtherSettingsPage.tsx`). To drop Other, remove the tab bar and the OTHER MODE branch (batch 10, rules 69-73).
 5. `src/preload/index.ts` and `src/shared/channels.ts` — the Other IPC methods and channels (`loadOtherJobs`, `saveOtherJobs`, `scanOtherEvents`, `onOtherLogEvent`, `onOtherJobsChanged`, `otherAction`, `onOtherAction`, …).
 6. `electron.vite.config.ts` / tsconfig — `@other` → `src/other`.
-7. `BottomNav` / `CompactGate` — workMode branch (Jobs/Next vs Manifest).
-8. `src/renderer/src/state/store.ts` — `scanSession` skips when `workMode === 'other'`; `ViewId` includes `jobs` and `next`.
+7. `BottomNav` / `CompactGate` — workMode branch (Jobs/Next vs Manifest). `OTHER_NAV` is NEXT | JOBS | HISTORY | LEARNED DATA | SETTINGS (batch 11 adds `{ id: 'learned', label: 'LEARNED DATA' }` before SETTINGS); `HAUL_NAV` is upstream's, without LEARNED DATA.
+8. `src/renderer/src/state/store.ts` — `scanSession` skips when `workMode === 'other'`; `ViewId` includes `jobs`, `next` and `learned` (batch 11).
 9. `src/main/index.ts` — WHERE AM I hotkey: `registerHotkey()` calls `registerOtherWhereHotkey(() => settings)` (imported from `@other/main/register`, which wraps `src/other/main/whereAmI.ts`) **after** its `globalShortcut.unregisterAll()` and before the OCR hotkey's early return. Upstream `registerHotkey()` unregisters every global shortcut, so registering it anywhere else is wiped the next time the OCR hotkey is set. (The WHERE AM I IPC handlers need no extra tie: `registerOther()` calls `registerOtherWhereIpc()`.)
 10. `src/main/index.ts` — in the settings-set handler, the `patch.ocrHotkey` condition is widened so `registerHotkey()` also re-runs when `patch.otherWhereHotkey` changes.
 11. `src/shared/channels.ts` and `src/preload/index.ts`, in the Other blocks — WHERE AM I channels `otherWhereRun` (`otherWhere:run`), `otherWhereCalPreview` (`otherWhere:calPreview`), `otherWhereCalTest` (`otherWhere:calTest`), `evtOtherWhere` (`evt:other:where`), and preload methods `otherWhereRun()`, `otherWhereCalPreview()`, `otherWhereCalTest(zone)`, `onOtherWhere(cb)`.
@@ -112,8 +112,8 @@ Why: the resolver (rules 34-41) decides each stop's place from the text alone, e
 45. **Fix it on the stop.** The match tag on the overlay, the Next tab and the Jobs step is a button. It opens a small panel with the evidence lines and: ✓ Right (sets a `user` entry for the place shown), ✗ Wrong → pick (search the merged roster, the runner-up candidates listed first, at most 30 shown; sets a `user` entry), Forget (only when an entry exists). The change applies at once in every window. Esc or a click outside closes it.
 46. **You win.** A `user` entry whose place has coordinates decides the stop outright: status `user` ("✓ you set"), confidence 10, first evidence line "you set this ✓". For a generic site your place becomes the site (from `contract`); the game's marker still gives the point when there is one.
 47. **Flagged, never overridden.** When game proofs say `wrong` 2 or more for a place you set, the entry is `disputed`: your place still wins (confidence 6, "you set this; ⚠ the game disagrees ×N") and the tag and list show "⚠ the game disagrees" in amber with where you actually were ("you were at X"). Nothing changes your place silently; you fix or forget it.
-48. **Learned places list.** Settings → OTHER MODE → LEARNED PLACES: table text → place, how it was learned ("you set it", "game confirmed ×N", "unproven", "⚠ the game disagrees"), last used; Change (same picker) and Forget per row; a search box; a filter (all / you set / game / disputed).
-49. **Undo.** Every change (new entry seen, set, forget, game proof, undo) keeps its before and after; the last 50 are kept, newest first, under "Recent changes" in LEARNED PLACES, each with Undo (restores the before; a new entry undone is removed). Diagnostics export `## MATCH MEMORY`: the entries (disputed first, then yours, then the game's by last use) and the last 50 changes.
+48. **Learned places list.** The LEARNED DATA tab, Places section (rules 74-80; Settings → OTHER MODE → LEARNED PLACES until batch 11): table text → place, how it was learned ("you set it", "game confirmed ×N", "unproven", "⚠ the game disagrees"), last used; Change (same picker) and Forget per row; a search box; a filter (all / you set / game / disputed).
+49. **Undo.** Every change (new entry seen, set, forget, game proof, undo) keeps its before and after; the last 50 are kept, newest first, under RECENT CHANGES on the LEARNED DATA tab, each with Undo (restores the before; a new entry undone is removed). Diagnostics export `## MATCH MEMORY`: the entries (disputed first, then yours, then the game's by last use) and the last 50 changes.
 
 ## Data sources, OCR typo matching, OCR tune-up (batch 8 addendum 2, user 2026-10-14)
 
@@ -121,7 +121,7 @@ Why: the place roster mixes two sources, UEX (the haul roster and UEX cities, st
 
 50. **Every place says where it came from.** `Location.source` (`uex` / `starmap`) is where the place came from; `Location.coordsFrom` (`uex` / `starmap`) is where its x/y/z came from. `src/other/main/uex.ts` sets them: places the starmap file fills get `coordsFrom: 'starmap'`, places only the starmap has get `source: 'starmap'`. Haul roster entries count as `uex`.
 51. **The game data source can be switched off.** Setting `otherSourceStarmap` (default on; `OTHER_SETTING_DEFAULTS`; one switch for the starmap positions and the site codes of rule 57). Off: `mergeLocations` (`otherPlaces.ts`) drops the starmap-only places and strips the coordinates (and the body, when it came with them) from places whose `coordsFrom` is `starmap`; the merged roster re-computes at once. A stop whose place loses its coordinates shows no distance; it is never measured to another point (for J82's pickup "S1DCO06": not the drop-off marker's 4 km). UEX is the base list and is always on.
-52. **DATA SOURCES.** Settings → OTHER MODE → DATA SOURCES (`DataSources.tsx`): one row per source with what it adds and its switch. UEX: "N places, M with coordinates", switch disabled ("BASE LIST"). "Star Citizen Wiki game data (scunpacked-data)": "Starmap positions: adds N places, fills coordinates for M. Site codes: …", the bundled / downloaded date, an UPDATE button (rule 58) and the credit "Game data is CIG's; fan use via the Star Citizen Wiki, not for resale." LEARNED PLACES marks an entry whose place is not in the active sources "(place's source is off)" and the resolver ignores that entry. SNAPSHOT shows the enabled sources, and the `places` counts per source use the new tags.
+52. **DATA SOURCES.** Settings → OTHER MODE → DATA SOURCES (`DataSources.tsx`): one row per source with what it adds and its switch. UEX: "N places, M with coordinates", switch disabled ("BASE LIST"). "Star Citizen Wiki game data (scunpacked-data)": "Starmap positions: adds N places, fills coordinates for M. Site codes: …", the bundled / downloaded date, an UPDATE button (rule 58) and the credit "Game data is CIG's; fan use via the Star Citizen Wiki, not for resale." The LEARNED DATA places table marks an entry whose place is not in the active sources "(place's source is off)" and the resolver ignores that entry. SNAPSHOT shows the enabled sources, and the `places` counts per source use the new tags.
 53. **OCR look-alikes count as the same name.** After the `placeKey`-equal tier (rule 36) the resolver compares confusion-folded keys: inside words with a digit S↔5, B↔8, Z↔2, G↔6 (with O/0 and I/l/1 as before); in every word rn→m, vv→w, cl→d and `|`→l. Equal folded keys are `corrected`, +5 ("≈ corrected").
 54. **Close spelling.** Then a weighted Damerau-Levenshtein similarity on the folded keys (confusion pairs cost 0.3, other edits 1): 0.9 or more with a key of 8+ characters +4 ("close spelling: <name>"), 0.82-0.9 +3. Code words (a digit and letters: S1DC06, CRU-L5, SAL-2) must be equal after folding or the place gets no spelling points (S1DC06 never matches S4DC05). The usual decision rule (rule 37) still applies, so a close spelling alone with a rival is "? not sure", never a wrong place.
 55. **Evidence names the source.** A candidate whose place or coordinates came from the starmap file has "· from starmap data" in its evidence line. The case table's OCR misreads (CRU-LS5 Beautiful Glen Station, ARC-L dern Express Station, "Ambitious, Dream Station at Crusader's L1 0", Deak Outpost on Yela, August Dunlow Sg Orison. Quy port in, Rayari) are re-decided from the evidence in `stop_cases.json`: each either resolves to the right place or stays `none`.
@@ -174,7 +174,7 @@ be enlarged so they are prominent... make the new settings user friendly and eas
     withdrawn steps, crash notice, contract-limit toast, show reputation, shared badge, session summary, short-loop
     hiding, Haul-switch prompt and its minimum SCU); **Distances & Route** (start mode, distance from mission markers,
     distances on the overlay); **Where Am I (position reading)** (hotkey, zones / SET UP ZONES, use zone 2, live position
-    and its interval); **Places & Matching** (sub-headings Data Sources and Learned Places); **AFK** (the RSI-terms note,
+    and its interval); **Places & Matching** (Data Sources, then the line "Learned places are on the LEARNED DATA tab." with an OPEN LEARNED DATA button; the Learned Places list moved to that tab in batch 11, rule 74); **AFK** (the RSI-terms note,
     interval, first key, cycle key, time limit, read position while AFK).
 72. **Jump list.** Under the tab bar: "Jobs · Distances · Where Am I · Places · AFK"; each button scrolls its section into
     view.
@@ -183,10 +183,43 @@ be enlarged so they are prominent... make the new settings user friendly and eas
 
 Tests: `settings-tabs` in `test/replay/replay.mjs` (GENERAL vanilla only; OTHER MODE's 5 headings in order and larger
 than a GENERAL title by computed font size; the jump list reaches AFK; the tab is remembered after a restart; a toggle
-on OTHER MODE still saves `otherShowRep`). The scenarios that read DATA SOURCES or LEARNED PLACES (`sources-starmap-off`,
-`memory-undo`) open Settings → OTHER MODE through `openSettingsTab()`.
+on OTHER MODE still saves `otherShowRep`). `sources-starmap-off` opens Settings → OTHER MODE through `openSettingsTab()`; `memory-undo` opens the LEARNED DATA tab
+through `openLearnedData()` (batch 11).
 
 Options for these behaviours live in Settings → OTHER MODE (rules 69-73); defaults in `OTHER_SETTING_DEFAULTS` (`src/other/workMode.ts`).
+
+## LEARNED DATA tab (batch 11, user 2026-10-14)
+
+Why: what the app has learned (places, generic sites, planets) was spread over Settings and diagnostics. It now has its
+own main tab, in Other mode only.
+
+74. **The tab.** The Other bottom menu is NEXT | JOBS | HISTORY | LEARNED DATA | SETTINGS (view id `learned`,
+    `src/other/renderer/pages/LearnedDataPage.tsx`). Haul mode has no LEARNED DATA button. Settings → OTHER MODE →
+    Places & Matching keeps Data Sources and one line, "Learned places are on the LEARNED DATA tab.", with an OPEN LEARNED
+    DATA button that opens it. Each section has a large heading (20 px display font, accent colour, a rule) and a one-line
+    description.
+75. **Places: summary.** "N you set · N learned · N unproven · N ⚠ disputed", counted from `other-matches.json`; each
+    number is a filter button for the table.
+76. **Places: Needs your eye**, first: the current open stops (as `collectSeen` lists them, with memory) whose status is
+    unsure, guess, mismatch or none; each row has the stop text, the job ref and its match tag, which opens the fix panel
+    (MatchFix) as everywhere else.
+77. **Places: disputed entries** are pinned above the table with "you were at X (d)" and two buttons: KEEP MINE (keeps
+    your place and clears the dispute: `wrong` 0, no `wrongAt`, not disputed; `confirmed` kept; `SetInput.reset`) and
+    USE WHERE I WAS (sets a user entry to `wrongAt[0].name`). Both are logged as user `set` changes, so UNDO works.
+78. **Places: the table.** Text as read → place (planet · system), how it was learned (`memoryLabel`), times seen, last
+    used; click a column heading to sort by it (again for the other way); search and a filter (all / you set / game /
+    disputed / unproven); CHANGE and FORGET per row; then RECENT CHANGES with UNDO (rule 49).
+79. **Sites and Planets** (read-only, from `other-bodies.json`): Sites are the learned generic places (name · at the
+    place it was near, in metres · body · seen · last seen); Planets are the planet table (name, system, radius in km
+    marked "exact (panel)" or "estimated", seen, last seen).
+80. **From the fix panel.** MatchFix has "Open in Learned Data": it opens the tab and scrolls to and highlights the
+    stop's entry (`match.memoryKey`) when there is one, else "Needs your eye" (`focusLearned(key)` in
+    `src/other/renderer/state/learnedFocus.ts`).
+
+Tests: `learned-data-tab` in `test/replay/replay.mjs` (menu in Other mode only; the Settings line and button; summary
+counts against `other-matches.json`; the open "? not sure" stop in Needs your eye, fixed there; KEEP MINE and USE WHERE I
+WAS; sort by TIMES SEEN both ways; Sites and Planets from a seeded `other-bodies.json`; MatchFix "Open in Learned Data"
+lands on the entry); `test/replay/memory_checks.mjs` (the `reset` set and its undo).
 
 ## Diagnostics footprint in upstream files
 
