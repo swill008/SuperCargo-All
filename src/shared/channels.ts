@@ -96,5 +96,14 @@ export const IPC = {
   evtCrewSnapshot: 'evt:crew:snapshot', // leader's run, for a crew member to render
   evtCrewStatus: 'evt:crew:status', // crew link up/down
   evtCrewMembers: 'evt:crew:members', // who's actually on the channel
-  evtSettings: 'evt:settings' // settings changed, keep the overlay in sync
+  evtSettings: 'evt:settings', // settings changed, keep the overlay in sync
+
+  debugLog: 'debug:log', // window -> main, batch of LogEntry
+  debugRecent: 'debug:recent',
+  debugInfo: 'debug:info',
+  debugReport: 'debug:report',
+  debugOpen: 'debug:open',
+  debugOpenFolder: 'debug:openFolder',
+  debugSetVerbose: 'debug:setVerbose',
+  evtDebugEntries: 'evt:debug:entries' // main -> debug window, batch of LogEntry
 } as const

@@ -1,4 +1,5 @@
 import { contextBridge, ipcRenderer, webFrame } from 'electron'
+import type { LogEntry, DebugInfo } from '@shared/debugLog'
 import { IPC } from '@shared/channels'
 import type {
   AppSettings,
@@ -182,7 +183,16 @@ const api = {
   onShips: (cb: (roster: ShipRoster) => void): Unsubscribe => on(IPC.evtShips, cb),
   onLocations: (cb: (roster: LocationRoster) => void): Unsubscribe => on(IPC.evtLocations, cb),
   onCommodities: (cb: (roster: CommodityRoster) => void): Unsubscribe => on(IPC.evtCommodities, cb),
-  onGridFaces: (cb: (roster: GridFacesRoster) => void): Unsubscribe => on(IPC.evtGridFaces, cb)
+  onGridFaces: (cb: (roster: GridFacesRoster) => void): Unsubscribe => on(IPC.evtGridFaces, cb),
+
+  debugLog: (entries: LogEntry[]): void => ipcRenderer.send(IPC.debugLog, entries),
+  debugRecent: (): Promise<LogEntry[]> => ipcRenderer.invoke(IPC.debugRecent),
+  debugInfo: (): Promise<DebugInfo> => ipcRenderer.invoke(IPC.debugInfo),
+  debugReport: (): Promise<string> => ipcRenderer.invoke(IPC.debugReport),
+  debugOpen: (): Promise<void> => ipcRenderer.invoke(IPC.debugOpen),
+  debugOpenFolder: (): Promise<void> => ipcRenderer.invoke(IPC.debugOpenFolder),
+  debugSetVerbose: (on: boolean): Promise<void> => ipcRenderer.invoke(IPC.debugSetVerbose, on),
+  onDebugEntries: (cb: (entries: LogEntry[]) => void): Unsubscribe => on(IPC.evtDebugEntries, cb)
 }
 
 export type SuperCargoApi = typeof api
