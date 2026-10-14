@@ -40,3 +40,4 @@ with a push: + CI (~10 min, in the background); a release: + ~4 min.
 | 2026-10-14 | Port test_spec_line.py (specline agent) | agent | 2-6 min | 1 min | 22:20 |
 | 2026-10-14 | Port test_program_map_covers_files.py + 41 map entries (mapcheck agent) | agent | 2-6 min | 1.5 min | 22:20-22:21 |
 | 2026-10-14 | npm run test:checks (all 20 check scripts) | test | ~1 min | ~1 min | 22:22 |
+| 2026-10-14 | Full run before push: replay 483 + 8 real logs + all checks | test | ~7 min | 5 min | 22:23-22:28 |
