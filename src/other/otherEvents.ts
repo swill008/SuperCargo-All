@@ -22,6 +22,7 @@ export type OtherLogEvent =
   | { kind: 'ended'; at: string; missionId: string; outcome: 'complete' | 'abandoned'; completionType: string; reason?: string }
   | { kind: 'contractLimit'; at: string } // "Contract Not Accepted: Contract Limit Exceeded"
   | { kind: 'disconnect'; at: string } // "Player requested disconnect": quit to menu or quit game, every contract ends
+  | { kind: 'location'; at: string; name: string | null } // where the player is (otherCurrentLocation.ts); null = left the known place
   | { kind: 'quit'; at: string } // "<SystemQuit> … Quit via console command": the game closed, every contract ends
 
 // main -> renderer result of the start-up scan

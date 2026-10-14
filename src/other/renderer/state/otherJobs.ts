@@ -10,6 +10,7 @@ import {
   type OtherJob,
   type OtherJobKind,
   type OtherJobsDoc,
+  type ListOrder,
   type OtherMarkerZone,
   type OtherStep
 } from '@other/otherJob'
@@ -19,6 +20,7 @@ import type { OtherLogEvent } from '@other/otherEvents'
 import type { OtherAction } from '@other/otherActions'
 import { useStore } from '@renderer/state/store'
 import { dlog } from '@renderer/state/log'
+import { trace } from '@renderer/state/trace'
 import { otherSetting, resolveWorkMode } from '@other/workMode'
 import { useOtherHistory } from './otherHistory'
 import { requestAutoOcrIfEnabled } from './otherCapture'
@@ -49,7 +51,7 @@ interface OtherJobsState {
   expandedId: string | null
   startLocation: string
   groupBy: 'location' | 'job'
-  listOrder: 'distance' | 'manual'
+  listOrder: ListOrder
   jobOrder: string[]
   lastLogEventAt?: string
   /** events applied at exactly lastLogEventAt (doc field) */
@@ -59,6 +61,8 @@ interface OtherJobsState {
   sessionAt?: string
   /** marker zone centres per build (doc field) */
   markerZones: Record<string, Record<string, OtherMarkerZone>>
+  /** where the player is, from 'location' log events; not persisted */
+  currentLocation: string | null
   /** build of the newest log session (doc field) */
   markerBuild?: string
   /** start-up: last game session crashed and active log jobs were kept (rule 6) */
@@ -74,7 +78,7 @@ interface OtherJobsState {
   setExpanded: (id: string | null) => void
   setStartLocation: (v: string) => void
   setGroupBy: (v: 'location' | 'job') => void
-  setListOrder: (v: 'distance' | 'manual') => void
+  setListOrder: (v: ListOrder) => void
   moveJob: (id: string, dir: -1 | 1) => void
   placeJob: (id: string, beforeId: string) => void
   addJob: (draft: OtherJobDraft) => void
@@ -145,6 +149,22 @@ function stepsFor(draft: OtherJobDraft): OtherStep[] {
 }
 
 const short = (id?: string): string | undefined => id?.slice(0, 8)
+
+/** one 'decide' trace record: what the reducer or a user action did */
+function decide(what: string, missionId?: string, data?: Record<string, unknown>): void {
+  trace({ area: 'decide', mode: 'other', what, missionId, data })
+}
+
+// event latency: log timestamp -> applied, sampled at most once a second
+let lastLatencyAt = 0
+function sampleLatency(e: OtherLogEvent): void {
+  const now = Date.now()
+  if (now - lastLatencyAt < 1000) return
+  const t = Date.parse(e.at)
+  if (!Number.isFinite(t)) return
+  lastLatencyAt = now
+  trace({ area: 'perf', mode: 'other', what: 'event latency', ms: now - t, data: { kind: e.kind } })
+}
 const isMain = (): boolean => window.location.hash.replace(/^#\/?/, '') !== 'compact'
 
 function activeJobOrder(s: { jobs: OtherJob[]; jobOrder: string[] }): string[] {
@@ -198,10 +218,16 @@ interface Draft {
   expandedId: string | null
   markerZones: Record<string, Record<string, OtherMarkerZone>>
   markerBuild?: string
+  currentLocation: string | null
 }
 
 // latest marker per objective, per mission; this run only (markers come before their objectives)
 const missionMarkers = new Map<string, Map<string, MarkerPos>>()
+
+/** diagnostics: latest raw marker per mission/objective (this run) */
+export function otherMissionMarkers(): ReadonlyMap<string, ReadonlyMap<string, MarkerPos>> {
+  return missionMarkers
+}
 
 /**
  * Marker -> step: by ObjectiveId. "New Objective" and CreateMarker both carry the objective's id,
@@ -226,6 +252,7 @@ function placeSteps(d: Draft, ctx: Ctx, jobId?: string): void {
       const pos = resolveMarker(zones, m)
       if (!pos || (s.position && s.position.x === pos.x && s.position.y === pos.y && s.position.z === pos.z)) return s
       changed = true
+      decide('marker placed', j.missionId, { ref: j.ref, step: stepKey(s), objectiveId: s.objectiveId, zone: m.zoneHostId, build: d.markerBuild, pos })
       dlog.debug('other', 'marker position on step', { ref: j.ref, stepKey: stepKey(s), zone: m.zoneHostId, build: d.markerBuild })
       return { ...s, position: pos }
     })
@@ -261,10 +288,12 @@ function findObjective(d: Draft, missionId: string | undefined, text: string): {
 
 function reduce(d: Draft, e: OtherLogEvent, ctx: Ctx): void {
   const mode = resolveWorkMode(ctx.settings.workMode)
+  const mid = 'missionId' in e ? e.missionId : undefined
   switch (e.kind) {
     case 'session':
       d.sessionAt = e.at
       if (e.build) d.markerBuild = e.build
+      decide('session', undefined, { at: e.at, build: e.build, live: ctx.live })
       dlog.info('other', 'log session', { at: e.at, build: e.build })
       break
 
@@ -274,11 +303,20 @@ function reduce(d: Draft, e: OtherLogEvent, ctx: Ctx): void {
       marks.set(e.objectiveId, m)
       missionMarkers.set(e.missionId, marks)
       if (!d.markerBuild) {
+        decide('marker: no build, not calibrated', mid, { objectiveId: e.objectiveId, zone: e.zoneHostId })
         dlog.debug('other', 'marker: no game build yet, not calibrated', { id: short(e.missionId) })
         break
       }
       const table = d.markerZones[d.markerBuild] ?? {}
       const r = calibrateZone(table, m, useStore.getState().locations ?? [])
+      decide(r.zones !== table ? 'marker calibrated' : 'marker stored', mid, {
+        objectiveId: e.objectiveId,
+        zone: e.zoneHostId,
+        build: d.markerBuild,
+        change: r.change,
+        place: r.place,
+        n: r.zones[e.zoneHostId]?.n
+      })
       if (r.zones !== table) {
         d.markerZones = { ...d.markerZones, [d.markerBuild]: r.zones }
         dlog.debug('other', 'marker zone calibration', { build: d.markerBuild, zone: e.zoneHostId, change: r.change, place: r.place, n: r.zones[e.zoneHostId]?.n })
@@ -293,6 +331,7 @@ function reduce(d: Draft, e: OtherLogEvent, ctx: Ctx): void {
     case 'accepted': {
       // rule 1: Haul mode never creates or reactivates Other jobs
       if (mode !== 'other') {
+        decide('ignored: haul mode', mid, { title: e.title })
         dlog.debug('other', 'accepted ignored: haul mode', { id: short(e.missionId) })
         break
       }
@@ -311,6 +350,12 @@ function reduce(d: Draft, e: OtherLogEvent, ctx: Ctx): void {
           acceptedAt: e.at,
           endedAt: undefined
         }
+        decide(base.status !== 'active' ? 'reactivated (re-share)' : 'accepted again: already active', mid, {
+          ref: job.ref,
+          from: archived ? `history:${archived.outcome}` : base.status,
+          rep: job.rep,
+          sharedBy: job.sharedBy
+        })
         if (base.status !== 'active') {
           dlog.info('other', 'job status change', {
             ref: job.ref,
@@ -346,6 +391,16 @@ function reduce(d: Draft, e: OtherLogEvent, ctx: Ctx): void {
         sessionAt: d.sessionAt,
         acceptedAt: e.at
       }
+      decide(`created ${job.ref}`, mid, {
+        ref: job.ref,
+        kind,
+        title: job.title,
+        generator: e.generator,
+        contractName: e.contractName,
+        rep: e.rep,
+        sharedBy: e.sharedBy,
+        live: ctx.live
+      })
       dlog.info('other', 'job created', {
         ref: job.ref,
         id: short(e.missionId),
@@ -368,19 +423,29 @@ function reduce(d: Draft, e: OtherLogEvent, ctx: Ctx): void {
     case 'objective': {
       const job = d.jobs.find((j) => j.missionId === e.missionId)
       if (!job) {
+        decide('objective: no job', mid, { text: e.text })
         dlog.debug('other', 'objective: no job', { id: short(e.missionId) })
         break
       }
       if (job.source === 'manual' || job.objectivesLocked) {
+        decide('ignored: locked', mid, { ref: job.ref, source: job.source, locked: !!job.objectivesLocked, text: e.text })
         dlog.info('other', 'objective dropped: job locked/manual', { ref: job.ref, source: job.source, locked: !!job.objectivesLocked })
         break
       }
       if (job.steps.some((s) => s.logText === e.text)) {
+        decide('step duplicate', mid, { ref: job.ref, text: e.text })
         dlog.debug('other', 'objective dropped: duplicate step', { ref: job.ref, text: e.text })
         break
       }
       const step: OtherStep = { ...stepFromObjectiveText(e.text, useStore.getState().locations ?? []), logText: e.text }
       if (e.objectiveId) step.objectiveId = e.objectiveId
+      decide('step added', mid, {
+        ref: job.ref,
+        text: e.text,
+        objectiveId: e.objectiveId,
+        step: { kind: step.kind, label: step.label, location: step.location, item: step.item, need: step.need },
+        generic: step.kind === 'go' && !step.item && step.location === e.text.replace(/[\s:.]+$/, '').trim()
+      })
       dlog.info('other', 'step added from objective', { ref: job.ref, id: short(e.missionId), stepKey: stepKey(step), steps: job.steps.length + 1 })
       d.jobs = d.jobs.map((j) => (j.id === job.id ? { ...j, steps: [...j.steps, step] } : j))
       if (e.objectiveId) placeSteps(d, ctx, job.id)
@@ -388,13 +453,22 @@ function reduce(d: Draft, e: OtherLogEvent, ctx: Ctx): void {
     }
 
     case 'objectiveComplete': {
-      if (!otherSetting(ctx.settings, 'otherAutoTickObjectives')) break
+      if (!otherSetting(ctx.settings, 'otherAutoTickObjectives')) {
+        decide('ignored: auto-tick off', mid, { text: e.text })
+        break
+      }
       const hit = findObjective(d, e.missionId, e.text)
       if (!hit) {
+        decide('no step matched', mid, { text: e.text, event: 'objectiveComplete' })
         dlog.debug('other', 'objective complete: no step', { id: short(e.missionId), text: e.text })
         break
       }
       const s = hit.job.steps[hit.idx]
+      decide(s.done ? 'objective complete: step already done' : 'ticked by Objective Complete', mid ?? hit.job.missionId, {
+        ref: hit.job.ref,
+        text: e.text,
+        step: stepKey(s)
+      })
       if (s.done) break
       dlog.info('other', 'step ticked from log', { ref: hit.job.ref, stepKey: stepKey(s) })
       setStep(d, hit.job.id, hit.idx, { done: true, have: s.need, pickedUp: s.pickupLocation ? true : s.pickedUp })
@@ -404,9 +478,11 @@ function reduce(d: Draft, e: OtherLogEvent, ctx: Ctx): void {
     case 'objectiveWithdrawn': {
       const hit = findObjective(d, e.missionId, e.text)
       if (!hit) {
+        decide('no step matched', mid, { text: e.text, event: 'objectiveWithdrawn' })
         dlog.debug('other', 'objective withdrawn: no step', { id: short(e.missionId), text: e.text })
         break
       }
+      decide('withdrawn', mid ?? hit.job.missionId, { ref: hit.job.ref, text: e.text, step: stepKey(hit.job.steps[hit.idx]) })
       dlog.info('other', 'step withdrawn', { ref: hit.job.ref, stepKey: stepKey(hit.job.steps[hit.idx]) })
       setStep(d, hit.job.id, hit.idx, { withdrawn: true })
       break
@@ -417,6 +493,7 @@ function reduce(d: Draft, e: OtherLogEvent, ctx: Ctx): void {
       const to = e.outcome === 'complete' ? 'complete' : 'abandoned'
       const job = d.jobs.find((j) => j.missionId === e.missionId)
       if (job) {
+        decide(`ended ${to}`, mid, { ref: job.ref, from: job.status, completionType: e.completionType, reason: e.reason })
         dlog.info('other', 'job status change', {
           ref: job.ref,
           id: short(e.missionId),
@@ -439,9 +516,13 @@ function reduce(d: Draft, e: OtherLogEvent, ctx: Ctx): void {
       const h = d.history.find((x) => x.missionId === e.missionId)
       if (h) {
         const outcome = to === 'complete' ? 'completed' : 'abandoned'
+        decide(`ended ${to} (history)`, mid, { ref: h.ref, from: h.outcome, completionType: e.completionType, reason: e.reason })
         dlog.info('other', 'history outcome change', { ref: h.ref, id: short(e.missionId), from: h.outcome, to: outcome, reason: `EndMission ${e.completionType}` })
         d.history = d.history.map((x) => (x === h ? { ...x, outcome, endedAt: e.at } : x))
-      } else dlog.debug('other', 'ended: no job', { id: short(e.missionId), completion: e.completionType })
+      } else {
+        decide('ended: no job', mid, { completionType: e.completionType })
+        dlog.debug('other', 'ended: no job', { id: short(e.missionId), completion: e.completionType })
+      }
       break
     }
 
@@ -449,6 +530,7 @@ function reduce(d: Draft, e: OtherLogEvent, ctx: Ctx): void {
     case 'quit': {
       // rule 5: quitting ends every active log job
       const hit = d.jobs.filter((j) => j.status === 'active' && j.source === 'log')
+      decide(`${e.kind} abandoned ${hit.length}`, undefined, { refs: hit.map((j) => j.ref), live: ctx.live })
       for (const j of hit) {
         dlog.info('other', 'job status change', { ref: j.ref, id: short(j.missionId), from: 'active', to: 'abandoned', reason: e.kind === 'quit' ? 'game quit' : 'player disconnect' })
       }
@@ -461,10 +543,16 @@ function reduce(d: Draft, e: OtherLogEvent, ctx: Ctx): void {
     }
 
     case 'contractLimit':
+      decide('contract limit', undefined, { live: ctx.live, mode })
       dlog.info('other', 'contract limit', { at: e.at, live: ctx.live })
       if (ctx.live && mode === 'other' && otherSetting(ctx.settings, 'otherContractLimitToast')) {
         ctx.toast = 'Contract not accepted: contract limit reached.'
       }
+      break
+
+    case 'location':
+      if (d.currentLocation !== e.name) decide('location', undefined, { from: d.currentLocation, to: e.name })
+      d.currentLocation = e.name
       break
   }
   // exact watermark: the scan skips the first lastLogEventCount events at lastLogEventAt
@@ -487,6 +575,7 @@ function skipApplied(events: OtherLogEvent[], since: string | undefined, count: 
     return true
   })
   dlog.debug('other', 'scan: skipped events already applied', { since, skipped: count - left })
+  decide(`skipped by watermark (${count - left})`, undefined, { since, count, skipped: count - left })
   return out
 }
 
@@ -562,11 +651,14 @@ export const useOtherJobs = create<OtherJobsState>((set, get) => {
       sessionAt: s.sessionAt,
       expandedId: s.expandedId,
       markerZones: s.markerZones,
-      markerBuild: s.markerBuild
+      markerBuild: s.markerBuild,
+      currentLocation: s.currentLocation
     }
     const ctx: Ctx = { live, settings: settingsNow(), accepted: [] }
     for (const e of events) reduce(d, e, ctx)
+    if (live) for (const e of events) sampleLatency(e)
     set({
+      currentLocation: d.currentLocation,
       jobs: d.jobs,
       lastLogEventAt: d.lastLogEventAt,
       lastLogEventCount: d.lastLogEventCount,
@@ -585,7 +677,7 @@ export const useOtherJobs = create<OtherJobsState>((set, get) => {
     set({
       jobs: doc.jobs ?? [],
       startLocation: typeof doc.startLocation === 'string' ? doc.startLocation : '',
-      listOrder: doc.listOrder === 'manual' ? 'manual' : 'distance',
+      listOrder: doc.listOrder === 'manual' || doc.listOrder === 'route' ? doc.listOrder : 'distance',
       jobOrder: Array.isArray(doc.jobOrder) ? doc.jobOrder : [],
       lastLogEventAt: doc.lastLogEventAt,
       lastLogEventCount: typeof doc.lastLogEventCount === 'number' ? doc.lastLogEventCount : 0,
@@ -611,6 +703,7 @@ export const useOtherJobs = create<OtherJobsState>((set, get) => {
     sessionAt: undefined,
     markerZones: {},
     markerBuild: undefined,
+    currentLocation: null,
     crashNotice: null,
     dismissCrashNotice: () => set({ crashNotice: null }),
 
@@ -642,6 +735,7 @@ export const useOtherJobs = create<OtherJobsState>((set, get) => {
           if (!st.ready || !prev.ready || !get().ready) return
           if (resolveWorkMode(st.settings.workMode) !== 'other' || resolveWorkMode(prev.settings.workMode) === 'other') return
           const at = new Date().toISOString()
+          decide('watermark moved: haul -> other', undefined, { from: get().lastLogEventAt, to: at })
           dlog.info('other', 'work mode haul -> other: watermark moved to now', { from: get().lastLogEventAt, to: at })
           set({ lastLogEventAt: at, lastLogEventCount: 0 })
           saveNow()
@@ -709,6 +803,7 @@ export const useOtherJobs = create<OtherJobsState>((set, get) => {
           // rule 6: a crash keeps jobs; say so once
           const kept = get().jobs.filter((j) => j.status === 'active' && j.source === 'log').length
           if (res.previousEnd === 'crash' && kept > 0 && otherSetting(settingsNow(), 'otherCrashNotice')) {
+            decide('crash: jobs kept', undefined, { kept })
             dlog.info('other', 'crash notice', { kept })
             set({ crashNotice: { kept } })
           }
@@ -749,11 +844,13 @@ export const useOtherJobs = create<OtherJobsState>((set, get) => {
 
     setExpanded: (id) => set({ expandedId: id }),
     setStartLocation: (v) => {
+      decide('user start location', undefined, { from: get().startLocation, to: v })
       set({ startLocation: v })
       get().persist()
     },
     setGroupBy: (v) => set({ groupBy: v }),
     setListOrder: (v) => {
+      decide('user list order', undefined, { from: get().listOrder, to: v })
       set({ listOrder: v, groupBy: v === 'manual' ? 'job' : get().groupBy })
       get().persist()
     },
@@ -766,6 +863,7 @@ export const useOtherJobs = create<OtherJobsState>((set, get) => {
       const tmp = next[i]
       next[i] = next[j]
       next[j] = tmp
+      decide('user job order', undefined, { id, order: next.length })
       set({ jobOrder: next, listOrder: 'manual', groupBy: 'job' })
       get().persist()
     },
@@ -779,6 +877,7 @@ export const useOtherJobs = create<OtherJobsState>((set, get) => {
       const insertAt = next.indexOf(beforeId)
       if (insertAt < 0) return
       next.splice(insertAt, 0, id)
+      decide('user job order', undefined, { id, order: next.length })
       set({ jobOrder: next, listOrder: 'manual', groupBy: 'job' })
       get().persist()
     },
@@ -797,6 +896,7 @@ export const useOtherJobs = create<OtherJobsState>((set, get) => {
         source: 'manual',
         sessionAt: get().sessionAt
       }
+      decide(`created ${job.ref} (manual)`, undefined, { ref: job.ref, kind: job.kind, title: job.title, steps: job.steps.length })
       dlog.info('other', 'job created', { ref: job.ref, source: 'manual', kind: job.kind, title: job.title, steps: job.steps.length })
       set({ jobs: [...jobs, job], expandedId: job.id })
       get().persist()
@@ -805,6 +905,7 @@ export const useOtherJobs = create<OtherJobsState>((set, get) => {
     applyEdit: (id, edit) => {
       {
         const j = get().jobs.find((x) => x.id === id)
+        decide('user edit: steps replaced, objectives locked', j?.missionId, { ref: j?.ref, found: !!j, steps: edit.steps.length, kind: edit.kind, reward: edit.reward })
         dlog.info('other', 'job edited by user', {
           ref: j?.ref,
           id: short(j?.missionId),
@@ -864,6 +965,7 @@ export const useOtherJobs = create<OtherJobsState>((set, get) => {
       if (get().passive) return sendAction({ type: 'abandon', jobId: id })
       {
         const j = get().jobs.find((x) => x.id === id)
+        decide('user abandon', j?.missionId, { ref: j?.ref, from: j?.status })
         dlog.info('other', 'job status change', { ref: j?.ref, id: short(j?.missionId), from: j?.status, to: 'abandoned', reason: 'user abandon' })
       }
       set({ jobs: get().jobs.map((j) => (j.id === id ? { ...j, status: 'abandoned' as const, objectivesLocked: true } : j)) })
@@ -873,6 +975,7 @@ export const useOtherJobs = create<OtherJobsState>((set, get) => {
     restoreJob: (id) => {
       {
         const j = get().jobs.find((x) => x.id === id)
+        decide('user restore', j?.missionId, { ref: j?.ref, from: j?.status })
         dlog.info('other', 'job status change', { ref: j?.ref, id: short(j?.missionId), from: j?.status, to: 'active', reason: 'user restore' })
       }
       set({
@@ -889,6 +992,7 @@ export const useOtherJobs = create<OtherJobsState>((set, get) => {
       if (get().passive) return sendAction({ type: 'complete', jobId: id })
       {
         const j = get().jobs.find((x) => x.id === id)
+        decide('user complete', j?.missionId, { ref: j?.ref, from: j?.status })
         dlog.info('other', 'job status change', { ref: j?.ref, id: short(j?.missionId), from: j?.status, to: 'complete', reason: 'user complete' })
       }
       set({
@@ -917,6 +1021,12 @@ export const useOtherJobs = create<OtherJobsState>((set, get) => {
           const allDone = steps.length > 0 && steps.every((s) => s.done || s.withdrawn)
           const s0 = j.steps.find((s) => s.id === stepId)
           const s1 = steps.find((s) => s.id === stepId)
+          decide(allDone && j.status === 'active' ? 'user toggle: job complete' : 'user toggle', j.missionId, {
+            ref: j.ref,
+            step: s1 ? stepKey(s1) : stepId,
+            pickedUp: s1?.pickedUp,
+            done: s1?.done
+          })
           dlog.info('other', 'step toggled by user', {
             ref: j.ref,
             stepKey: s1 ? stepKey(s1) : stepId,

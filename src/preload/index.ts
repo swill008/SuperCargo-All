@@ -1,5 +1,6 @@
 import { contextBridge, ipcRenderer, webFrame } from 'electron'
 import type { LogEntry, DebugInfo } from '@shared/debugLog'
+import type { TraceRecord, DiagExportOptions, DiagExportResult } from '@shared/trace'
 import { IPC } from '@shared/channels'
 import type {
   AppSettings,
@@ -184,7 +185,11 @@ const api = {
   debugOpen: (): Promise<void> => ipcRenderer.invoke(IPC.debugOpen),
   debugOpenFolder: (): Promise<void> => ipcRenderer.invoke(IPC.debugOpenFolder),
   debugSetVerbose: (on: boolean): Promise<void> => ipcRenderer.invoke(IPC.debugSetVerbose, on),
-  onDebugEntries: (cb: (entries: LogEntry[]) => void): Unsubscribe => on(IPC.evtDebugEntries, cb)
+  onDebugEntries: (cb: (entries: LogEntry[]) => void): Unsubscribe => on(IPC.evtDebugEntries, cb),
+  traceRecords: (recs: TraceRecord[]): void => ipcRenderer.send(IPC.traceRecords, recs),
+  diagExport: (opts?: DiagExportOptions): Promise<DiagExportResult> => ipcRenderer.invoke(IPC.diagExport, opts),
+  onDiagSnapshotRequest: (cb: (reqId: string) => void): Unsubscribe => on(IPC.diagSnapshotRequest, cb),
+  diagSnapshotReply: (reqId: string, snapshot: Record<string, unknown>): void => ipcRenderer.send(IPC.diagSnapshotReply, reqId, snapshot)
 }
 
 export type SuperCargoApi = typeof api

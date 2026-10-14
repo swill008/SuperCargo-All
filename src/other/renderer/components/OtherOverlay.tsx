@@ -9,14 +9,20 @@ import { useStore } from '@renderer/state/store'
 import { otherSetting } from '@other/workMode'
 import { useOtherJobs } from '../state/otherJobs'
 import { mergeLocations } from '../state/otherPlaces'
-import { listOpenStops, stepActivePlace, stepActionLabel, formatPlaceWithBodySystem, findNextTravelStop } from '@other/otherNext'
+import { listOpenStops, stepActivePlace, stepActionLabel, formatPlaceWithBodySystem, findNextTravelStop, formatMapDistance } from '@other/otherNext'
+import type { ListOrder } from '@other/otherNext'
 import { miniBtn, otherView, withoutWithdrawn, JobTags } from '../pages/JobsPartsStyles'
 
 const WHITE = '#eaf1f7'
 
+const ORDER_HINT: Record<ListOrder, string> = { distance: 'FROM START', route: 'ROUTE', manual: 'MANUAL' }
+const hintStyle: React.CSSProperties = { fontFamily: F.display, fontSize: 9, letterSpacing: '0.12em', color: C.ghost }
+
 export default function OtherOverlay(): React.ReactElement {
   const jobs = useOtherJobs((s) => s.jobs)
-  const startLocation = useOtherJobs((s) => s.startLocation)
+  const typedStart = useOtherJobs((s) => s.startLocation)
+  // where the game log says the player is (trace-other's store field)
+  const currentLocation = useOtherJobs((s) => s.currentLocation)
   // rule 8: the overlay only sends actions; the main window applies and saves them
   const toggleStep = (jobId: string, stepId: string): void => window.supercargo.otherAction({ type: 'toggleStep', jobId, stepId })
   const abandonJob = (jobId: string): void => window.supercargo.otherAction({ type: 'abandon', jobId })
@@ -34,6 +40,9 @@ export default function OtherOverlay(): React.ReactElement {
   const jobOrder = useOtherJobs((s) => s.jobOrder)
   const view = otherView(settings)
   const markerDistance = otherSetting(settings, 'otherMarkerDistance')
+  // typed STARTING AT wins; empty falls back to the log's current station (otherAutoStart)
+  const autoStart = !typedStart.trim() && otherSetting(settings, 'otherAutoStart') && currentLocation ? currentLocation : null
+  const startLocation = autoStart ?? typedStart
   // withdrawn steps never become the current stop
   const liveJobs = useMemo(() => jobs.map(withoutWithdrawn), [jobs])
   const open = useMemo(
@@ -62,6 +71,11 @@ export default function OtherOverlay(): React.ReactElement {
   const shown = current ? idx + 1 : 0
   const canPrev = idx > 0
   const canNext = idx < total - 1
+  const order: ListOrder = (listOrder as ListOrder) ?? 'distance'
+  const needsStart = order !== 'manual' && !startLocation.trim()
+  // leg from where you are in the walk: stop 1 from start, otherwise from the previous stop
+  const legMeters = current ? (idx === 0 ? current.leg ?? current.distance : current.leg) : null
+  const legApprox = current?.distanceSource === 'marker'
 
   return (
     <div
@@ -123,8 +137,11 @@ export default function OtherOverlay(): React.ReactElement {
           >
             {'\u2039'}
           </button>
-          <div style={{ fontFamily: F.display, fontSize: 11, color: C.dim, letterSpacing: '0.08em' }}>
-            STOP {shown}/{Math.max(total, 1)}
+          <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', lineHeight: 1.1 }}>
+            <div style={{ fontFamily: F.display, fontSize: 11, color: C.dim, letterSpacing: '0.08em' }}>
+              STOP {shown}/{Math.max(total, 1)}
+            </div>
+            <div style={hintStyle}>{ORDER_HINT[order]}</div>
           </div>
           <button
             type="button"
@@ -146,6 +163,29 @@ export default function OtherOverlay(): React.ReactElement {
           </button>
         </div>
       </div>
+      {(current && legMeters != null) || needsStart ? (
+        <div style={{ display: 'flex', alignItems: 'baseline', gap: 8, marginTop: -6, marginBottom: 6 }}>
+          {current && legMeters != null ? (
+            <span
+              title={legApprox ? 'Approximate: measured from the mission marker (no UEX coordinates for this place)' : undefined}
+              style={{ fontFamily: F.display, fontSize: 12, letterSpacing: '0.06em', color: C.acc }}
+            >
+              {legApprox ? '\u2248 ' : ''}{formatMapDistance(legMeters)}
+              <span
+                style={{ ...hintStyle, marginLeft: 6 }}
+                title={idx === 0 && autoStart ? 'from the game log; type to override' : undefined}
+              >
+                {idx === 0 ? (autoStart ? `FROM ${autoStart} (AUTO)` : 'FROM START') : 'FROM PREV'}
+              </span>
+            </span>
+          ) : null}
+          {needsStart ? (
+            <span style={{ ...hintStyle, color: C.amber }} title="Set a start location in the main window to sort and measure stops">
+              SET START
+            </span>
+          ) : null}
+        </div>
+      ) : null}
       {current ? (
         <div style={{ fontSize: 14, lineHeight: 1.45 }}>
           {current.job.reward > 0 ? `${current.job.reward.toLocaleString()} aUEC \u00b7 ` : ''}

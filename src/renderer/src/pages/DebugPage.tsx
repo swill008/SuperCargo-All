@@ -71,6 +71,60 @@ function toggle<T>(set: Set<T>, v: T): Set<T> {
   return next
 }
 
+const PERIODS: { id: string; label: string; hours?: number }[] = [
+  { id: 'session', label: 'THIS GAME SESSION' },
+  { id: '1', label: 'LAST 1 H', hours: 1 },
+  { id: '6', label: 'LAST 6 H', hours: 6 },
+  { id: '24', label: 'LAST 24 H', hours: 24 }
+]
+
+function fmtBytes(n: number): string {
+  if (n < 1024) return `${n} B`
+  if (n < 1024 * 1024) return `${(n / 1024).toFixed(1)} KB`
+  return `${(n / 1024 / 1024).toFixed(1)} MB`
+}
+
+function DiagExportBar(): React.ReactElement {
+  const [period, setPeriod] = useState('session')
+  const [excerpt, setExcerpt] = useState(true)
+  const [busy, setBusy] = useState(false)
+  const [msg, setMsg] = useState<{ text: string; err: boolean } | null>(null)
+
+  const run = async (): Promise<void> => {
+    if (busy) return
+    setBusy(true)
+    setMsg({ text: 'saving…', err: false })
+    try {
+      const hours = PERIODS.find((p) => p.id === period)?.hours
+      const r = await window.supercargo.diagExport({ hours, includeLogExcerpt: excerpt })
+      if (r.ok) setMsg({ text: `saved ${r.path ?? ''}${r.bytes != null ? ` (${fmtBytes(r.bytes)})` : ''}`, err: false })
+      else setMsg({ text: r.error || 'export failed', err: true })
+    } catch (e) {
+      setMsg({ text: e instanceof Error ? e.message : String(e), err: true })
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  return (
+    <div style={{ display: 'flex', flexWrap: 'wrap', alignItems: 'center', gap: 6, padding: '8px 14px', borderTop: `1px solid ${C.line}` }}>
+      <ActBtn onClick={() => void run()}>{busy ? 'SAVING…' : 'EXPORT DIAGNOSTICS'}</ActBtn>
+      {PERIODS.map((p) => (
+        <Chip key={p.id} on={period === p.id} onClick={() => setPeriod(p.id)}>
+          {p.label}
+        </Chip>
+      ))}
+      <label style={{ display: 'flex', alignItems: 'center', gap: 5, fontFamily: F.mono, fontSize: 11, color: C.body, cursor: 'pointer', marginLeft: 6 }}>
+        <input type="checkbox" checked={excerpt} onChange={(e) => setExcerpt(e.target.checked)} />
+        include log excerpt
+      </label>
+      <span style={{ flex: '1 1 200px', fontFamily: F.mono, fontSize: 11, color: msg?.err ? C.red : msg ? C.acc : C.ghost, wordBreak: 'break-all' }}>
+        {msg?.text ?? 'Everything Claude needs to review the program; player names and ids are removed.'}
+      </span>
+    </div>
+  )
+}
+
 export default function DebugPage(): React.ReactElement {
   return (
     <CrashGuard>
@@ -294,6 +348,7 @@ function DebugView(): React.ReactElement {
         {!visible.length && <div style={{ color: C.ghost, padding: '12px 0' }}>no entries</div>}
       </div>
 
+      <DiagExportBar />
       <div style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '8px 14px', borderTop: `1px solid ${C.lineStrong}` }}>
         <ActBtn onClick={() => void copyReport()}>COPY REPORT</ActBtn>
         <ActBtn onClick={() => void copy(visible.map((r) => r.line).join('\n'), `${visible.length} lines copied`)}>COPY VISIBLE</ActBtn>

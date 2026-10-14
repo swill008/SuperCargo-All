@@ -52,7 +52,7 @@ function parseDoc(raw: string): Parsed {
   check('jobs', Array.isArray, [])
   check('history', Array.isArray, [])
   check('startLocation', isStr)
-  check('listOrder', (v) => v === 'distance' || v === 'manual')
+  check('listOrder', (v) => v === 'distance' || v === 'route' || v === 'manual')
   check('jobOrder', (v) => Array.isArray(v) && v.every(isStr))
   check('lastLogEventAt', isStr)
   check('rev', (v) => typeof v === 'number' && Number.isFinite(v))

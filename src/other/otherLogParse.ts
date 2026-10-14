@@ -2,6 +2,23 @@
 // Cheap indexOf checks first; the regexes only run on lines that can match.
 import { cleanTitle, isHaulingContract } from '@shared/contract'
 import type { OtherLineParser, OtherLogEvent } from '@other/otherEvents'
+import { parseOtherObjectiveText } from '@other/otherLog'
+
+/** diagnostics hook: main wires it to trace(); what = 'event' | 'ignored: …' | 'unknown' */
+export interface OtherParseTrace {
+  what: string
+  line: string
+  kind?: string
+  data?: Record<string, unknown>
+}
+
+export interface OtherLineParserOptions {
+  onTrace?: (r: OtherParseTrace) => void
+}
+
+// notification kinds the parser reads; any other mission-looking notification is reported as unknown
+const HANDLED = ['Contract Accepted:', 'New Objective:', 'Objective Complete:', 'Objective Withdrawn:']
+const MISSIONISH = /^(Contract|Objective|Mission|New Objective|Bounty|Job)\b/i
 
 const ZERO_ID = '00000000-0000-0000-0000-000000000000'
 const ADDED = 'Added notification "'
@@ -32,7 +49,8 @@ const missionIdOf = (line: string): string | undefined => {
   return id && id !== ZERO_ID ? id : undefined
 }
 
-export function createOtherLineParser(): OtherLineParser {
+export function createOtherLineParser(opts: OtherLineParserOptions = {}): OtherLineParser {
+  const onTrace = opts.onTrace
   const markers = new Map<string, { generator: string; contractName: string }>()
   const sharedBy = new Map<string, string>()
   // a notification whose text has a newline: the next line carries `: " [N] to queue … MissionId`
@@ -46,9 +64,19 @@ export function createOtherLineParser(): OtherLineParser {
     if (!close || close.index < start) return null
     const body = line.slice(start, close.index)
 
+    if (onTrace) {
+      const handled = HANDLED.some((h) => body.startsWith(h)) || (body.startsWith('Contract Not Accepted:') && body.includes('Contract Limit Exceeded'))
+      if (!handled && (MISSIONISH.test(body) || missionIdOf(line))) {
+        onTrace({ what: 'unknown', line, kind: 'notification', data: { text: cleanText(body).slice(0, 200), missionId: missionIdOf(line) } })
+      }
+    }
+
     if (body.startsWith('Contract Accepted:')) {
       const missionId = missionIdOf(line)
-      if (!missionId) return null
+      if (!missionId) {
+        onTrace?.({ what: 'ignored: zero/missing mission id', line, kind: 'accepted' })
+        return null
+      }
       const raw = body.slice('Contract Accepted:'.length)
       const title = cleanAcceptTitle(raw)
       const repM = RE_REP.exec(raw)
@@ -70,7 +98,18 @@ export function createOtherLineParser(): OtherLineParser {
     if (body.startsWith('New Objective:')) {
       const missionId = missionIdOf(line)
       const text = cleanText(body.slice('New Objective:'.length))
-      if (!missionId || !text) return null
+      if (!missionId || !text) {
+        onTrace?.({ what: missionId ? 'ignored: empty objective text' : 'ignored: zero/missing mission id', line, kind: 'objective' })
+        return null
+      }
+      // a New Objective wording the step parser doesn't know only gives a generic "go" step
+      // (parseOtherObjectiveText's fallback: the whole text as both label and place)
+      if (onTrace) {
+        const g = parseOtherObjectiveText(text)
+        if (!g || (g.kind === 'go' && !g.item && g.location === g.label)) {
+          onTrace({ what: 'unknown', line, kind: 'objective', data: { text, missionId, generic: true } })
+        }
+      }
       const ev: OtherLogEvent = { kind: 'objective', at, missionId, text }
       const objectiveId = RE_OBJECTIVE_ID.exec(line)?.[1]
       if (objectiveId && objectiveId !== ZERO_ID) ev.objectiveId = objectiveId
@@ -90,73 +129,92 @@ export function createOtherLineParser(): OtherLineParser {
     return null
   }
 
+  const feed = (line: string): OtherLogEvent | null => {
+    if (line.charCodeAt(0) !== 60 /* < */) return null
+    const ts = RE_TS.exec(line)
+    if (!ts) return null
+    const at = ts[1]
+
+    if (pending !== null) {
+      const joined = pending + ' ' + line.slice(ts[0].length)
+      if (!QUEUE_END.test(joined) && ++pendingLines < 4) {
+        pending = joined
+        return null
+      }
+      pending = null
+      return notification(at, joined)
+    }
+
+    if (line.includes(ADDED)) {
+      if (!QUEUE_END.test(line)) {
+        pending = line
+        pendingLines = 0
+        return null
+      }
+      return notification(at, line)
+    }
+    if (line.includes('<CLocalMissionPhaseMarker::CreateMarker>')) {
+      const m = RE_MARKER.exec(line)
+      if (!m) return null
+      markers.set(m[1], { generator: m[2], contractName: m[3] })
+      const p = RE_MARKER_POS.exec(line)
+      if (!p) {
+        onTrace?.({ what: 'remembered: marker without position', line, kind: 'marker', data: { missionId: m[1], generator: m[2] } })
+        return null
+      }
+      const [x, y, z] = [Number(p[3]), Number(p[4]), Number(p[5])]
+      if (![x, y, z].every(Number.isFinite)) return null
+      return { kind: 'marker', at, missionId: m[1], objectiveId: p[1], zoneHostId: p[2], x, y, z }
+    }
+    if (line.includes('<MissionShared>')) {
+      const m = RE_SHARED.exec(line)
+      if (m) sharedBy.set(m[2], m[1])
+      onTrace?.({ what: m ? 'remembered: mission shared' : 'ignored: MissionShared unread', line, kind: 'shared' })
+      return null
+    }
+    if (line.includes('<EndMission>')) {
+      const m = RE_END.exec(line)
+      if (!m) return null
+      const ev: OtherLogEvent = {
+        kind: 'ended',
+        at,
+        missionId: m[1],
+        outcome: m[2] === 'Complete' ? 'complete' : 'abandoned',
+        completionType: m[2]
+      }
+      if (m[3]) ev.reason = m[3]
+      return ev
+    }
+    // the <Channel Process Disconnection> twin is skipped so one disconnect is one event
+    if (line.includes('<Channel Disconnected>') && line.includes('Player requested disconnect')) {
+      return { kind: 'disconnect', at }
+    }
+    // rule 5: console quit and closing the window end the game; other SystemQuit reasons don't
+    if (line.includes('<SystemQuit>')) {
+      if (line.includes('Quit via console command') || line.includes('User closed the application')) return { kind: 'quit', at }
+      onTrace?.({ what: 'ignored: SystemQuit reason', line, kind: 'quit' })
+      return null
+    }
+    if (line.includes('> Log started on')) return build ? { kind: 'session', at, build } : { kind: 'session', at }
+    if (line.includes('BackupNameAttachment=')) {
+      build = RE_BUILD.exec(line)?.[1] ?? build
+      return null
+    }
+    if (onTrace && line.includes('<Channel Process Disconnection>')) {
+      onTrace({ what: 'ignored: disconnect twin', line, kind: 'disconnect' })
+    }
+    return null
+  }
+
+  if (!onTrace) return { feed }
   return {
     feed(line: string): OtherLogEvent | null {
-      if (line.charCodeAt(0) !== 60 /* < */) return null
-      const ts = RE_TS.exec(line)
-      if (!ts) return null
-      const at = ts[1]
-
-      if (pending !== null) {
-        const joined = pending + ' ' + line.slice(ts[0].length)
-        if (!QUEUE_END.test(joined) && ++pendingLines < 4) {
-          pending = joined
-          return null
-        }
-        pending = null
-        return notification(at, joined)
+      const ev = feed(line)
+      if (ev) {
+        const missionId = 'missionId' in ev ? ev.missionId : undefined
+        onTrace({ what: 'event', line, kind: ev.kind, data: missionId ? { missionId } : undefined })
       }
-
-      if (line.includes(ADDED)) {
-        if (!QUEUE_END.test(line)) {
-          pending = line
-          pendingLines = 0
-          return null
-        }
-        return notification(at, line)
-      }
-      if (line.includes('<CLocalMissionPhaseMarker::CreateMarker>')) {
-        const m = RE_MARKER.exec(line)
-        if (!m) return null
-        markers.set(m[1], { generator: m[2], contractName: m[3] })
-        const p = RE_MARKER_POS.exec(line)
-        if (!p) return null
-        const [x, y, z] = [Number(p[3]), Number(p[4]), Number(p[5])]
-        if (![x, y, z].every(Number.isFinite)) return null
-        return { kind: 'marker', at, missionId: m[1], objectiveId: p[1], zoneHostId: p[2], x, y, z }
-      }
-      if (line.includes('<MissionShared>')) {
-        const m = RE_SHARED.exec(line)
-        if (m) sharedBy.set(m[2], m[1])
-        return null
-      }
-      if (line.includes('<EndMission>')) {
-        const m = RE_END.exec(line)
-        if (!m) return null
-        const ev: OtherLogEvent = {
-          kind: 'ended',
-          at,
-          missionId: m[1],
-          outcome: m[2] === 'Complete' ? 'complete' : 'abandoned',
-          completionType: m[2]
-        }
-        if (m[3]) ev.reason = m[3]
-        return ev
-      }
-      // the <Channel Process Disconnection> twin is skipped so one disconnect is one event
-      if (line.includes('<Channel Disconnected>') && line.includes('Player requested disconnect')) {
-        return { kind: 'disconnect', at }
-      }
-      // rule 5: console quit and closing the window end the game; other SystemQuit reasons don't
-      if (line.includes('<SystemQuit>')) {
-        return line.includes('Quit via console command') || line.includes('User closed the application') ? { kind: 'quit', at } : null
-      }
-      if (line.includes('> Log started on')) return build ? { kind: 'session', at, build } : { kind: 'session', at }
-      if (line.includes('BackupNameAttachment=')) {
-        build = RE_BUILD.exec(line)?.[1] ?? build
-        return null
-      }
-      return null
+      return ev
     }
   }
 }

@@ -7,11 +7,12 @@
 import type { BrowserWindow } from 'electron'
 import { IPC } from '@shared/channels'
 import type { AppSettings, ContractAcceptedEvent } from '@shared/types'
-import { createOtherLineParser } from '@other/otherLogParse'
 import { resolveWorkMode } from '../workMode'
 import { registerOtherJobsIpc } from './jobs'
 import { registerOtherActionRelay } from './ipc'
 import { refreshOtherPlaces } from './uex'
+import type { OtherLogEvent } from '@other/otherEvents'
+import { createTracedOtherParser, createLocationEmitter, currentLocationRoster, lineTime } from './scanLog'
 import { wipeOtherOcrSession, hookOtherOcrSessionQuit } from './ocrSession'
 import { loadCachedLocations } from '../../main/uex'
 import { logger } from '../../main/logger'
@@ -38,10 +39,9 @@ export function registerOther({ watcher, getSettings, getMainWindow }: RegisterO
   hookOtherOcrSessionQuit()
   void refreshOtherPlaces(loadCachedLocations()?.locations ?? [])
 
-  const parser = createOtherLineParser()
-  watcher.on('line', (line) => {
-    const ev = parser.feed(line)
-    if (!ev) return
+  const parser = createTracedOtherParser()
+  const locate = createLocationEmitter(currentLocationRoster)
+  const send = (ev: OtherLogEvent): void => {
     const mode = resolveWorkMode(getSettings().workMode)
     const id = 'missionId' in ev && ev.missionId ? ev.missionId.slice(0, 8) : undefined
     // rule 1: forward in both modes; the reducer ignores 'accepted' in Haul mode, so endings,
@@ -55,6 +55,12 @@ export function registerOther({ watcher, getSettings, getMainWindow }: RegisterO
     }
     w.webContents.send(IPC.evtOtherLogEvent, ev)
     logger.info('other', 'log event sent to main window', { kind: ev.kind, id, at: ev.at })
+  }
+  watcher.on('line', (line) => {
+    const ev = parser.feed(line)
+    if (ev) send(ev)
+    const loc = locate(line, () => lineTime(line))
+    if (loc) send(loc)
   })
   logger.info('other', 'registered', { workMode: resolveWorkMode(getSettings().workMode) })
 }

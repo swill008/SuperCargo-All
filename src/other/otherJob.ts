@@ -113,13 +113,16 @@ export interface OtherHistoryEntry {
   edited?: boolean
 }
 
+/** Next / overlay list order: by distance from start, greedy nearest-next route from start, or manual jobOrder. */
+export type ListOrder = 'distance' | 'route' | 'manual'
+
 export interface OtherJobsDoc {
   jobs: OtherJob[]
   history: OtherHistoryEntry[]
   /** Shared with overlay so Next and overlay sort the same list. */
   startLocation?: string
-  /** distance = UEX from STARTING AT. manual = jobOrder. */
-  listOrder?: 'distance' | 'manual'
+  /** distance = UEX from STARTING AT. route = nearest-next chain from STARTING AT. manual = jobOrder. */
+  listOrder?: ListOrder
   /** Active job ids, first = first contract in Next / overlay. */
   jobOrder?: string[]
   /** timestamp of the newest Game.log event already applied; the start-up scan only applies newer ones */

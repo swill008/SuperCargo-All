@@ -4,8 +4,73 @@ import * as path from 'node:path'
 import type { OtherLogEvent, OtherScanResult } from '@other/otherEvents'
 import { createOtherLineParser } from '@other/otherLogParse'
 import { logger } from '../../main/logger'
+import { trace } from '../../main/trace'
+import { loadCachedLocations } from '../../main/uex'
+import { createCurrentLocationTracker } from '@other/otherCurrentLocation'
+import type { Location } from '@shared/types'
+import { loadOtherPlaces } from './uex'
 
 type Parser = ReturnType<typeof createOtherLineParser>
+
+/** the parser's diagnostics hook (createOtherLineParser's optional onTrace) */
+export type OtherParseTrace = { what: string; line: string; kind?: string; data?: Record<string, unknown> }
+
+/** Other parser wired to main trace(): unrecognised lines -> 'unknown', the rest -> 'parse' */
+export function createTracedOtherParser(): ReturnType<typeof createOtherLineParser> {
+  return createOtherLineParser({
+    onTrace: (r: OtherParseTrace) =>
+      trace({
+        area: r.what === 'unknown' ? 'unknown' : 'parse',
+        mode: 'other',
+        what: r.what,
+        line: r.line,
+        data: r.kind ? { kind: r.kind, ...(r.data ?? {}) } : r.data
+      })
+  })
+}
+
+/** roster for the "where am I" tracker: haul UEX cache plus Other places (cities/outposts) */
+let rosterCache: { at: number; list: Location[] } | null = null
+export function currentLocationRoster(): Location[] {
+  // read from disk at most every 60 s (every 5 s while still empty); called per log line
+  const now = Date.now()
+  const ttl = rosterCache?.list.length ? 60_000 : 5_000
+  if (!rosterCache || now - rosterCache.at > ttl) {
+    rosterCache = { at: now, list: [...(loadCachedLocations()?.locations ?? []), ...loadOtherPlaces()] }
+  }
+  return rosterCache.list
+}
+
+/** runs the location tracker over the same lines; returns a 'location' event when current() changes */
+export function createLocationEmitter(
+  locations: Location[] | (() => Location[])
+): (line: string, at: () => string) => OtherLogEvent | null {
+  // the roster can be empty at start-up (first run, before the UEX cache is seeded): rebuild once it fills
+  const roster = typeof locations === 'function' ? locations : (): Location[] => locations
+  let size = -1
+  let t = createCurrentLocationTracker([])
+  let prev: string | null = null
+  return (line, at) => {
+    const list = roster()
+    if (list.length !== size) {
+      size = list.length
+      t = createCurrentLocationTracker(list)
+    }
+    t.push(line)
+    const now = t.current()
+    if (now === prev) return null
+    prev = now
+    return { kind: 'location', at: at(), name: now }
+  }
+}
+
+/** Game.log line timestamp `<2026-10-14T12:00:00.000Z>`, else now */
+export function lineTime(line: string): string {
+  const m = /^<(\d{4}-\d\d-\d\dT[^>]+)>/.exec(line)
+  return m ? m[1] : new Date().toISOString()
+}
+
+type Locate = ReturnType<typeof createLocationEmitter>
 
 function ms(at: string): number {
   const t = Date.parse(at)
@@ -48,7 +113,11 @@ async function newestBackup(logPath: string): Promise<string | null> {
   return best?.file ?? null
 }
 
-async function feedFile(file: string, parser: Parser): Promise<{ events: OtherLogEvent[]; bytes: number } | null> {
+async function feedFile(
+  file: string,
+  parser: Parser,
+  locate: Locate
+): Promise<{ events: OtherLogEvent[]; bytes: number; location?: OtherLogEvent } | null> {
   let text: string
   try {
     text = await fsp.readFile(file, 'utf8')
@@ -57,12 +126,14 @@ async function feedFile(file: string, parser: Parser): Promise<{ events: OtherLo
     return null
   }
   const events: OtherLogEvent[] = []
+  let location: OtherLogEvent | undefined
   for (const line of text.split(/\r?\n/)) {
     if (!line) continue
     const ev = parser.feed(line)
     if (ev) events.push(ev)
+    location = locate(line, () => lineTime(line)) ?? location
   }
-  return { events, bytes: text.length }
+  return { events, bytes: text.length, location }
 }
 
 const isActivity = (e: OtherLogEvent): boolean =>
@@ -99,12 +170,14 @@ export async function scanOtherEvents(logPath: string | undefined, since?: strin
     logger.warn('other', 'scan skipped: no Game.log path')
     return out
   }
-  const parser = createOtherLineParser() // one parser across both files, in log order
+  const parser = createTracedOtherParser() // one parser across both files, in log order
   const all: OtherLogEvent[] = []
+  let location: OtherLogEvent | undefined
 
   const backup = await newestBackup(logPath)
   if (backup) {
-    const r = await feedFile(backup, parser)
+    // the backup is an earlier game session: its location isn't where the player is now
+    const r = await feedFile(backup, parser, () => null)
     const last = r?.events[r.events.length - 1]
     if (r && last && newer(last.at, since)) {
       out.files.push(backup)
@@ -116,8 +189,9 @@ export async function scanOtherEvents(logPath: string | undefined, since?: strin
     }
   }
 
-  const cur = await feedFile(logPath, parser)
+  const cur = await feedFile(logPath, parser, createLocationEmitter(currentLocationRoster()))
   if (cur) {
+    location = cur.location
     out.files.push(logPath)
     all.push(...cur.events)
     // the session line is at the top of the log, usually before the watermark: always report it
@@ -142,11 +216,14 @@ export async function scanOtherEvents(logPath: string | undefined, since?: strin
   }
 
   out.events = all.filter((e) => newer(e.at, since))
+  // only the last location matters; report it even when older than the watermark (like currentSession)
+  if (location) out.events.push(location)
   logger.info('other', 'scan done', {
     since: since || null,
     files: out.files.length,
     parsed: all.length,
     returned: out.events.length,
+    location: location?.kind === 'location' ? location.name : undefined,
     previousEnd: out.previousEnd,
     ms: Date.now() - t0
   })

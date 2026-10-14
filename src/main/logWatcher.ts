@@ -2,8 +2,9 @@
 
 import { EventEmitter } from 'node:events'
 import * as fs from 'node:fs'
-import { parseLine, type MarkerEntry } from './logParser'
+import { parseLine, parseTimestamp, type MarkerEntry } from './logParser'
 import { logger } from './logger'
+import { trace } from './trace'
 import type {
   ContractAcceptedEvent,
   ObjectiveEvent,
@@ -14,6 +15,7 @@ import type {
 } from '@shared/types'
 
 export const POLL_INTERVAL_MS = 200
+const PERF_SAMPLE_MS = 10_000
 
 export interface LogWatcherEvents {
   status: (s: WatcherStatus) => void
@@ -40,6 +42,8 @@ export class LogWatcher extends EventEmitter {
   private lastCompleteId = ''
   private connected = false
   private localGeid = ''
+  private lastPollTrace = 0
+  private lastLagTrace = 0
 
   constructor(path: string, channel: string | null) {
     super()
@@ -155,10 +159,22 @@ export class LogWatcher extends EventEmitter {
       const length = st.size - this.position
       const chunk = Buffer.alloc(length)
       try {
+        const t0 = performance.now()
         const read = fs.readSync(this.fd!, chunk, 0, length, this.position)
         this.position += read
         this.buffer += chunk.subarray(0, read).toString('utf8')
         this.drainBuffer()
+        const now = Date.now()
+        if (now - this.lastPollTrace >= PERF_SAMPLE_MS) {
+          this.lastPollTrace = now
+          trace({
+            area: 'perf',
+            mode: 'haul',
+            what: 'log poll',
+            ms: Math.round((performance.now() - t0) * 10) / 10,
+            data: { bytes: read, position: this.position }
+          })
+        }
       } catch (e) {
         this.setConnected(false, `read failed: ${(e as Error).message}`)
         return
@@ -198,9 +214,20 @@ export class LogWatcher extends EventEmitter {
     }
   }
 
+  private traceLag(line: string): void {
+    const now = Date.now()
+    if (now - this.lastLagTrace < PERF_SAMPLE_MS) return
+    const ts = parseTimestamp(line)
+    const at = ts ? Date.parse(ts) : NaN
+    if (!Number.isFinite(at)) return
+    this.lastLagTrace = now
+    trace({ area: 'perf', mode: 'haul', what: 'watcher lag', ms: now - at, data: { logTime: ts } })
+  }
+
   private processLine(line: string): void {
     const parsed = parseLine(line, this.markers)
     if (!parsed) return
+    this.traceLag(line)
     logger.debug('watch', 'matched line', { kind: parsed.kind, line: line.slice(0, 300) })
     switch (parsed.kind) {
       case 'accepted':
@@ -210,10 +237,36 @@ export class LogWatcher extends EventEmitter {
           generator: parsed.event.generator,
           isHauling: parsed.isHauling
         })
+        trace({
+          area: 'parse',
+          mode: 'haul',
+          what: parsed.isHauling ? 'accepted: hauling' : 'accepted: not hauling',
+          line,
+          missionId: parsed.event.missionId,
+          data: {
+            isHauling: parsed.isHauling,
+            generator: parsed.event.generator,
+            contractName: parsed.event.contractName,
+            title: parsed.event.title,
+            haulType: parsed.event.haulType
+          }
+        })
         this.emit('accepted', parsed.event, parsed.isHauling)
         break
       case 'objective':
         logger.info('watch', 'event objective', { id: parsed.event.missionId.slice(0, 8) })
+        trace({
+          area: 'parse',
+          mode: 'haul',
+          what: 'objective',
+          line,
+          missionId: parsed.event.missionId,
+          data: {
+            commodity: parsed.event.commodity,
+            scu: parsed.event.scuAmount,
+            destination: parsed.event.destination
+          }
+        })
         this.emit('objective', parsed.event)
         break
       case 'ended':
@@ -221,6 +274,14 @@ export class LogWatcher extends EventEmitter {
           id: parsed.event.missionId.slice(0, 8),
           completion: parsed.event.completion,
           reason: parsed.event.reason
+        })
+        trace({
+          area: 'parse',
+          mode: 'haul',
+          what: `ended: ${parsed.event.completion}`,
+          line,
+          missionId: parsed.event.missionId,
+          data: { completion: parsed.event.completion, reason: parsed.event.reason }
         })
         this.emit('ended', parsed.event)
         break
@@ -230,6 +291,7 @@ export class LogWatcher extends EventEmitter {
         break
       case 'completeNotice':
         logger.info('watch', 'event completeNotice', { id: parsed.missionId.slice(0, 8) })
+        trace({ area: 'parse', mode: 'haul', what: 'complete notice', line, missionId: parsed.missionId })
         this.lastCompleteId = parsed.missionId
         break
       case 'awarded':
@@ -237,6 +299,14 @@ export class LogWatcher extends EventEmitter {
           amount: parsed.amount,
           id: this.lastCompleteId ? this.lastCompleteId.slice(0, 8) : null,
           dropped: !this.lastCompleteId
+        })
+        trace({
+          area: 'parse',
+          mode: 'haul',
+          what: this.lastCompleteId ? 'paid' : 'paid: dropped (no complete notice)',
+          line,
+          missionId: this.lastCompleteId || undefined,
+          data: { amount: parsed.amount }
         })
         if (this.lastCompleteId) {
           this.emit('paid', { missionId: this.lastCompleteId, amount: parsed.amount })
@@ -250,6 +320,14 @@ export class LogWatcher extends EventEmitter {
       case 'share': {
         const e = parsed.event
         logger.info('watch', 'event share', { kind: e.kind, id: e.missionId.slice(0, 8) })
+        trace({
+          area: 'parse',
+          mode: 'haul',
+          what: `share: ${e.kind}`,
+          line,
+          missionId: e.missionId,
+          data: { kind: e.kind, isLocal: e.kind === 'left' && this.localGeid ? e.actorId === this.localGeid : undefined }
+        })
         if (e.kind === 'left' && this.localGeid) {
           this.emit('share', { ...e, isLocal: e.actorId === this.localGeid })
         } else {

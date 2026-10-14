@@ -8,6 +8,7 @@ import type { OcrEngine } from './engine'
 import { TesseractEngine } from './tesseractEngine'
 import { OnnxEngine } from './onnxEngine'
 import { logger } from '../logger'
+import { trace } from '../trace'
 import { stashPending, commitSample, readPending, sampleCount, type SampleLabel } from './samples'
 
 let activeEngine: OcrEngine | null = null
@@ -65,7 +66,10 @@ export async function runOcr(
   const viaWindow = !!full
   if (!full) full = await aroundCapture(() => captureDisplay(settings.ocrDisplayId))
   if (!full) logger.warn('ocr', 'capture failed: no source', { ms: Date.now() - t0 })
-  if (!full) return { ...base, error: 'screen capture failed (no source available)' }
+  if (!full) {
+    trace({ area: 'ocr', mode: 'haul', what: 'capture failed: no source', ms: Date.now() - t0, data: { engine: engine.id, target: settings.ocrCaptureTarget } })
+    return { ...base, error: 'screen capture failed (no source available)' }
+  }
 
   const fullSize = full.getSize()
   const captureRes = `${fullSize.width}x${fullSize.height}`
@@ -89,6 +93,7 @@ export async function runOcr(
     recognition = await engine.recognize(ocrImage)
   } catch (e) {
     logger.error('ocr', 'recognize failed', { engine: engine.id, error: e instanceof Error ? e.message : String(e) })
+    trace({ area: 'ocr', mode: 'haul', what: 'recognize failed', ms: Date.now() - t0, data: { engine: engine.id, error: e instanceof Error ? e.message : String(e) } })
     return { ...base, imageDataUrl, captureRes, error: e instanceof Error ? e.message : String(e) }
   }
   const ms = Date.now() - started
@@ -121,6 +126,26 @@ export async function runOcr(
     resolved: objectives.filter((o) => o.commodity.match && o.destination.match).length,
     hasReward: parsed.reward != null,
     maxBoxSize: parsed.maxBoxSize
+  })
+  const resolvedCount = objectives.filter((o) => o.commodity.match && o.destination.match).length
+  trace({
+    area: 'ocr',
+    mode: 'haul',
+    what: resolvedCount === objectives.length && objectives.length ? 'capture parsed' : 'capture parsed: partial',
+    ms: Date.now() - t0,
+    data: {
+      engine: engine.id,
+      recognizeMs: ms,
+      via: viaWindow ? 'window' : 'display',
+      res: captureRes,
+      confidence: recognition.confidence,
+      chars: recognition.text.length,
+      rows: parsed.objectives.length,
+      objectives: objectives.length,
+      resolved: resolvedCount,
+      hasReward: parsed.reward != null,
+      maxBoxSize: parsed.maxBoxSize
+    }
   })
   logger.debug('ocr', 'raw text', { text: recognition.text.slice(0, 2000) })
 

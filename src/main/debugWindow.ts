@@ -10,6 +10,7 @@ import type { AppSettings } from '@shared/types'
 import { getProblems, getRecent, logger, onEntry } from './logger'
 import { loadManifest } from './store'
 import { watchWindow } from './crash'
+import { learnIdentity, makeSanitizer, sanitizeDeep } from './sanitize'
 import appIcon from '../../resources/icon.png?asset'
 
 let debugWindow: BrowserWindow | null = null
@@ -92,27 +93,6 @@ export function attachDebugHotkey(wc: WebContents): void {
   })
 }
 
-function scrubber(): (s: string) => string {
-  let user = ''
-  try {
-    user = os.userInfo().username
-  } catch {
-    // ignore
-  }
-  if (!user) return (s) => s
-  const re = new RegExp(user.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'), 'gi')
-  return (s) => s.replace(re, '%USERNAME%')
-}
-
-function scrubDeep(v: unknown, scrub: (s: string) => string): unknown {
-  if (typeof v === 'string') return scrub(v)
-  if (Array.isArray(v)) return v.map((x) => scrubDeep(x, scrub))
-  if (v && typeof v === 'object') {
-    return Object.fromEntries(Object.entries(v).map(([k, x]) => [k, scrubDeep(x, scrub)]))
-  }
-  return v
-}
-
 function haulSummary(): string {
   try {
     const m = loadManifest()
@@ -152,7 +132,9 @@ function otherSummary(): string {
 }
 
 export function buildReport(): string {
-  const scrub = scrubber()
+  const recent = getRecent()
+  // player handle/ids seen in the log, plus the OS username
+  const scrub = makeSanitizer(learnIdentity(recent.map(formatEntry)))
   const info = source?.info()
   const displays = (() => {
     try {
@@ -168,11 +150,10 @@ export function buildReport(): string {
   try {
     const s = { ...(source?.settings() ?? {}) } as Record<string, unknown>
     delete s['telemetryClientId']
-    settingsJson = JSON.stringify(scrubDeep(s, scrub), null, 2)
+    settingsJson = JSON.stringify(sanitizeDeep(s, scrub), null, 2)
   } catch (e) {
     settingsJson = `settings unreadable: ${(e as Error).message}`
   }
-  const recent = getRecent()
   const problems = getProblems()
   const fence = (lines: string[]): string => '```\n' + (lines.length ? scrub(lines.join('\n')) : '(none)') + '\n```'
 

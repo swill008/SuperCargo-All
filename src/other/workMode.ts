@@ -70,6 +70,8 @@ declare module '@shared/types' {
     otherHaulSwitchMinScu?: number
     /** distance for steps with no UEX place, from the objective's CreateMarker position */
     otherMarkerDistance?: boolean
+    /** use the player's current station from the log as STARTING AT until one is typed */
+    otherAutoStart?: boolean
   }
 }
 
@@ -84,7 +86,8 @@ export const OTHER_SETTING_DEFAULTS = {
   otherSessionSummary: true,
   otherHaulSwitchPrompt: true,
   otherHaulSwitchMinScu: 100,
-  otherMarkerDistance: true
+  otherMarkerDistance: true,
+  otherAutoStart: true
 }
 
 type OtherSettingKey = keyof typeof OTHER_SETTING_DEFAULTS

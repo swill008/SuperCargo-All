@@ -1,4 +1,4 @@
-import React, { useEffect } from 'react'
+import React, { Profiler, useCallback, useEffect, useRef } from 'react'
 import { useStore } from './state/store'
 import { resolveWorkMode } from '@other/workMode'
 import { bootOther, OtherPages, OtherModals, OtherWorkModeBlock, useOtherEscape } from '@other/renderer/mountApp'
@@ -18,8 +18,14 @@ import UpdateBanner from './components/UpdateBanner'
 import Toast from './components/Toast'
 import CrashGuard from './components/CrashGuard'
 import DebugPage from './pages/DebugPage'
+import { trace, setTraceEnabled } from './state/trace'
+import { otherDiagSnapshot } from '@other/renderer/state/otherDiag'
+import { haulDiagSnapshot } from './state/haulDiag'
 
 const HASH = typeof window !== 'undefined' ? window.location.hash.replace('#', '') : ''
+const STARTED = Date.now()
+const PERF_EVERY_MS = 5000
+const PERF_SLOW_MS = 50
 
 export default function App(): React.ReactElement {
   if (HASH === 'debug') return <DebugPage />
@@ -39,6 +45,38 @@ function MainApp(): React.ReactElement {
   const uiZoom = useStore((s) => s.settings.uiZoom)
   const onboarded = useStore((s) => s.settings.onboarded)
   const updateSettings = useStore((s) => s.updateSettings)
+  const traceOn = useStore((s) => s.settings.traceInterpretation)
+
+  useEffect(() => setTraceEnabled(traceOn), [traceOn])
+
+  // EXPORT DIAGNOSTICS asks the main window for a state snapshot
+  useEffect(
+    () =>
+      window.supercargo.onDiagSnapshotRequest((reqId) => {
+        const st = useStore.getState()
+        const base = {
+          view: st.view,
+          workMode: resolveWorkMode(st.settings.workMode),
+          windowSize: { w: window.innerWidth, h: window.innerHeight },
+          uptimeMs: Date.now() - STARTED
+        }
+        try {
+          window.supercargo.diagSnapshotReply(reqId, { ...base, other: otherDiagSnapshot(), haul: haulDiagSnapshot() })
+        } catch (e) {
+          window.supercargo.diagSnapshotReply(reqId, { ...base, error: e instanceof Error ? e.message : String(e) })
+        }
+      }),
+    []
+  )
+
+  // render timings: at most one per view every 5 s, plus every slow render
+  const lastPerf = useRef<Record<string, number>>({})
+  const onRender = useCallback<React.ProfilerOnRenderCallback>((id, _phase, actualDuration) => {
+    const now = Date.now()
+    if (actualDuration <= PERF_SLOW_MS && now - (lastPerf.current[id] ?? 0) < PERF_EVERY_MS) return
+    lastPerf.current[id] = now
+    trace({ area: 'perf', what: 'render', ms: Math.round(actualDuration * 10) / 10, data: { view: id } })
+  }, [])
 
   useEffect(() => {
     void (async () => {
@@ -103,7 +141,7 @@ function MainApp(): React.ReactElement {
         {!ready ? (
           <Loading />
         ) : (
-          <>
+          <Profiler id={view} onRender={onRender}>
             {workMode === 'haul' && view === 'manifest' && <ManifestPage />}
             {workMode === 'haul' && view === 'contracts' && <ContractsPage />}
             {workMode === 'haul' && view === 'grid' && <CargoGridPage />}
@@ -115,7 +153,7 @@ function MainApp(): React.ReactElement {
                 <SettingsPage />
               </>
             )}
-          </>
+          </Profiler>
         )}
       </div>
       <BottomNav />

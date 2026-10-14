@@ -3,6 +3,7 @@
 import * as fs from 'node:fs'
 import { parseLine, type MarkerEntry } from './logParser'
 import { logger } from './logger'
+import { trace } from './trace'
 import type { ScannedContract, ScanShare, SessionScan } from '@shared/types'
 
 export function scanSessionLog(logPath: string): SessionScan {
@@ -37,20 +38,50 @@ export function scanSessionLog(logPath: string): SessionScan {
         localGeid = parsed.geid
         break
       case 'accepted':
+        trace({
+          area: 'parse',
+          mode: 'haul',
+          what: parsed.isHauling ? 'scan accepted: hauling' : 'scan accepted: not hauling',
+          line,
+          missionId: parsed.event.missionId,
+          data: {
+            isHauling: parsed.isHauling,
+            generator: parsed.event.generator,
+            contractName: parsed.event.contractName,
+            title: parsed.event.title
+          }
+        })
         if (parsed.isHauling) {
           active.set(parsed.event.missionId, { accepted: parsed.event, objectives: [] })
         }
         break
       case 'objective': {
         const contract = active.get(parsed.event.missionId)
+        trace({
+          area: 'parse',
+          mode: 'haul',
+          what: contract ? 'scan objective' : 'scan objective: no active haul',
+          line,
+          missionId: parsed.event.missionId,
+          data: { commodity: parsed.event.commodity, scu: parsed.event.scuAmount, destination: parsed.event.destination }
+        })
         if (contract) contract.objectives.push(parsed.event)
         break
       }
       case 'ended':
+        trace({
+          area: 'parse',
+          mode: 'haul',
+          what: `scan ended: ${parsed.event.completion}`,
+          line,
+          missionId: parsed.event.missionId,
+          data: { completion: parsed.event.completion, reason: parsed.event.reason, wasActive: active.has(parsed.event.missionId) }
+        })
         active.delete(parsed.event.missionId)
         break
       case 'share': {
         const e = parsed.event
+        trace({ area: 'parse', mode: 'haul', what: `scan share: ${e.kind}`, line, missionId: e.missionId, data: { kind: e.kind } })
         if (e.kind === 'shared') {
           sharedToMe.add(e.missionId)
           leftByOthers.delete(e.missionId)
@@ -74,6 +105,13 @@ export function scanSessionLog(logPath: string): SessionScan {
     ownerLeft: leftByOthers.has(missionId) || undefined
   }))
 
+  trace({
+    area: 'perf',
+    mode: 'haul',
+    what: 'session scan',
+    ms: Date.now() - t0,
+    data: { bytes: content.length, lines, events, active: active.size, shares: shares.length }
+  })
   logger.info('watch', 'session scan end', {
     lines,
     events,

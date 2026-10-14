@@ -30,3 +30,7 @@ These are the intended behaviour of Other mode. Change them only with the user.
 8. **One window owns Other.** Only the main window applies log events and saves; the overlay shows the same jobs, sends its button presses (step done, complete, abandon) to the main window, and reloads when the main window saves.
 
 Options for these behaviours live in Settings (Other block); defaults in `OTHER_SETTING_DEFAULTS` (`src/other/workMode.ts`).
+
+## Diagnostics footprint in upstream files
+
+The diagnostics trace (EXPORT DIAGNOSTICS) adds `trace(...)` calls to upstream Haul files: `src/main/logWatcher.ts`, `src/main/scanLog.ts`, `src/main/ocr/index.ts`, `src/main/contractData.ts`, `src/renderer/src/state/store.ts` (edit actions wrapped in a pass-through that records the action), `src/renderer/src/state/route.ts`. They change no behaviour; after an upstream merge, re-add them or drop them (the export still works, with less Haul detail).

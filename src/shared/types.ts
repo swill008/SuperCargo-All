@@ -196,6 +196,8 @@ export interface AppSettings {
   autoCheckUpdates: boolean
 
   onboarded: boolean
+  /** write the diagnostics trace (what was read and decided, performance) for EXPORT DIAGNOSTICS; default on */
+  traceInterpretation?: boolean
 }
 
 /** superset of PackBox; delivered boxes stay packed so cells don't shift */

@@ -11,7 +11,7 @@ import { useStore } from '@renderer/state/store'
 import { dlog } from '@renderer/state/log'
 import { useOtherJobs } from '../state/otherJobs'
 import { useOtherCapture } from '../state/otherCapture'
-import { applyOcrRows, applyOcrRewardOnly } from '../state/otherOcr'
+import { applyOcrRows, applyOcrRewardOnly, traceOcr } from '../state/otherOcr'
 import { saveSessionOcrShot } from '../state/otherOcrShot'
 import { mergeLocations } from '../state/otherPlaces'
 import { parseOtherOcrText, type OtherOcrRow } from '@other/otherOcrParse'
@@ -83,6 +83,7 @@ export default function OtherCaptureModal(): React.ReactElement | null {
         if (cancelled) return
         if (!result?.ok) {
           dlog.warn('other', 'modal auto-ocr failed', { ref: j.ref, error: result?.error })
+          traceOcr('auto read failed', j.missionId, { ref: j.ref, error: result?.error })
           setStatus(result?.error || 'OCR failed')
           close()
           return
@@ -90,6 +91,7 @@ export default function OtherCaptureModal(): React.ReactElement | null {
         const text = result.rawText || ''
         const parsed = parseOtherOcrText(text)
         dlog.info('other', 'modal auto-ocr apply', { ref: j.ref, rows: parsed.rows.length })
+        traceOcr('auto read', j.missionId, { ref: j.ref, rowsParsed: parsed.rows.length, rewardFound: result.reward || parsed.reward || 0 }, text)
         applyOcrRows(jobId, {
           reward: result.reward || parsed.reward || j.reward || 0,
           rows: parsed.rows
@@ -147,12 +149,17 @@ export default function OtherCaptureModal(): React.ReactElement | null {
       const result = await window.supercargo.ocrRun()
       if (!result?.ok) {
         dlog.warn('other', 'manual ocr failed', { ref: job.ref, error: result?.error })
+        traceOcr('manual read failed', job.missionId, { ref: job.ref, error: result?.error })
         setStatus(result?.error || 'OCR failed')
         return
       }
       const text = result.rawText || ''
       setRawText(text)
-      dlog.info('other', 'manual ocr parsed', { ref: job.ref, chars: text.length, rows: parseOtherOcrText(text).rows.length })
+      {
+        const parsed = parseOtherOcrText(text)
+        dlog.info('other', 'manual ocr parsed', { ref: job.ref, chars: text.length, rows: parsed.rows.length })
+        traceOcr('manual read', job.missionId, { ref: job.ref, rowsParsed: parsed.rows.length, rewardFound: result.reward || parsed.reward || 0 }, text)
+      }
       applyParse(text, result.reward || 0)
       setStatus(text ? 'Review the steps, then confirm.' : 'No text. Check the capture area in Settings.')
     } catch (e) {
@@ -184,6 +191,16 @@ export default function OtherCaptureModal(): React.ReactElement | null {
       locked,
       fromLog,
       dropped: locked && !overwrite && !(updateAuecOnly && !overwrite)
+    })
+    traceOcr('confirm', job.missionId, {
+      ref: job.ref,
+      rows: rows.length,
+      overwrite,
+      aUecOnly: updateAuecOnly,
+      locked,
+      fromLog,
+      reward,
+      outcome: updateAuecOnly && !overwrite ? 'reward only' : locked && !overwrite ? 'dropped: locked' : 'apply rows'
     })
     if (updateAuecOnly && !overwrite) {
       applyOcrRewardOnly(job.id, reward)

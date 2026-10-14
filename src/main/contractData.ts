@@ -6,6 +6,7 @@ import { cleanTitle } from '@shared/contract'
 import { normalize, bestMatch } from '@shared/fuzzy'
 import type { AppSettings, ContractAcceptedEvent, ContractDataStatus, ContractOverride } from '@shared/types'
 import { logger } from './logger'
+import { trace } from './trace'
 
 export interface ContractInfo {
   title: string
@@ -218,6 +219,22 @@ export function enrichAccepted(e: ContractAcceptedEvent): ContractAcceptedEvent 
       commodityBoxSizes: normalizedCommodities(ov) ?? out.commodityBoxSizes
     }
   }
+  trace({
+    area: 'decide',
+    mode: 'haul',
+    what: info || ov ? 'contract data: match' : byTitle.size ? 'contract data: no match' : 'contract data: not loaded',
+    missionId: e.missionId,
+    data: {
+      title: e.title,
+      contractName: e.contractName,
+      locMatch: info?.title ?? null,
+      override: !!ov,
+      maxBoxSize: out.maxBoxSize,
+      commodityBoxSizes: out.commodityBoxSizes,
+      reputation: out.reputation,
+      blueprints: out.blueprints?.length ?? 0
+    }
+  })
   logger.debug('haul', 'enrich accepted', {
     id: e.missionId.slice(0, 8),
     locMatch: !!info,

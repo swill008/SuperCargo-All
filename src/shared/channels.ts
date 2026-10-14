@@ -106,5 +106,9 @@ export const IPC = {
   debugOpen: 'debug:open',
   debugOpenFolder: 'debug:openFolder',
   debugSetVerbose: 'debug:setVerbose',
-  evtDebugEntries: 'evt:debug:entries' // main -> debug window, batch of LogEntry
+  evtDebugEntries: 'evt:debug:entries', // main -> debug window, batch of LogEntry
+  traceRecords: 'trace:records', // window -> main, batch of TraceRecord
+  diagExport: 'diag:export', // invoke: build and save the diagnostics file
+  diagSnapshotRequest: 'evt:diag:snapshot', // main -> main window: send your state snapshot
+  diagSnapshotReply: 'diag:snapshot' // main window -> main: the snapshot (jobs, distances, store summary)
 } as const

@@ -1,5 +1,6 @@
 import { create } from 'zustand'
 import { dlog } from './log'
+import { trace } from './trace'
 import type {
   AppSettings,
   HaulingContract,
@@ -433,6 +434,88 @@ if (import.meta.hot) {
 }
 
 // member's own run, parked during a crew
+// diagnostics: what the store decided with a haul event, and why
+function decide(what: string, missionId?: string, data?: Record<string, unknown>): void {
+  trace({ area: 'decide', mode: 'haul', what, missionId, data })
+}
+
+// compact, image-free view of action arguments for the trace
+function traceArg(v: unknown): unknown {
+  if (v == null || typeof v === 'number' || typeof v === 'boolean') return v
+  if (typeof v === 'string') return v.length > 120 ? `${v.slice(0, 120)}…` : v
+  if (typeof v === 'function') return 'fn'
+  try {
+    const j = JSON.stringify(v)
+    return j.length > 300 ? `${j.slice(0, 300)}…` : JSON.parse(j)
+  } catch {
+    return '?'
+  }
+}
+
+// user edits to the manifest/route, traced as decisions; pass-through otherwise
+const TRACED_EDITS = new Set([
+  'addManualContract',
+  'addObjectivesToContract',
+  'removeContract',
+  'completeContract',
+  'abandonContract',
+  'fileCompleted',
+  'setContractStatus',
+  'resetRouteToAuto',
+  'startNewRun',
+  'toggleObjectiveDelivered',
+  'lockLayout',
+  'unlockLayout',
+  'turnInDestination',
+  'unmarkTurnIn',
+  'setSharerLeft',
+  'resetRoute',
+  'editContract',
+  'editObjective',
+  'deleteObjective',
+  'setObjectiveScu',
+  'setObjectiveBoxes',
+  'setPickupScu',
+  'setObjectiveDeliveredScu',
+  'setContractReward',
+  'setObjectivesDelivered',
+  'reorderStops',
+  'setStartLocation',
+  'addStorAll',
+  'moveStorAll',
+  'removeStorAll',
+  'setObjectiveDeferred',
+  'setObjectiveGrabbed',
+  'resetWalkDecisions',
+  'rescanContract',
+  'addScanItem',
+  'scanItemDetails',
+  'skipScanItem',
+  'dismissScanItem'
+])
+
+function traceEdits(actions: StoreState): StoreState {
+  const out: Record<string, unknown> = { ...actions }
+  for (const [k, v] of Object.entries(actions)) {
+    if (typeof v !== 'function' || !TRACED_EDITS.has(k)) continue
+    const fn = v as (...args: unknown[]) => unknown
+    out[k] = (...args: unknown[]) => {
+      try {
+        const first = args[0]
+        decide(`user edit: ${k}`, typeof first === 'string' && first.length > 20 ? first : undefined, {
+          args: args.map(traceArg)
+        })
+      } catch {
+        /* trace is best-effort */
+      }
+      return fn(...args)
+    }
+  }
+  return out as unknown as StoreState
+}
+
+let lastPersistTrace = 0
+
 const NO_CREW: CrewState = { role: null, code: '', connected: false, lastAt: 0, members: [] }
 
 // the only actions a crew member keeps
@@ -508,6 +591,18 @@ export const useStore = create<StoreState>((set, get) => {
     if (get().crew.role === 'member') return
     const doc = manifestDoc()
     dlog.debug('haul', 'manifest persist', { contracts: doc.contracts.length, stops: doc.stopOrder?.length ?? 0 })
+    if (Date.now() - lastPersistTrace >= 10_000) {
+      lastPersistTrace = Date.now()
+      const pt0 = performance.now()
+      const bytes = JSON.stringify(doc).length
+      trace({
+        area: 'perf',
+        mode: 'haul',
+        what: 'manifest persist',
+        ms: Math.round((performance.now() - pt0) * 10) / 10,
+        data: { bytes, contracts: doc.contracts.length, stops: doc.stopOrder?.length ?? 0 }
+      })
+    }
     void window.supercargo.saveManifest(doc)
     pushCrew(doc)
   }
@@ -634,6 +729,22 @@ export const useStore = create<StoreState>((set, get) => {
     )
     set({ route: plan })
     dlog.debug('haul', 'reroute', { stops: plan?.stopKeys.length ?? 0, contracts: active.length, seeded: seed !== undefined, ms: Date.now() - rt0 })
+    trace({
+      area: 'perf',
+      mode: 'haul',
+      what: 'reroute',
+      ms: Date.now() - rt0,
+      data: {
+        stops: plan?.stopKeys.length ?? 0,
+        contracts: active.length,
+        held: contracts.length - active.length,
+        aboard: aboard.size,
+        seeded: seed !== undefined,
+        auto: isRouteAuto,
+        capacity,
+        compact: isCompactWindow
+      }
+    })
     if (notifyAdd && !isCompactWindow) {
       const c = contracts.find((x) => x.id === notifyAdd!.id)
       // objectives arrive after the accept; wait, don't announce 0/0
@@ -698,11 +809,18 @@ export const useStore = create<StoreState>((set, get) => {
     const contracts = get().contracts
     const idx = contracts.findIndex((c) => c.id === e.missionId)
     dlog.info('haul', 'share event', { kind: e.kind, id: e.missionId.slice(0, 8), isLocal: e.isLocal, held: idx < 0 })
+    if (idx < 0) decide(`share ${e.kind}: held until accept`, e.missionId, { isLocal: e.isLocal })
     if (idx < 0) {
       pendingShare.set(e.missionId, [...(pendingShare.get(e.missionId) ?? []), e])
       return
     }
     const updated = applyShare(contracts[idx], e)
+    decide(`share ${e.kind}: ${updated !== contracts[idx] ? 'applied' : 'no change'}`, e.missionId, {
+      isLocal: e.isLocal,
+      sharedWithMe: updated.sharedWithMe,
+      sharerLeft: updated.sharerLeft,
+      sharedWith: updated.sharedWith?.length ?? 0
+    })
     if (updated !== contracts[idx]) commit(contracts.map((c, i) => (i === idx ? updated : c)))
   }
   const drainShare = (missionId: string): void => {
@@ -820,6 +938,7 @@ export const useStore = create<StoreState>((set, get) => {
       return c
     })
     if (changed) {
+      decide('ocr hold released', missionId, { all: !missionId, reroute: true })
       commit(next)
       // a single held contract just cleared capture and joins the route now
       if (resolvedId) announce(resolvedId)
@@ -839,7 +958,10 @@ export const useStore = create<StoreState>((set, get) => {
     opts: { maxBoxSize?: number; boxSizeConfirmed?: boolean; pendingOcr?: boolean }
   ): void => {
     const { contracts, runId, history } = get()
-    if (contracts.some((c) => c.id === item.accepted.missionId)) return
+    if (contracts.some((c) => c.id === item.accepted.missionId)) {
+      decide('scan item skipped: already on manifest', item.accepted.missionId)
+      return
+    }
     // first contract of an empty manifest starts a new trip
     if (contracts.length === 0) {
       set({ runId: newRunId([runId, ...history.map((h) => h.runId)]), loadingActive: false, loadingIdx: 0 })
@@ -857,6 +979,15 @@ export const useStore = create<StoreState>((set, get) => {
     contract.objectives = applyMarkerBackfill([contract], get().locations)[0].objectives
     // non-pending scan = final set; pending settles after OCR
     if (!opts.pendingOcr) contract.objectivesSettled = true
+    decide('scan item added to manifest', contract.id, {
+      title: contract.title,
+      pickup: item.accepted.pickup === contract.pickup ? contract.pickup : `${item.accepted.pickup} → ${contract.pickup}`,
+      maxBoxSize: contract.maxBoxSize,
+      boxSizeConfirmed: contract.boxSizeConfirmed,
+      pendingOcr: !!opts.pendingOcr,
+      objectives: contract.objectives.map((o) => ({ commodity: o.commodity, scu: o.scuAmount, destination: o.destination })),
+      reroute: true
+    })
     commit([...contracts, opts.pendingOcr ? { ...contract, pendingOcr: true } : contract])
     set({ isRouteAuto: true })
     if (!opts.pendingOcr) announce(contract.id)
@@ -864,7 +995,7 @@ export const useStore = create<StoreState>((set, get) => {
     drainShare(contract.id)
   }
 
-  return crewLock({
+  return traceEdits(crewLock({
     ready: false,
     view: 'manifest',
     groupBy: 'destination',
@@ -1056,13 +1187,16 @@ export const useStore = create<StoreState>((set, get) => {
         const aid = e.missionId.slice(0, 8)
         // a member's own log can't touch the leader's run
         if (get().crew.role === 'member') dlog.info('haul', 'accepted skipped: crew member', { id: aid })
+        if (get().crew.role === 'member') decide('accepted skipped: crew member', e.missionId)
         if (get().crew.role === 'member') return
         const { contracts, dismissedMissions } = get()
         // dedup relog re-emits
         if (contracts.some((c) => c.id === e.missionId)) dlog.info('haul', 'accepted skipped: already on manifest', { id: aid })
+        if (contracts.some((c) => c.id === e.missionId)) decide('accepted skipped: already on manifest', e.missionId)
         if (contracts.some((c) => c.id === e.missionId)) return
         // the user dismissed this one; the log keeps re-offering it, so keep ignoring
         if (dismissedMissions.includes(e.missionId)) dlog.info('haul', 'accepted skipped: dismissed', { id: aid })
+        if (dismissedMissions.includes(e.missionId)) decide('accepted skipped: dismissed by user', e.missionId)
         if (dismissedMissions.includes(e.missionId)) return
         // empty manifest = fresh trip
         if (contracts.length === 0) {
@@ -1079,6 +1213,20 @@ export const useStore = create<StoreState>((set, get) => {
           willOcr,
           workMode: get().settings.workMode ?? 'haul',
           compact: isCompactWindow
+        })
+        decide(willOcr ? 'accepted: added, held for OCR' : 'accepted: added to manifest', e.missionId, {
+          title: e.title,
+          generator: e.generator,
+          contractName: e.contractName,
+          pickup: e.pickup === contract.pickup ? contract.pickup : `${e.pickup} → ${contract.pickup}`,
+          maxBoxSize: contract.maxBoxSize,
+          boxSizeConfirmed: contract.boxSizeConfirmed,
+          boxSource: e.commodityBoxSizes ? 'override' : e.maxBoxSize != null ? 'contract data' : 'default 16',
+          commodityBoxSizes: e.commodityBoxSizes,
+          willOcr,
+          newRun: contracts.length === 0,
+          workMode: get().settings.workMode ?? 'haul',
+          reroute: true
         })
         // hold until capture resolves
         commit([...contracts, willOcr ? { ...contract, pendingOcr: true } : contract])
@@ -1112,10 +1260,12 @@ export const useStore = create<StoreState>((set, get) => {
         const { contracts } = get()
         const idx = contracts.findIndex((c) => c.id === e.missionId)
         if (idx < 0) dlog.debug('haul', 'objective: no contract', { id: e.missionId.slice(0, 8) })
+        if (idx < 0) decide('objective skipped: contract not on manifest', e.missionId, { commodity: e.commodity, scu: e.scuAmount })
         if (idx < 0) return
         const c = contracts[idx]
         // once settled, ignore re-logged objectives (cross-system ones dupe)
         if (c.objectivesSettled) dlog.debug('haul', 'objective ignored: settled', { id: e.missionId.slice(0, 8) })
+        if (c.objectivesSettled) decide('objective skipped: objectives settled', e.missionId, { commodity: e.commodity, scu: e.scuAmount })
         if (c.objectivesSettled) return
         const destination = resolveLogLocation(e.destination, get().locations)
         // key on scu too, so same commodity+dest can register twice (#27); exact re-emits still dedup
@@ -1126,6 +1276,7 @@ export const useStore = create<StoreState>((set, get) => {
             `${o.commodity.trim().toLowerCase()}|${resolveLogLocation(o.destination, get().locations).toLowerCase()}|${o.scuAmount}` === ek
         )
         if (exists) dlog.debug('haul', 'objective duplicate', { id: e.missionId.slice(0, 8), key: ek })
+        if (exists) decide('objective skipped: duplicate', e.missionId, { key: ek })
         if (exists) return
         const objectives = [
           ...c.objectives,
@@ -1143,6 +1294,18 @@ export const useStore = create<StoreState>((set, get) => {
           destination: newDest,
           wantsOcr,
           objectives: objectives.length
+        })
+        const newObj = withCoords.objectives[withCoords.objectives.length - 1]
+        decide(wantsOcr ? 'objective: added, OCR for system destination' : 'objective: added', e.missionId, {
+          commodity: e.commodity,
+          scu: e.scuAmount,
+          destination: e.destination === newDest ? newDest : `${e.destination} → ${newDest}`,
+          resolvedBy: newDest === destination ? (destination === e.destination ? 'as logged' : 'UEX name') : 'marker coords',
+          boxSize: objectiveBoxSize(c, e.commodity),
+          boxes: newObj.boxes,
+          objectives: objectives.length,
+          wantsOcr,
+          reroute: true
         })
         const updated = [...contracts]
         updated[idx] = { ...withCoords, pendingOcr: c.pendingOcr || wantsOcr }
@@ -1165,7 +1328,17 @@ export const useStore = create<StoreState>((set, get) => {
           onManifest: !!contract,
           compact: isCompactWindow
         })
+        if (!contract) decide('ended skipped: not on manifest', e.missionId, { completion: e.completion })
         if (!contract) return
+        decide(
+          e.completion === 'Complete'
+            ? 'ended: archived as completed'
+            : e.completion === 'Abandon' || e.completion === 'Fail'
+              ? `ended: queued as ${e.completion === 'Fail' ? 'failed' : 'abandoned'} (coalesce vs disconnect)`
+              : `ended: ignored (${e.completion})`,
+          e.missionId,
+          { completion: e.completion, reason: e.reason, reroute: e.completion === 'Complete' }
+        )
         if (e.completion === 'Complete') {
           pendingEnds.delete(e.missionId)
           archive(finalizeDelivery(contract), 'completed')
@@ -1184,6 +1357,9 @@ export const useStore = create<StoreState>((set, get) => {
           id: e.missionId.slice(0, 8),
           amount: e.amount,
           inHistory: get().history.some((h) => h.id === e.missionId)
+        })
+        decide(get().history.some((h) => h.id === e.missionId) ? 'paid: payout recorded' : 'paid: no history entry', e.missionId, {
+          amount: e.amount
         })
         const history = get().history.map((h) =>
           h.id === e.missionId ? { ...h, actualPayout: e.amount } : h
@@ -1292,7 +1468,10 @@ export const useStore = create<StoreState>((set, get) => {
       void get().scanSession()
     },
 
-    setView: (view) => set({ view }),
+    setView: (view) => {
+      trace({ area: 'usage', mode: 'haul', what: `view: ${view}`, data: { from: get().view } })
+      set({ view })
+    },
     setLoadingActive: (v) => {
       set((s) => ({ loadingActive: typeof v === 'function' ? v(s.loadingActive) : v }))
       persist()
@@ -2172,5 +2351,5 @@ export const useStore = create<StoreState>((set, get) => {
         /* engine info is best-effort */
       }
     }
-  }, get)
+  }, get))
 })

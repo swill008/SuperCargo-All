@@ -7,6 +7,46 @@ import { boxList, calculateBoxes } from '@shared/box'
 import { pickupAmounts } from '@shared/pickups'
 import { splitDestination } from '../data/stations'
 import { activeContracts } from './manifest'
+import { trace } from './trace'
+
+// diagnostics: the last computeRoutePlan, for haulDiagSnapshot
+export interface RouteStats {
+  at: number
+  ms: number
+  nodes: number
+  jobs: number
+  stops: number
+  method: RoutePlan['method'] | null
+  feasible: boolean | null
+  trips: number
+  totalDistance: number
+  peakLoad: number
+  capacity: number
+  manualOrder: boolean
+  deferred: number
+  aboard: number
+  midWalk: boolean
+  usedRealDistance: boolean
+  reason?: string
+}
+
+let lastStats: RouteStats | null = null
+export function lastRouteStats(): RouteStats | null {
+  return lastStats
+}
+
+function traceRoute(stats: RouteStats): void {
+  lastStats = stats
+  trace({
+    area: 'decide',
+    mode: 'haul',
+    what: stats.method
+      ? `route: ${stats.method}${stats.feasible ? '' : ' (infeasible)'}`
+      : 'route: none (nothing to plan)',
+    ms: stats.ms,
+    data: { ...stats, at: undefined }
+  })
+}
 
 export interface RouteNode {
   key: string
@@ -422,9 +462,30 @@ export function computeRoutePlan(
   startKey?: string,
   fixtures?: ReadonlyMap<string, Placement>
 ): RoutePlan | null {
+  const rp0 = performance.now()
   locations = withCityCoords(locations)
   const model = buildRouteModel(contracts, locations, startLocation, capacity, bays, fixtures)
-  if (model.nodes.length < 2 || model.jobs.length === 0) return null
+  if (model.nodes.length < 2 || model.jobs.length === 0) {
+    traceRoute({
+      at: Date.now(),
+      ms: Math.round((performance.now() - rp0) * 10) / 10,
+      nodes: model.nodes.length,
+      jobs: model.jobs.length,
+      stops: 0,
+      method: null,
+      feasible: null,
+      trips: 0,
+      totalDistance: 0,
+      peakLoad: 0,
+      capacity,
+      manualOrder: !!manualOrder?.length,
+      deferred: deferred?.length ?? 0,
+      aboard: aboard?.size ?? 0,
+      midWalk: startKey !== undefined,
+      usedRealDistance: false
+    })
+    return null
+  }
   const { dist, usedReal } = buildDistMatrix(model.nodes, locations)
 
   // already aboard: no pickup visit, and deferral doesn't apply
@@ -584,6 +645,25 @@ export function computeRoutePlan(
     }
   }
   const matchedObjectives = [...new Set(model.jobInfo.map((j) => j.objectiveId))]
+  traceRoute({
+    at: Date.now(),
+    ms: Math.round((performance.now() - rp0) * 10) / 10,
+    nodes: model.nodes.length,
+    jobs: model.jobs.length,
+    stops: stopKeys.length,
+    method: result.method,
+    feasible: result.feasible,
+    trips,
+    totalDistance: Math.round(result.totalDistance * 1000) / 1000,
+    peakLoad: result.peakLoad,
+    capacity,
+    manualOrder: !!fixedOrder,
+    deferred: deferredJobs?.size ?? 0,
+    aboard: aboardJobs?.size ?? 0,
+    midWalk: startNode >= 0,
+    usedRealDistance: usedReal,
+    reason: result.reason
+  })
 
   return {
     steps,

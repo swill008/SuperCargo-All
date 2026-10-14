@@ -51,6 +51,15 @@ const L = {
     `${stamp(at)} [Notice] <CLocalMissionPhaseMarker::CreateMarker> Creating objective marker: missionId [${id}], generator name [${generator}], contract [${contract}], contractDefinitionId[5168b0a5-7816-4c62-9273-7f2c823af115], objectiveId [d19969ff-392e-ae47-918f-62c2022e3139], markerEntityId [14098], zoneHostId [874493856467], position [x: 267369.758029, y: -60808.454505, z: -109494.581748] [Team_MissionFeatures][Missions]`,
   drop: (at) =>
     `${stamp(at)} [Notice] <Channel Disconnected> cause=30016 reason="Remote Disconnect - Player requested disconnect" frame=418017 isRemote=1 viewState=eCVS_InGame map="megamap" gamerules="SC_Default" hostType="Replicant" connection={3, 0} uptime_secs=4036.688477 [Team_Network][Network][Gateway][Disconnection]`,
+  // Player[...] is the handle; the diagnostics export must never carry it
+  endAs: (id, type, player, playerId, at) =>
+    `${stamp(at)} [Notice] <EndMission> Ending mission for player. MissionId[${id}] Player[${player}] PlayerId[${playerId}] CompletionType[${type}] Reason[Player left] [Team_MissionFeatures][Missions]`,
+  notice: (text, id, at) =>
+    `${stamp(at)} ${NOTE} "${text}: " [9] to queue. New queue size: 1, MissionId: [${id}], ObjectiveId: [] ${TAGS}`,
+  arrive: (hash, player = 'PLAYER', at) =>
+    `${stamp(at)} [Notice] <Update Inventory Location> Player [${player}] is changing location. Landing [0] -> [${hash}]. Location [0] -> [${hash}]. Pending [0] [Team_CoreGameplayFeatures][Inventory]`,
+  inventory: (code, player = 'PLAYER', at) =>
+    `${stamp(at)} [Notice] <RequestLocationInventory> Player[${player}] requested inventory for Location[${code}] [Team_CoreGameplayFeatures][Inventory]`,
   quit: (at) =>
     `${stamp(at)} [Notice] <SystemQuit> CSystem::Quit invoked with - cause=30016, reason=Quit via console command, exitCode=0, thread id=22328, main thread id=22328 [Team_Unknown][System]`
 }
@@ -108,10 +117,10 @@ function setup(name, settings, jobsDoc) {
   }
 }
 
-async function launch(env) {
+async function launch(env, extraArgs = []) {
   const appEnv = { ...process.env, HOME: env.home, USERPROFILE: env.home, APPDATA: path.join(env.home, 'AppData', 'Roaming'), XDG_CONFIG_HOME: path.join(env.home, '.config') }
   delete appEnv.ELECTRON_RENDERER_URL
-  const args = [root, '--no-sandbox']
+  const args = [root, '--no-sandbox', ...extraArgs]
   const child = useXvfb
     ? spawn('xvfb-run', ['-n', String(nextDisplay++), electron, ...args], { env: appEnv, detached: true, stdio: 'ignore' })
     : spawn(electron, args, { env: appEnv, detached: process.platform !== 'win32', stdio: 'ignore' })
@@ -141,6 +150,38 @@ async function launch(env) {
     }
     await sleep(1500)
   }
+}
+
+// --export-diagnostics <file>: the app writes it ~6 s after the main window loads
+const DIAG_SECTIONS = ['SUMMARY', 'SETTINGS', 'SNAPSHOT', 'UNKNOWN LINES', 'DECISIONS', 'PERF', 'USAGE', 'ERRORS', 'DEBUG LOG', 'LOG EXCERPT']
+async function waitForFile(file, ms = 20000) {
+  const t0 = Date.now()
+  while (Date.now() - t0 < ms) {
+    try {
+      const text = fs.readFileSync(file, 'utf8')
+      if (text.length) {
+        await sleep(500) // let a write in progress finish
+        return fs.readFileSync(file, 'utf8')
+      }
+    } catch {
+      // not written yet
+    }
+    await sleep(250)
+  }
+  return null
+}
+// "## NAME" header -> body text up to the next header
+function diagSections(text) {
+  const out = {}
+  let cur = null
+  for (const line of (text ?? '').split(/\r?\n/)) {
+    const m = /^##\s+(.+?)\s*$/.exec(line)
+    if (m) {
+      cur = m[1].toUpperCase()
+      out[cur] = ''
+    } else if (cur) out[cur] += line + '\n'
+  }
+  return out
 }
 
 const count = (text, re) => (text.match(re) || []).length
@@ -586,6 +627,85 @@ const scenarios = {
     return [
       ['neutralize step exists', !!step, `steps=${e.jobs()?.jobs?.[0]?.steps?.length}`],
       ['neutralize step is not a turn-in', step && step.kind !== 'turnin', `kind=${step?.kind} label=${JSON.stringify(step?.label)}`]
+    ]
+  },
+
+  // EXPORT DIAGNOSTICS from the command line: every section, names and ids scrubbed, decisions traced
+  'diag-export': async () => {
+    const e = setup('diag-export')
+    const out = path.join(e.data, 'diag-export.txt')
+    const stop = await launch(e, ['--export-diagnostics', out])
+    const id = mission()
+    const other = mission()
+    const REAL = 'Zorblax9000'
+    const OWNER = '987654321098'
+    e.append(
+      L.shared(OWNER, id),
+      L.accept(id, 'Bounty Hunt'),
+      L.objective(id, 'Go to Port Tressler'),
+      L.notice('Mission Bonus Unlocked: Extra Credit', id),
+      L.objective(id, 'Calibrate the scanner'),
+      L.endAs(other, 'Abandon', REAL, '1')
+    )
+    const text = await waitForFile(out)
+    await stop()
+    const doc = e.jobs()
+    const job = findJob(doc, id)
+    const sec = diagSections(text)
+    const missing = DIAG_SECTIONS.filter((h) => !(h in sec))
+    const unknown = sec['UNKNOWN LINES'] ?? ''
+    const decisions = sec['DECISIONS'] ?? ''
+    const snap = sec['SNAPSHOT'] ?? ''
+    return [
+      ['diagnostics file written within 20 s', text != null, `file=${out}`],
+      ['every section header present', text != null && missing.length === 0, `missing=${missing.join(',')}`],
+      ['real player name absent', text != null && !text.includes(REAL), `hits=${count(text ?? '', new RegExp(REAL, 'g'))}`],
+      ['12-digit owner id absent', text != null && !text.includes(OWNER), `hits=${count(text ?? '', new RegExp(OWNER, 'g'))}`],
+      ['PLAYER placeholder present', /PLAYER/.test(text ?? ''), `hits=${count(text ?? '', /PLAYER/g)}`],
+      ['OWNER- placeholder present', /OWNER-\d+/.test(text ?? ''), `hits=${count(text ?? '', /OWNER-\d+/g)}`],
+      ['UNKNOWN LINES lists Mission Bonus Unlocked', /Mission Bonus Unlocked/.test(unknown), `unknown=${JSON.stringify(unknown.slice(0, 200))}`],
+      ['DECISIONS has a job-created record', /job created|created/i.test(decisions), `decisions=${JSON.stringify(decisions.slice(0, 200))}`],
+      ['DECISIONS has a step record', /step/i.test(decisions), `steps=${count(decisions, /step/gi)}`],
+      ['SNAPSHOT has the job ref', !!job?.ref && snap.includes(job.ref), `ref=${job?.ref}`],
+      ['SNAPSHOT has a distance table key', /distance/i.test(snap), `snapshot=${JSON.stringify(snap.slice(0, 200))}`]
+    ]
+  },
+
+  // traceInterpretation off: nothing goes to logs/trace.jsonl
+  'trace-off': async () => {
+    const e = setup('trace-off', { traceInterpretation: false })
+    const stop = await launch(e)
+    const id = mission()
+    e.append(L.accept(id, 'Bounty Hunt'), L.objective(id, 'Go to Port Tressler'), L.notice('Mission Bonus Unlocked: Extra Credit', id))
+    await sleep(3000)
+    await stop()
+    let size = 0
+    try {
+      size = fs.statSync(path.join(e.data, 'logs', 'trace.jsonl')).size
+    } catch {
+      // not written: what we want
+    }
+    return [
+      ['events were handled (job made)', !!findJob(e.jobs(), id), `jobs=${e.jobs()?.jobs?.length ?? 0}`],
+      ['no trace written', size === 0, `trace.jsonl bytes=${size}`]
+    ]
+  },
+
+  // no start location set: the inventory request line fills currentLocation from the roster
+  'auto-start': async () => {
+    const e = setup('auto-start')
+    const out = path.join(e.data, 'diag-auto-start.txt')
+    const stop = await launch(e, [`--export-diagnostics=${out}`])
+    const id = mission()
+    e.append(L.arrive('1510935576'), L.inventory('RR_CRU_L1'), L.accept(id, 'Bounty Hunt'), L.objective(id, 'Go to Port Tressler'))
+    const text = await waitForFile(out)
+    await stop()
+    const want = 'CRU-L1 Ambitious Dream Station'
+    const snap = diagSections(text)['SNAPSHOT'] ?? ''
+    const doc = e.jobs()
+    return [
+      ['diagnostics file written within 20 s', text != null, `file=${out}`],
+      ['SNAPSHOT currentLocation is CRU-L1', snap.includes(want), `snapshot=${JSON.stringify(snap.slice(0, 300))} saved currentLocation=${doc?.currentLocation}`]
     ]
   }
 }

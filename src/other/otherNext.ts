@@ -5,7 +5,9 @@
  */
 import type { Location } from '@shared/types'
 import { resolveLogLocation } from '@shared/logLocation'
-import type { OtherJob, OtherStep } from '@other/otherJob'
+import type { ListOrder, OtherJob, OtherStep } from '@other/otherJob'
+
+export type { ListOrder }
 
 function titleChip(raw: string): string {
   const s = raw.trim()
@@ -162,6 +164,14 @@ export function compareByDistanceFrom(
 export interface OpenStopRow {
   job: OtherJob
   step: OtherStep
+  /** metres from start to this row's place; null when unknown or no start */
+  distance: number | null
+  /** metres from the previous row's place in this order (start for the first row); null if unknown */
+  leg: number | null
+  /** where the place's position came from: UEX roster coords, or the step's marker position */
+  distanceSource: 'uex' | 'marker' | null
+  /** a start is set but this row's distance can't be computed */
+  noDistance: boolean
 }
 
 /** Place the list should sort / show for this step's current phase. */
@@ -181,7 +191,7 @@ export type ListOpenStopsOpts = {
   showAll?: boolean
   /** Only used when showAll. Default true. */
   hideCompleted?: boolean
-  listOrder?: 'distance' | 'manual'
+  listOrder?: ListOrder
   jobOrder?: string[]
   /** settings.otherWithdrawnSteps: grey = listed (showAll), hide = left out. Default grey. */
   withdrawnSteps?: 'grey' | 'hide'
@@ -229,6 +239,44 @@ function sortJobsByFirstStep(
   )
 }
 
+type BaseRow = { job: OtherJob; step: OtherStep }
+
+/** step position plus where it came from */
+function stepPointWithSource(
+  step: OtherStep,
+  locations: Location[],
+  useMarker: boolean
+): { point: Pos; source: 'uex' | 'marker' } | undefined {
+  const named = findRosterLocation(stepActivePlace(step), locations)
+  if (hasCoords(named)) return { point: named!, source: 'uex' }
+  if (useMarker && hasCoords(step.position)) return { point: step.position!, source: 'marker' }
+  return undefined
+}
+
+type Placed = BaseRow & { point?: Pos; distance: number | null; distanceSource: 'uex' | 'marker' | null }
+
+/** greedy nearest-neighbour from start over rows with a known point; ties keep input order */
+function routeOrder(rows: Placed[], start: Pos): Placed[] {
+  const left = rows.slice()
+  const out: Placed[] = []
+  let cur = start
+  while (left.length) {
+    let best = 0
+    let bestD = Infinity
+    for (let i = 0; i < left.length; i++) {
+      const d = pointDistance(cur, left[i].point)!
+      if (d < bestD) {
+        bestD = d
+        best = i
+      }
+    }
+    const [next] = left.splice(best, 1)
+    out.push(next)
+    cur = next.point!
+  }
+  return out
+}
+
 /** Same list Next and overlay walk. */
 export function listOpenStops(
   jobs: OtherJob[],
@@ -236,21 +284,78 @@ export function listOpenStops(
   locations: Location[],
   opts?: ListOpenStopsOpts
 ): OpenStopRow[] {
+  const listOrder: ListOrder = opts?.listOrder ?? 'distance'
+  const useMarker = opts?.markerDistance !== false
+  const hasStart = !!startLocation.trim()
+  const startLoc = hasStart ? findRosterLocation(startLocation, locations) : undefined
+  const start: Pos | undefined = hasCoords(startLoc) ? startLoc : undefined
+
+  // route chains from the log order, not the distance sort
+  const base = baseOpenStops(jobs, startLocation, locations, opts, listOrder === 'route' ? 'manual-free' : listOrder)
+  const placed: Placed[] = base.map((r) => {
+    const hit = start ? stepPointWithSource(r.step, locations, useMarker) : undefined
+    const distance = hit ? pointDistance(start, hit.point) : null
+    return { ...r, point: hit?.point, distance, distanceSource: distance == null ? null : hit!.source }
+  })
+
+  let ordered: Placed[] = placed
+  if (hasStart && listOrder !== 'manual') {
+    const known = placed.filter((r) => r.distance != null)
+    const unknown = placed.filter((r) => r.distance == null)
+    ordered = [...(listOrder === 'route' && start ? routeOrder(known, start) : known), ...unknown]
+  }
+
+  let prev: Pos | undefined = start
+  return ordered.map((r) => {
+    const leg = prev && r.point ? pointDistance(prev, r.point) : null
+    prev = r.point
+    return {
+      job: r.job,
+      step: r.step,
+      distance: r.distance,
+      leg,
+      distanceSource: r.distanceSource,
+      noDistance: hasStart && r.distance == null
+    }
+  })
+}
+
+/** Sum of legs over the rows that have a distance; null when any of those legs is unknown or none have one. */
+export function routeTotal(rows: OpenStopRow[]): number | null {
+  const withDist = rows.filter((r) => r.distance != null)
+  if (withDist.length === 0) return null
+  let total = 0
+  for (const r of withDist) {
+    if (r.leg == null) return null
+    total += r.leg
+  }
+  return total
+}
+
+/** today's row set and order; 'manual-free' = no manual order and no distance sort (log order) */
+function baseOpenStops(
+  jobs: OtherJob[],
+  startLocation: string,
+  locations: Location[],
+  opts: ListOpenStopsOpts | undefined,
+  mode: 'distance' | 'manual' | 'manual-free'
+): BaseRow[] {
   const showAll = !!opts?.showAll
   const hideCompleted = opts?.hideCompleted !== false
-  const manual = opts?.listOrder === 'manual'
+  const manual = mode === 'manual'
+  const unsorted = mode === 'manual-free'
   const hideWithdrawn = opts?.withdrawnSteps === 'hide'
   const useMarker = opts?.markerDistance !== false
   const active = jobs.filter((j) => j.status === 'active')
 
   if (!showAll) {
-    const rows: OpenStopRow[] = []
+    const rows: BaseRow[] = []
     const pool = manual ? sortJobsByManualOrder(active, opts?.jobOrder ?? []) : active
     for (const job of pool) {
       const step = nextLiveStep(job)
       if (step) rows.push({ job, step })
     }
-    if (manual || !startLocation.trim()) return rows
+    if (manual || unsorted || !startLocation.trim()) return rows
     const start = findRosterLocation(startLocation, locations)
     return [...rows].sort((a, b) => compareStepsFrom(start, locations, a.step, b.step, useMarker))
   }
@@ -258,8 +363,10 @@ export function listOpenStops(
   const withSteps = active.filter((j) => visibleSteps(j, hideCompleted, hideWithdrawn).length > 0)
   const ordered = manual
     ? sortJobsByManualOrder(withSteps, opts?.jobOrder ?? [])
-    : sortJobsByFirstStep(withSteps, startLocation, locations, hideCompleted, hideWithdrawn, useMarker)
-  const rows: OpenStopRow[] = []
+    : unsorted
+      ? withSteps
+      : sortJobsByFirstStep(withSteps, startLocation, locations, hideCompleted, hideWithdrawn, useMarker)
+  const rows: BaseRow[] = []
   for (const job of ordered) {
     for (const step of visibleSteps(job, hideCompleted, hideWithdrawn)) {
       rows.push({ job, step })

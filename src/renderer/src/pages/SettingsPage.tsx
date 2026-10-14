@@ -1,5 +1,7 @@
 import React, { useEffect, useState } from 'react'
 import { useStore } from '../state/store'
+import { trace } from '../state/trace'
+import type { AppSettings } from '@shared/types'
 import { C, F, GLOW, ZOOM_MIN, ZOOM_MAX, ZOOM_STEP, ZOOM_DEFAULT, clampZoom } from '../theme'
 import PageHeader, { PAGE_PADDING } from '../components/PageHeader'
 import { Btn } from '../components/ui'
@@ -47,7 +49,12 @@ function Section({ title }: { title: string }): React.ReactElement {
 
 export default function SettingsPage(): React.ReactElement {
   const settings = useStore((s) => s.settings)
-  const updateSettings = useStore((s) => s.updateSettings)
+  const updateSettingsRaw = useStore((s) => s.updateSettings)
+  // usage trace: which options get changed (keys only, never values)
+  const updateSettings = (patch: Partial<AppSettings>): Promise<void> => {
+    trace({ area: 'usage', what: 'setting', data: { keys: Object.keys(patch) } })
+    return updateSettingsRaw(patch)
+  }
   const watcher = useStore((s) => s.watcher)
   const appVersion = useStore((s) => s.appVersion)
   const update = useStore((s) => s.update)
@@ -652,11 +659,55 @@ export default function SettingsPage(): React.ReactElement {
           <span style={{ fontFamily: F.mono, fontSize: 12, color: C.dim }}>Ctrl+Shift+D</span>
         </div>
       </div>
+      <div style={{ ...rowStyle, alignItems: 'flex-start' }}>
+        <span style={keyStyle}>Diagnostics trace</span>
+        <div style={{ display: 'flex', alignItems: 'flex-start', gap: 14 }}>
+          <Toggle
+            on={settings.traceInterpretation !== false}
+            onClick={() => void updateSettings({ traceInterpretation: settings.traceInterpretation === false })}
+          />
+          <span style={{ fontFamily: F.body, fontSize: 12, color: C.dim, lineHeight: 1.6, maxWidth: 540 }}>
+            Record what the app reads and decides, for EXPORT DIAGNOSTICS.
+          </span>
+        </div>
+      </div>
+      <div style={rowStyle}>
+        <span style={keyStyle}>Diagnostics</span>
+        <DiagExportRow />
+      </div>
 
       <Section title="ABOUT" />
       <AboutBlock />
     </div>
   )
+}
+
+function DiagExportRow(): React.ReactElement {
+  const [state, setState] = useState<{ busy: boolean; msg: string; err: boolean }>({ busy: false, msg: '', err: false })
+  const run = async (): Promise<void> => {
+    setState({ busy: true, msg: 'saving…', err: false })
+    try {
+      const r = await window.supercargo.diagExport({ includeLogExcerpt: true })
+      if (r.ok) setState({ busy: false, msg: `${r.path ?? ''}${r.bytes != null ? ` (${fmtBytes(r.bytes)})` : ''}`, err: false })
+      else setState({ busy: false, msg: r.error || 'export failed', err: true })
+    } catch (e) {
+      setState({ busy: false, msg: e instanceof Error ? e.message : String(e), err: true })
+    }
+  }
+  return (
+    <div style={{ display: 'flex', alignItems: 'center', gap: 12, flexWrap: 'wrap' }}>
+      <SmallBtn onClick={() => { if (!state.busy) void run() }}>EXPORT DIAGNOSTICS</SmallBtn>
+      <span style={{ fontFamily: F.mono, fontSize: 12, color: state.err ? C.red : C.dim, wordBreak: 'break-all' }}>
+        {state.msg || 'this game session, with log excerpt; player names and ids are removed'}
+      </span>
+    </div>
+  )
+}
+
+function fmtBytes(n: number): string {
+  if (n < 1024) return `${n} B`
+  if (n < 1024 * 1024) return `${(n / 1024).toFixed(1)} KB`
+  return `${(n / 1024 / 1024).toFixed(1)} MB`
 }
 
 function AboutBlock(): React.ReactElement {

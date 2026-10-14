@@ -27,6 +27,9 @@ import { installCrashHooks, watchWindow } from './crash'
 import { logger, write as writeLog, getRecent, logDir, isVerbose, setVerbose, flush as flushLog } from './logger'
 import { openDebugWindow, attachDebugHotkey, buildReport, setReportSource } from './debugWindow'
 import { LOG_CATEGORIES, LOG_LEVELS, type DebugInfo, type LogEntry, type LogSource } from '@shared/debugLog'
+import type { DiagExportOptions, TraceArea, TraceRecord } from '@shared/trace'
+import { writeTrace, setTraceEnabled, isTraceOn, startPerfSampler, flushTrace } from './trace'
+import { buildDiagnostics, setDiagSource, registerDiagSnapshotReply } from './diagnostics'
 import { resolveWorkMode } from '@other/workMode'
 
 // first, so a throw while loading the rest still gets logged
@@ -614,7 +617,76 @@ function cleanEntry(raw: unknown, senderId: number): LogEntry | null {
   }
 }
 
+const TRACE_AREAS: TraceArea[] = ['parse', 'unknown', 'decide', 'distance', 'ocr', 'perf', 'usage', 'error']
+const TRACE_MODES = ['haul', 'other', 'both'] as const
+const LINE_MAX = 4000
+
+// windows are trusted for shape only
+function cleanTrace(raw: unknown): TraceRecord | null {
+  if (!raw || typeof raw !== 'object') return null
+  const r = raw as Record<string, unknown>
+  const area = TRACE_AREAS.find((a) => a === r['area'])
+  const src = WINDOW_SOURCES.find((s) => s === r['src'])
+  if (!area || !src || typeof r['what'] !== 'string') return null
+  const d = r['data']
+  const rec: TraceRecord = {
+    t: typeof r['t'] === 'number' && Number.isFinite(r['t']) ? r['t'] : Date.now(),
+    area,
+    src,
+    what: r['what'].slice(0, MSG_MAX)
+  }
+  const mode = TRACE_MODES.find((m) => m === r['mode'])
+  if (mode) rec.mode = mode
+  if (typeof r['line'] === 'string') rec.line = r['line'].slice(0, LINE_MAX)
+  if (typeof r['missionId'] === 'string') rec.missionId = r['missionId'].slice(0, 64)
+  if (typeof r['ms'] === 'number' && Number.isFinite(r['ms'])) rec.ms = r['ms']
+  if (d && typeof d === 'object' && !Array.isArray(d)) rec.data = d as Record<string, unknown>
+  return rec
+}
+
+// --export-diagnostics <file> | --export-diagnostics=<file>: write the export without a dialog (tests)
+function exportDiagnosticsArg(): string | null {
+  const argv = process.argv
+  for (let i = 0; i < argv.length; i++) {
+    const a = argv[i]
+    if (a === '--export-diagnostics') return argv[i + 1] && !argv[i + 1].startsWith('--') ? argv[i + 1] : null
+    if (a.startsWith('--export-diagnostics=')) return a.slice('--export-diagnostics='.length) || null
+  }
+  return null
+}
+
+function scheduleCliDiagnostics(): void {
+  const dest = exportDiagnosticsArg()
+  if (!dest || !mainWindow) return
+  const target = path.resolve(dest)
+  mainWindow.webContents.once('did-finish-load', () => {
+    setTimeout(() => {
+      void buildDiagnostics({}, target).then((r) => {
+        if (r.ok) logger.info('app', 'cli diagnostics written', { path: r.path, bytes: r.bytes })
+        else logger.error('app', 'cli diagnostics failed', { error: r.error })
+        console.log(`[diagnostics] ${r.ok ? `wrote ${r.path} (${r.bytes} bytes)` : `failed: ${r.error}`}`)
+      })
+    }, 6000)
+  })
+}
+
 function registerIpc(): void {
+  ipcMain.on(IPC.traceRecords, (_e, recs: unknown) => {
+    if (!Array.isArray(recs) || !isTraceOn()) return
+    for (const raw of recs.slice(0, 500)) {
+      const rec = cleanTrace(raw)
+      if (rec) writeTrace(rec)
+    }
+  })
+  ipcMain.handle(IPC.diagExport, (_e, opts: unknown) => {
+    const o = opts && typeof opts === 'object' ? (opts as Record<string, unknown>) : {}
+    const clean: DiagExportOptions = {}
+    if (typeof o['hours'] === 'number' && Number.isFinite(o['hours']) && o['hours'] > 0) clean.hours = o['hours']
+    if (o['includeLogExcerpt'] === false) clean.includeLogExcerpt = false
+    return buildDiagnostics(clean)
+  })
+  registerDiagSnapshotReply()
+
   ipcMain.handle(IPC.settingsGet, () => settings)
 
   ipcMain.handle(IPC.settingsSet, (e, patch: Partial<AppSettings>) => {
@@ -898,6 +970,9 @@ if (!gotLock) {
     registerOther({ watcher: otherLines, getSettings: () => settings, getMainWindow: () => mainWindow })
     autoDetectLogPath()
     setReportSource({ info: debugInfo, settings: () => settings })
+    setTraceEnabled(() => settings.traceInterpretation !== false)
+    setDiagSource({ info: debugInfo, settings: () => settings, mainWindow: () => mainWindow })
+    startPerfSampler()
     {
       const i = debugInfo()
       logger.info('app', 'start', {
@@ -911,6 +986,7 @@ if (!gotLock) {
       })
     }
     createWindow()
+    scheduleCliDiagnostics()
     if (process.argv.includes('--debug-window')) openDebugWindow()
     if (settings.overlayStartWithApp !== false) showCompact()
     startWatcher()
@@ -968,6 +1044,7 @@ if (!gotLock) {
   app.on('will-quit', () => {
     globalShortcut.unregisterAll()
     flushLog()
+    flushTrace()
   })
 
   app.on('window-all-closed', () => {
