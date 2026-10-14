@@ -5,6 +5,7 @@ import * as path from 'node:path'
 import { cleanTitle } from '@shared/contract'
 import { normalize, bestMatch } from '@shared/fuzzy'
 import type { AppSettings, ContractAcceptedEvent, ContractDataStatus, ContractOverride } from '@shared/types'
+import { logger } from './logger'
 
 export interface ContractInfo {
   title: string
@@ -28,6 +29,7 @@ let overrides: ContractOverride[] = []
 
 export function setOverrides(list: ContractOverride[]): void {
   overrides = list
+  logger.info('app', 'contract overrides set', { count: list.length })
 }
 
 function lookupOverride(e: ContractAcceptedEvent): ContractOverride | null {
@@ -114,7 +116,8 @@ function parseFile(file: string, titles: Map<string, Entry[]>, descs: Map<string
   let raw: string
   try {
     raw = fs.readFileSync(file, 'utf8')
-  } catch {
+  } catch (e) {
+    logger.warn('app', 'contract data read failed', { file, error: (e as Error).message })
     return
   }
   for (const line of raw.split('\n')) {
@@ -168,7 +171,9 @@ export function rebuild(settings: AppSettings): ContractDataStatus {
     }
   }
 
-  return status()
+  const st = status()
+  logger.info('app', 'contract data rebuilt', { sources, titles: st.titles, blueprintContracts: st.blueprintContracts })
+  return st
 }
 
 export function status(): ContractDataStatus {
@@ -213,5 +218,11 @@ export function enrichAccepted(e: ContractAcceptedEvent): ContractAcceptedEvent 
       commodityBoxSizes: normalizedCommodities(ov) ?? out.commodityBoxSizes
     }
   }
+  logger.debug('haul', 'enrich accepted', {
+    id: e.missionId.slice(0, 8),
+    locMatch: !!info,
+    override: !!ov,
+    maxBoxSize: out.maxBoxSize
+  })
   return out
 }

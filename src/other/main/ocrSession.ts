@@ -5,6 +5,7 @@
 import { app } from 'electron'
 import fs from 'node:fs'
 import path from 'node:path'
+import { logger } from '../../main/logger'
 
 const DIR = 'other-ocr-session'
 
@@ -23,6 +24,7 @@ export function wipeOtherOcrSession(): void {
     if (fs.existsSync(d)) fs.rmSync(d, { recursive: true, force: true })
   } catch (e) {
     console.warn('[other-ocr-session] wipe failed:', e)
+    logger.warn('other', 'ocr session wipe failed', { error: (e as Error)?.message ?? String(e) })
   }
   try {
     fs.mkdirSync(d, { recursive: true })
@@ -38,9 +40,11 @@ export function saveOtherOcrShot(jobId: string, dataUrl: string): boolean {
   try {
     fs.mkdirSync(dir(), { recursive: true })
     fs.writeFileSync(fileFor(jobId), Buffer.from(b64, 'base64'))
+    logger.debug('other', 'ocr shot saved', { ref: jobId })
     return true
   } catch (e) {
     console.warn('[other-ocr-session] save failed:', e)
+    logger.warn('other', 'ocr shot save failed', { ref: jobId, error: (e as Error)?.message ?? String(e) })
     return false
   }
 }

@@ -1,6 +1,7 @@
 import { app, BrowserWindow, ipcMain, dialog, shell, session, globalShortcut, screen } from 'electron'
 import * as path from 'node:path'
 import * as fs from 'node:fs'
+import * as os from 'node:os'
 import { IPC } from '@shared/channels'
 import type { AppSettings, ManifestDoc, HistoryDoc, OcrEditTally, OcrResult, OcrWaitState, BoxSizeReport, CrewSnapshot, CrewMember, CrewMirror } from '@shared/types'
 import { loadSettings, saveSettings, loadManifest, saveManifest, loadHistory, saveHistory, loadWindowState, saveWindowState } from './store'
@@ -21,6 +22,14 @@ import { ensureOtherIpc, routeAccepted } from '@other/main/register'
 import * as boxReports from './boxReports'
 import * as crew from './crew'
 import appIcon from '../../resources/icon.png?asset'
+import { installCrashHooks, watchWindow } from './crash'
+import { logger, write as writeLog, getRecent, logDir, isVerbose, setVerbose, flush as flushLog } from './logger'
+import { openDebugWindow, attachDebugHotkey, buildReport, setReportSource } from './debugWindow'
+import { LOG_CATEGORIES, LOG_LEVELS, type DebugInfo, type LogEntry, type LogSource } from '@shared/debugLog'
+import { resolveWorkMode } from '@other/workMode'
+
+// first, so a throw while loading the rest still gets logged
+installCrashHooks()
 
 let mainWindow: BrowserWindow | null = null
 let compactWindow: BrowserWindow | null = null
@@ -63,6 +72,9 @@ function createWindow(): void {
     }
   })
   if (ws.maximized) mainWindow.maximize()
+  watchWindow(mainWindow, 'main')
+  attachDebugHotkey(mainWindow.webContents)
+  logger.info('app', 'window opened', { window: 'main' })
 
   // restored bounds even while maximized
   const rememberBounds = (): void => {
@@ -90,6 +102,7 @@ function createWindow(): void {
 
   // else window-all-closed never fires
   mainWindow.on('closed', () => {
+    logger.info('app', 'window closed', { window: 'main' })
     if (compactWindow && !compactWindow.isDestroyed()) compactWindow.destroy()
     compactWindow = null
     mainWindow = null
@@ -221,6 +234,9 @@ function createCompactWindow(): void {
     }
   })
   compactWindow.setAlwaysOnTop(true, 'screen-saver')
+  watchWindow(compactWindow, 'overlay')
+  attachDebugHotkey(compactWindow.webContents)
+  logger.info('app', 'window opened', { window: 'overlay' })
   let boundsTimer: ReturnType<typeof setTimeout> | undefined
   const onBoundsChanged = (): void => {
     if (!compactWindow || compactWindow.isDestroyed()) return
@@ -241,6 +257,7 @@ function createCompactWindow(): void {
     }
   })
   compactWindow.on('closed', () => {
+    logger.info('app', 'window closed', { window: 'overlay' })
     compactWindow = null
     broadcast(IPC.evtCompactState, { open: false })
   })
@@ -524,6 +541,12 @@ function startWatcher(): void {
   watcher.on('status', (s) => send(IPC.evtWatcherStatus, s))
   watcher.on('accepted', (e, isHauling) => {
     const dest = routeAccepted(e, isHauling, settings)
+    logger.info('app', 'contract accepted, routed', {
+      dest,
+      hauling: isHauling,
+      mode: resolveWorkMode(settings.workMode),
+      mission: e.missionId?.slice(0, 8)
+    })
     if (dest === 'other') return
     if (dest === 'haul') send(IPC.evtContractAccepted, contractData.enrichAccepted(e))
     if (!isHauling && settings.contributeTrainingData) {
@@ -548,6 +571,46 @@ function autoDetectLogPath(): void {
   saveSettings(settings)
 }
 
+function debugInfo(): DebugInfo {
+  return {
+    version: app.getVersion(),
+    commit: __APP_COMMIT__,
+    branch: __APP_BRANCH__,
+    electron: process.versions.electron ?? 'unknown',
+    os: `${os.platform()} ${os.release()} ${os.arch()}`,
+    workMode: resolveWorkMode(settings.workMode),
+    verbose: isVerbose(),
+    logDir: logDir(),
+    gameLogPath: settings.gameLogPath || '',
+    watcherConnected: !!watcher?.status().connected
+  }
+}
+
+const WINDOW_SOURCES: LogSource[] = ['main', 'overlay', 'debug']
+const MSG_MAX = 2000
+
+// windows are trusted for shape only
+function cleanEntry(raw: unknown, senderId: number): LogEntry | null {
+  if (!raw || typeof raw !== 'object') return null
+  const r = raw as Record<string, unknown>
+  const level = LOG_LEVELS.find((l) => l === r['level'])
+  const cat = LOG_CATEGORIES.find((c) => c === r['cat'])
+  const src = WINDOW_SOURCES.find((s) => s === r['src'])
+  if (!level || !cat || !src || typeof r['msg'] !== 'string') {
+    logger.warn('ipc', 'dropped malformed log entry', { sender: senderId })
+    return null
+  }
+  const f = r['fields']
+  return {
+    t: typeof r['t'] === 'number' && Number.isFinite(r['t']) ? r['t'] : Date.now(),
+    level,
+    cat,
+    src,
+    msg: r['msg'].length > MSG_MAX ? `${r['msg'].slice(0, MSG_MAX)}…` : r['msg'],
+    fields: f && typeof f === 'object' && !Array.isArray(f) ? (f as Record<string, unknown>) : undefined
+  }
+}
+
 function registerIpc(): void {
   ipcMain.handle(IPC.settingsGet, () => settings)
 
@@ -555,6 +618,17 @@ function registerIpc(): void {
     const prev = settings
     settings = { ...settings, ...patch }
     saveSettings(settings)
+    // keys only, values can hold paths
+    const changed = Object.keys(patch).filter(
+      (k) => patch[k as keyof AppSettings] !== prev[k as keyof AppSettings]
+    )
+    if (changed.length) logger.info('app', 'settings changed', { keys: changed.join(',') })
+    if (patch.workMode !== undefined && resolveWorkMode(patch.workMode) !== resolveWorkMode(prev.workMode)) {
+      logger.info('app', 'work mode switched', {
+        from: resolveWorkMode(prev.workMode),
+        to: resolveWorkMode(patch.workMode)
+      })
+    }
 
     if (patch.alwaysOnTop !== undefined && mainWindow) {
       applyAlwaysOnTop(!!patch.alwaysOnTop)
@@ -775,6 +849,26 @@ function registerIpc(): void {
   )
 
   ipcMain.handle(IPC.appVersion, () => app.getVersion())
+
+  ipcMain.on(IPC.debugLog, (e, entries: unknown) => {
+    if (!Array.isArray(entries)) return
+    for (const raw of entries.slice(0, 500)) {
+      const entry = cleanEntry(raw, e.sender.id)
+      if (entry) writeLog(entry)
+    }
+  })
+  ipcMain.handle(IPC.debugRecent, () => getRecent())
+  ipcMain.handle(IPC.debugInfo, () => debugInfo())
+  ipcMain.handle(IPC.debugReport, () => buildReport())
+  ipcMain.handle(IPC.debugOpen, () => openDebugWindow())
+  ipcMain.handle(IPC.debugOpenFolder, async () => {
+    const err = await shell.openPath(logDir())
+    if (err) logger.warn('app', 'open log folder failed', { error: err })
+  })
+  ipcMain.handle(IPC.debugSetVerbose, (_e, on: unknown) => {
+    setVerbose(!!on)
+    logger.info('app', 'verbose logging', { on: !!on })
+  })
   ipcMain.handle(IPC.updaterCheck, async () => {
     await checkForUpdates()
     return true
@@ -799,7 +893,21 @@ if (!gotLock) {
   app.whenReady().then(() => {
     registerIpc()
     autoDetectLogPath()
+    setReportSource({ info: debugInfo, settings: () => settings })
+    {
+      const i = debugInfo()
+      logger.info('app', 'start', {
+        version: i.version,
+        commit: i.commit,
+        branch: i.branch,
+        electron: i.electron,
+        os: i.os,
+        workMode: i.workMode,
+        gameLogPath: i.gameLogPath
+      })
+    }
     createWindow()
+    if (process.argv.includes('--debug-window')) openDebugWindow()
     if (settings.overlayStartWithApp !== false) showCompact()
     startWatcher()
     registerHotkey()
@@ -852,8 +960,10 @@ if (!gotLock) {
     })
   })
 
+  app.on('before-quit', () => logger.info('app', 'quit'))
   app.on('will-quit', () => {
     globalShortcut.unregisterAll()
+    flushLog()
   })
 
   app.on('window-all-closed', () => {

@@ -5,6 +5,7 @@ import * as path from 'node:path'
 import * as crypto from 'node:crypto'
 import { app } from 'electron'
 import type { DataSyncResult } from '@shared/types'
+import { logger } from './logger'
 
 const RAW_BASE = 'https://raw.githubusercontent.com/AquatikJustice/SuperCargo/main/data/uex'
 const FETCH_TIMEOUT_MS = 12000
@@ -44,13 +45,16 @@ export function seedCacheIfNeeded(): void {
       if (!fs.existsSync(dst)) {
         fs.mkdirSync(path.dirname(dst), { recursive: true })
         fs.copyFileSync(src, dst)
+        logger.info('net', 'data seeded (no cache)', { file: s.cache })
         continue
       }
       if (fs.statSync(src).mtimeMs <= fs.statSync(dst).mtimeMs) continue
       if (sha256(fs.readFileSync(src)) === sha256(fs.readFileSync(dst))) continue
       fs.copyFileSync(src, dst)
+      logger.info('net', 'data seeded (bundled newer)', { file: s.cache })
     } catch (e) {
       console.warn(`[data] seed ${s.repo} failed:`, (e as Error).message)
+      logger.warn('net', 'data seed failed', { file: s.repo, error: (e as Error).message })
     }
   }
 }
@@ -58,11 +62,17 @@ export function seedCacheIfNeeded(): void {
 async function fetchText(url: string): Promise<string | null> {
   const controller = new AbortController()
   const timer = setTimeout(() => controller.abort(), FETCH_TIMEOUT_MS)
+  const u = new URL(url)
+  const t0 = Date.now()
   try {
     const res = await fetch(url, { signal: controller.signal, headers: { Accept: 'application/json' } })
+    if (!res.ok) logger.warn('net', 'data fetch bad status', { host: u.host, path: u.pathname, status: res.status, ms: Date.now() - t0 })
     if (!res.ok) return null
-    return await res.text()
-  } catch {
+    const text = await res.text()
+    logger.debug('net', 'data fetch ok', { host: u.host, path: u.pathname, status: res.status, bytes: text.length, ms: Date.now() - t0 })
+    return text
+  } catch (e) {
+    logger.warn('net', 'data fetch failed', { host: u.host, path: u.pathname, error: (e as Error).message, ms: Date.now() - t0 })
     return null
   } finally {
     clearTimeout(timer)
@@ -77,6 +87,7 @@ export async function refreshFromRepo(): Promise<DataSyncResult> {
   try {
     hashes = JSON.parse(hashesText)
   } catch {
+    logger.warn('net', 'data hashes.json unparseable')
     return { reached: false, changed: false, updated: [] }
   }
 
@@ -95,6 +106,7 @@ export async function refreshFromRepo(): Promise<DataSyncResult> {
     const body = await fetchText(`${RAW_BASE}/${s.repo}`)
     if (!body) continue
     // guards a truncated download
+    if (sha256(body) !== want) logger.warn('net', 'data hash mismatch, skipped', { key: s.key })
     if (sha256(body) !== want) continue
     try {
       const parsed = JSON.parse(body)
@@ -107,7 +119,9 @@ export async function refreshFromRepo(): Promise<DataSyncResult> {
       updated.push(s.key)
     } catch (e) {
       console.warn(`[data] write ${s.cache} failed:`, (e as Error).message)
+      logger.warn('net', 'data write failed', { file: s.cache, error: (e as Error).message })
     }
   }
+  logger.info('net', 'data refresh done', { updated })
   return { reached: true, changed: updated.length > 0, updated }
 }

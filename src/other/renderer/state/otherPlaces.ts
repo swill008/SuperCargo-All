@@ -1,5 +1,6 @@
 /** Merge haul pad roster with Other UEX cities/stations/outposts. */
 import type { Location } from '@shared/types'
+import { dlog } from '@renderer/state/log'
 
 let extra: Location[] = []
 
@@ -26,5 +27,6 @@ export function mergeLocations(haul: Location[] | undefined): Location[] {
 export async function loadOtherPlacesFromMain(): Promise<Location[]> {
   const list = (await window.supercargo.getOtherPlaces?.()) ?? []
   setOtherPlaces(list)
+  dlog.debug('other', 'places loaded from main', { count: list.length })
   return extra
 }

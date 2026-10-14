@@ -7,6 +7,7 @@ import {
   type OtherJobsDoc
 } from '@other/otherJob'
 import { useOtherJobs } from './otherJobs'
+import { dlog } from '@renderer/state/log'
 import type { ScannedContract } from '@shared/types'
 
 function toHistory(job: OtherJob, movedBy: OtherMovedBy): OtherHistoryEntry {
@@ -39,9 +40,21 @@ interface OtherHistoryState {
 
 export const useOtherHistory = create<OtherHistoryState>((set, get) => ({
   history: [],
-  load: (doc) => set({ history: doc.history ?? [] }),
+  load: (doc) => {
+    dlog.debug('other', 'history load', { history: doc.history?.length ?? 0 })
+    set({ history: doc.history ?? [] })
+  },
   persist: () => {
     const doc: OtherJobsDoc = { jobs: useOtherJobs.getState().jobs, history: get().history }
+    // note: this doc has no startLocation / listOrder / jobOrder
+    dlog.debug('other', 'persist', {
+      by: 'otherHistory',
+      jobs: doc.jobs.length,
+      history: doc.history.length,
+      startLocation: false,
+      listOrder: false,
+      jobOrder: false
+    })
     void window.supercargo.saveOtherJobs?.(doc)
   },
   clearFinished: async () => {
@@ -51,22 +64,42 @@ export const useOtherHistory = create<OtherHistoryState>((set, get) => ({
       if (j.status !== 'active') archived.push(toHistory(j, 'manual'))
       else keep.push(j)
     }
+    dlog.info('other', 'clearFinished', {
+      archived: archived.length,
+      kept: keep.length,
+      refs: archived.map((h) => h.ref)
+    })
     if (!archived.length) return
     useOtherJobs.setState({ jobs: keep })
     set({ history: [...archived, ...get().history] })
     useOtherJobs.getState().persist()
   },
   clearAll: () => {
+    dlog.info('other', 'clearAll history', { removed: get().history.length })
     set({ history: [] })
     get().persist()
   },
   reconcileFromLog: async () => {
     const logPath = (await window.supercargo.getSettings()).gameLogPath
+    if (!logPath || !window.supercargo.scanOtherJobs) {
+      dlog.info('other', 'reconcile skipped', { hasLogPath: !!logPath, hasBridge: !!window.supercargo.scanOtherJobs })
+    }
     if (!logPath || !window.supercargo.scanOtherJobs) return
     const scanned = await window.supercargo.scanOtherJobs(logPath)
     const contracts: ScannedContract[] = Array.isArray(scanned) ? scanned : scanned.contracts
     const live = new Set(contracts.map((c) => c.accepted.missionId))
     const jobs = useOtherJobs.getState().jobs
+    for (const j of jobs) {
+      if (j.status === 'active' && j.source !== 'manual' && j.missionId && !live.has(j.missionId)) {
+        dlog.info('other', 'job status change', {
+          ref: j.ref,
+          id: j.missionId.slice(0, 8),
+          from: 'active',
+          to: 'abandoned',
+          reason: 'reconcile: not live in Game.log'
+        })
+      }
+    }
     const marked = jobs.map((j) =>
       j.status === 'active' && j.source !== 'manual' && j.missionId && !live.has(j.missionId)
         ? { ...j, status: 'abandoned' as const }
@@ -81,6 +114,13 @@ export const useOtherHistory = create<OtherHistoryState>((set, get) => ({
         if (!seen.has(j.id)) archived.push(toHistory(j, 'auto'))
       } else keep.push(j)
     }
+    dlog.info('other', 'reconcile result', {
+      live: [...live].map((id) => id.slice(0, 8)),
+      jobs: jobs.length,
+      kept: keep.length,
+      archived: archived.map((h) => h.ref),
+      alreadyInHistory: marked.length - keep.length - archived.length
+    })
     useOtherJobs.setState({ jobs: keep })
     if (archived.length) set({ history: [...archived, ...get().history] })
     get().persist()

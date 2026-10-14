@@ -3,6 +3,7 @@ import React from 'react'
 import { C, F } from '@renderer/theme'
 import { Btn } from '@renderer/components/ui'
 import { useStore } from '@renderer/state/store'
+import { dlog } from '@renderer/state/log'
 import { WORK_MODE_LABELS, resolveWorkMode, type WorkMode } from '@other/workMode'
 
 export default function WorkModeSection(): React.ReactElement {
@@ -21,6 +22,7 @@ export default function WorkModeSection(): React.ReactElement {
           <Btn
             key={mode}
             onClick={() => {
+              dlog.info('other', 'work mode chosen by user', { from: resolveWorkMode(settings.workMode), to: mode })
               void updateSettings({ workMode: mode })
               setView(mode === 'other' ? 'jobs' as 'manifest' : 'manifest')
             }}

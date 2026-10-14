@@ -6,6 +6,7 @@ import { app } from 'electron'
 import fs from 'node:fs'
 import path from 'node:path'
 import type { Location } from '@shared/types'
+import { logger } from '../../main/logger'
 
 const FILE = 'other-uex-places.json'
 const BASE = 'https://api.uexcorp.space/2.0'
@@ -51,7 +52,9 @@ function asLoc(row: UexRow): Location | null {
 }
 
 async function pull(resource: string): Promise<UexRow[]> {
+  const t0 = Date.now()
   const res = await fetch(`${BASE}/${resource}`)
+  logger.info('net', 'uex places fetch', { host: new URL(BASE).host, path: `/2.0/${resource}`, status: res.status, ms: Date.now() - t0 })
   if (!res.ok) throw new Error(`${resource} ${res.status}`)
   const json = (await res.json()) as { data?: UexRow[] }
   return Array.isArray(json.data) ? json.data : []
@@ -107,9 +110,11 @@ export async function refreshOtherPlaces(haul: Location[]): Promise<Location[]> 
     const places = dedupe(attachCoords(mapped, haul))
     fs.writeFileSync(cacheFile(), JSON.stringify({ syncedAt: new Date().toISOString(), places }, null, 2))
     console.log(`[otherUex] cached ${places.length} cities/stations/outposts`)
+    logger.info('other', 'places cached', { places: places.length, withCoords: places.filter((p) => p.x != null).length })
     return places
   } catch (e) {
     console.warn('[otherUex] refresh failed, using cache:', e)
+    logger.warn('net', 'uex places refresh failed, using cache', { error: (e as Error)?.message ?? String(e) })
     return loadOtherPlaces()
   }
 }

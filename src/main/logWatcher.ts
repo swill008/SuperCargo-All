@@ -3,6 +3,7 @@
 import { EventEmitter } from 'node:events'
 import * as fs from 'node:fs'
 import { parseLine, type MarkerEntry } from './logParser'
+import { logger } from './logger'
 import { sendOtherAccepted, sendOtherSessionDrop } from '@other/main/ipc'
 import type {
   ContractAcceptedEvent,
@@ -48,6 +49,7 @@ export class LogWatcher extends EventEmitter {
 
   start(): void {
     this.stop()
+    logger.info('watch', 'watcher start', { path: this.path, channel: this.channel })
     this.tick()
     this.timer = setInterval(() => this.tick(), POLL_INTERVAL_MS)
   }
@@ -89,6 +91,8 @@ export class LogWatcher extends EventEmitter {
 
   private setConnected(connected: boolean, error?: string): void {
     if (connected !== this.connected) {
+      if (connected) logger.info('watch', 'Game.log connected', { path: this.path })
+      else logger.warn('watch', 'Game.log lost', { path: this.path, error })
       this.connected = connected
       this.emitStatus(error)
     } else if (error) {
@@ -117,6 +121,11 @@ export class LogWatcher extends EventEmitter {
 
     if (rotated) {
       if (this.fd !== null) {
+        logger.info('watch', 'Game.log rotated/truncated', {
+          oldSize: this.lastSize,
+          newSize: st.size,
+          inoChanged: this.lastIno !== null && st.ino !== 0 && st.ino !== this.lastIno
+        })
         this.closeFd()
         this.markers.clear()
         this.lastCompleteId = ''
@@ -134,7 +143,9 @@ export class LogWatcher extends EventEmitter {
         this.position = st.size
         this.lastSize = st.size
         this.firstOpen = false
+        logger.info('watch', 'first open, tailing from end', { size: st.size, hasIdentity: !!this.localGeid })
       } else {
+        logger.info('watch', 'reopened, reading from start', { size: st.size })
         this.position = 0
         this.lastSize = 0
       }
@@ -189,35 +200,57 @@ export class LogWatcher extends EventEmitter {
   private processLine(line: string): void {
     const parsed = parseLine(line, this.markers)
     if (!parsed) return
+    logger.debug('watch', 'matched line', { kind: parsed.kind, line: line.slice(0, 300) })
     switch (parsed.kind) {
       case 'accepted':
+        logger.info('watch', 'event accepted', {
+          id: parsed.event.missionId.slice(0, 8),
+          title: parsed.event.title,
+          generator: parsed.event.generator,
+          isHauling: parsed.isHauling
+        })
         this.emit('accepted', parsed.event, parsed.isHauling)
         if (!parsed.isHauling) sendOtherAccepted(parsed.event)
         break
       case 'objective':
+        logger.info('watch', 'event objective', { id: parsed.event.missionId.slice(0, 8) })
         this.emit('objective', parsed.event)
         break
       case 'ended':
+        logger.info('watch', 'event ended', {
+          id: parsed.event.missionId.slice(0, 8),
+          completion: parsed.event.completion,
+          reason: parsed.event.reason
+        })
         this.emit('ended', parsed.event)
         break
       case 'sessionDrop':
+        logger.info('watch', 'event sessionDrop')
         this.emit('sessionDrop')
         sendOtherSessionDrop()
         break
       case 'completeNotice':
+        logger.info('watch', 'event completeNotice', { id: parsed.missionId.slice(0, 8) })
         this.lastCompleteId = parsed.missionId
         break
       case 'awarded':
+        logger.info('watch', 'event awarded', {
+          amount: parsed.amount,
+          id: this.lastCompleteId ? this.lastCompleteId.slice(0, 8) : null,
+          dropped: !this.lastCompleteId
+        })
         if (this.lastCompleteId) {
           this.emit('paid', { missionId: this.lastCompleteId, amount: parsed.amount })
           this.lastCompleteId = ''
         }
         break
       case 'identity':
+        logger.info('watch', 'event identity')
         this.localGeid = parsed.geid
         break
       case 'share': {
         const e = parsed.event
+        logger.info('watch', 'event share', { kind: e.kind, id: e.missionId.slice(0, 8) })
         if (e.kind === 'left' && this.localGeid) {
           this.emit('share', { ...e, isLocal: e.actorId === this.localGeid })
         } else {

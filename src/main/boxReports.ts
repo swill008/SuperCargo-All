@@ -2,6 +2,7 @@
 // insert-only table, the publishable key can't read it back.
 import type { AppSettings, BoxSizeReport } from '@shared/types'
 import { SUPABASE_URL, SUPABASE_KEY } from './telemetry'
+import { logger } from './logger'
 
 const TABLE = 'box_size_reports'
 
@@ -13,6 +14,7 @@ export function report(settings: AppSettings, appVersion: string, r: BoxSizeRepo
   if (!r || !r.missionId || !r.title || sent.has(r.missionId)) return
   sent.add(r.missionId)
   void (async () => {
+    const t0 = Date.now()
     try {
       const res = await fetch(`${SUPABASE_URL}/rest/v1/${TABLE}`, {
         method: 'POST',
@@ -35,9 +37,17 @@ export function report(settings: AppSettings, appVersion: string, r: BoxSizeRepo
           report: r
         })
       })
+      logger.info('net', 'box report sent', {
+        host: new URL(SUPABASE_URL).host,
+        path: `/rest/v1/${TABLE}`,
+        id: r.missionId.slice(0, 8),
+        status: res.status,
+        ms: Date.now() - t0
+      })
       if (!res.ok) console.error('[boxReports] rejected:', res.status)
     } catch (e) {
       console.error('[boxReports] send failed:', e)
+      logger.warn('net', 'box report failed', { error: (e as Error)?.message ?? String(e) })
     }
   })()
 }

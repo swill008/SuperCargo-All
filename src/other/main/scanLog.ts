@@ -2,6 +2,7 @@
 import * as fs from 'node:fs'
 import { parseLine, type MarkerEntry } from '../../main/logParser'
 import type { ScannedContract, ContractEndedEvent } from '@shared/types'
+import { logger } from '../../main/logger'
 
 export type OtherSessionScan = {
   contracts: ScannedContract[]
@@ -10,10 +11,12 @@ export type OtherSessionScan = {
 }
 
 export function scanOtherSessionLog(logPath: string): OtherSessionScan {
+  const t0 = Date.now()
   let content: string
   try {
     content = fs.readFileSync(logPath, 'utf8')
-  } catch {
+  } catch (e) {
+    logger.warn('other', 'session scan read failed', { path: logPath, error: (e as Error).message })
     return { contracts: [], ended: [], objectivesByMission: {} }
   }
 
@@ -48,6 +51,7 @@ export function scanOtherSessionLog(logPath: string): OtherSessionScan {
         active.delete(parsed.event.missionId)
         break
       case 'sessionDrop':
+        logger.info('other', 'session scan: sessionDrop clears active', { cleared: active.size })
         active.clear()
         break
     }
@@ -66,5 +70,11 @@ export function scanOtherSessionLog(logPath: string): OtherSessionScan {
 
   const byMission: Record<string, ScannedContract['objectives']> = {}
   for (const [id, objs] of objectivesByMission) byMission[id] = objs
+  logger.info('other', 'session scan done', {
+    active: contracts.length,
+    ids: contracts.map((c) => c.accepted.missionId.slice(0, 8)),
+    ended: ended.length,
+    ms: Date.now() - t0
+  })
   return { contracts, ended, objectivesByMission: byMission }
 }

@@ -3,6 +3,7 @@
 import * as fs from 'node:fs'
 import * as path from 'node:path'
 import { app } from 'electron'
+import { logger } from '../logger'
 
 function root(): string {
   return path.join(app.getPath('userData'), 'ocr-samples')
@@ -36,6 +37,7 @@ export function stashPending(png: Buffer): string {
     fs.writeFileSync(path.join(pendingDir(), `${id}.png`), png)
   } catch (e) {
     console.error('[ocr] failed to stash pending sample:', e)
+    logger.warn('ocr', 'stash sample failed', { error: (e as Error).message })
   }
   return id
 }
@@ -58,6 +60,7 @@ export function commitSample(id: string, label: SampleLabel): boolean {
     return true
   } catch (e) {
     console.error('[ocr] failed to commit sample:', e)
+    logger.warn('ocr', 'commit sample failed', { error: (e as Error).message })
     return false
   }
 }

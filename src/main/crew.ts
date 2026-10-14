@@ -4,6 +4,7 @@ import { createClient, type RealtimeChannel, type SupabaseClient } from '@supaba
 import WebSocket from 'ws'
 import type { CrewSnapshot, CrewMember, CrewRole } from '@shared/types'
 import { SUPABASE_URL, SUPABASE_KEY } from './telemetry'
+import { logger } from './logger'
 
 const TABLE = 'crew_sessions'
 // no lookalikes, for anyone retyping it
@@ -45,6 +46,7 @@ function watchPresence(ch: RealtimeChannel): void {
       if (e) out.push({ id, name: e.name, role: e.role })
     }
     out.sort((a, b) => (a.role === b.role ? a.name.localeCompare(b.name) : a.role === 'leader' ? -1 : 1))
+    logger.info('crew', 'presence sync', { members: out.length, leaders: out.filter((m) => m.role === 'leader').length })
     onMembers?.(out)
   })
 }
@@ -53,6 +55,7 @@ async function announce(ch: RealtimeChannel, name: string, role: CrewRole): Prom
   await new Promise<void>((resolve) => {
     let settled = false
     ch.subscribe((state) => {
+      logger.info('crew', 'channel state', { state: String(state), role })
       onStatus?.(state === 'SUBSCRIBED', state === 'SUBSCRIBED' ? undefined : String(state))
       if (state === 'SUBSCRIBED') void ch.track({ name: name || (role === 'leader' ? 'Leader' : 'Crew'), role })
       if (!settled && (state === 'SUBSCRIBED' || state === 'CHANNEL_ERROR' || state === 'TIMED_OUT')) {
@@ -69,6 +72,7 @@ export async function startCrew(
   handlers: { members: (m: CrewMember[]) => void; status: (up: boolean, error?: string) => void }
 ): Promise<string | null> {
   await leaveCrew()
+  logger.info('crew', 'start crew', { role: 'leader' })
   onMembers = handlers.members
   onStatus = handlers.status
   for (let tries = 0; tries < 5; tries++) {
@@ -80,11 +84,14 @@ export async function startCrew(
       channel = db().channel(`crew:${code}`, { config: { presence: { key: '' } } })
       watchPresence(channel)
       await announce(channel, name, 'leader')
+      logger.info('crew', 'crew started', { tries: tries + 1 })
       return code
     }
     // 23505 = code taken, reroll
+    logger.warn('crew', 'crew insert failed', { code: error.code, error: error.message })
     if (error.code !== '23505') return null
   }
+  logger.warn('crew', 'crew start gave up after retries')
   return null
 }
 
@@ -95,6 +102,8 @@ export async function publish(snapshot: Omit<CrewSnapshot, 'rev'>): Promise<bool
     .from(TABLE)
     .update({ rev, payload: { ...snapshot, rev }, updated_at: new Date().toISOString() })
     .eq('code', code)
+  if (error) logger.warn('crew', 'publish failed', { rev, error: error.message })
+  else logger.debug('crew', 'published', { rev, boxes: snapshot.boxes.length })
   onStatus?.(!error, error?.message)
   return !error
 }
@@ -109,6 +118,7 @@ export async function joinCrew(
   }
 ): Promise<{ ok: boolean; error?: string }> {
   await leaveCrew()
+  logger.info('crew', 'join crew', { role: 'member' })
   code = joining.trim().toUpperCase()
   onSnapshot = handlers.snapshot
   onStatus = handlers.status
@@ -120,6 +130,7 @@ export async function joinCrew(
     .on('postgres_changes', { event: 'UPDATE', schema: 'public', table: TABLE, filter: `code=eq.${code}` }, (msg) => {
       const next = (msg.new as { payload: CrewSnapshot | null }).payload
       // stale push, ignore
+      logger.debug('crew', 'update pushed', { rev: next?.rev, have: rev, stale: !(next && next.rev > rev) })
       if (next && next.rev > rev) {
         rev = next.rev
         onSnapshot?.(next)
@@ -131,6 +142,7 @@ export async function joinCrew(
   // catch up; rev check dedupes
   const { data, error } = await db().from(TABLE).select('payload').eq('code', code).maybeSingle()
   if (error || !data) {
+    logger.warn('crew', 'join failed', { error: error?.message ?? 'no such crew' })
     await leaveCrew()
     return { ok: false, error: error?.message ?? "That crew code doesn't exist" }
   }
@@ -139,11 +151,13 @@ export async function joinCrew(
     rev = seed.rev
     onSnapshot?.(seed)
   }
+  logger.info('crew', 'joined', { seedRev: seed?.rev ?? null })
   return { ok: true }
 }
 
 export async function leaveCrew(): Promise<void> {
   if (channel) {
+    logger.info('crew', 'leave crew')
     await db().removeChannel(channel)
     channel = null
   }
@@ -156,6 +170,7 @@ export async function leaveCrew(): Promise<void> {
 
 // kills the code for everyone
 export async function endCrew(): Promise<void> {
+  logger.info('crew', 'end crew', { had: !!code })
   if (code) await db().from(TABLE).delete().eq('code', code)
   await leaveCrew()
 }

@@ -12,6 +12,7 @@
  */
 import { create } from 'zustand'
 import { useStore } from '@renderer/state/store'
+import { dlog } from '@renderer/state/log'
 import type { ContractAcceptedEvent } from '@shared/types'
 
 export type PendingHaulSwitch = {
@@ -38,6 +39,7 @@ export const useHaulModeSwitch = create<HaulModeSwitchState>((set, get) => ({
   stayInOther: () => {
     const pending = get().pending
     const store = useStore.getState()
+    dlog.info('other', 'haul switch: stay in other, removing contracts', { ids: pending.map((p) => p.missionId.slice(0, 8)) })
     store.closeCapture()
     for (const p of pending) {
       store.removeContract(p.missionId)
@@ -47,6 +49,7 @@ export const useHaulModeSwitch = create<HaulModeSwitchState>((set, get) => ({
   },
 
   switchToHaul: () => {
+    dlog.info('other', 'haul switch: switching work mode to haul')
     const store = useStore.getState()
     void store.updateSettings({ workMode: 'haul' })
     store.setView('manifest')

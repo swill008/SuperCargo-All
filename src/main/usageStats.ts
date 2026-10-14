@@ -3,6 +3,7 @@
 import { screen } from 'electron'
 import type { AppSettings, HistoryEntry } from '@shared/types'
 import { SUPABASE_URL, SUPABASE_KEY } from './telemetry'
+import { logger } from './logger'
 
 const TABLE = 'usage_pings'
 const MIN_GAP_MS = 20 * 60 * 60 * 1000 // roughly once a day per user
@@ -49,6 +50,7 @@ export async function maybePing(
   if (!settings.shareUsageStats || !settings.telemetryClientId) return null
   const last = settings.lastUsagePingAt ? Date.parse(settings.lastUsagePingAt) : 0
   if (Date.now() - last < MIN_GAP_MS) return null
+  const t0 = Date.now()
   try {
     const res = await fetch(`${SUPABASE_URL}/rest/v1/${TABLE}`, {
       method: 'POST',
@@ -60,10 +62,12 @@ export async function maybePing(
       },
       body: JSON.stringify(snapshot(settings, appVersion, ships))
     })
+    logger.info('net', 'usage ping', { host: new URL(SUPABASE_URL).host, path: `/rest/v1/${TABLE}`, status: res.status, ms: Date.now() - t0 })
     if (res.ok) return new Date().toISOString()
     console.error('[usageStats] ping rejected:', res.status)
   } catch (e) {
     console.error('[usageStats] ping failed:', e)
+    logger.warn('net', 'usage ping failed', { error: (e as Error)?.message ?? String(e), ms: Date.now() - t0 })
   }
   return null
 }

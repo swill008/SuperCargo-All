@@ -4,6 +4,7 @@ import * as fs from 'node:fs'
 import * as path from 'node:path'
 import { app, nativeImage } from 'electron'
 import type { OcrEngine, OcrRecognition } from './engine'
+import { logger } from '../logger'
 
 const IMG_H = 32
 
@@ -71,10 +72,12 @@ export class OnnxEngine implements OcrEngine {
         if (!create) throw new Error('onnxruntime-node missing InferenceSession.create')
         this.session = await create(this.modelPath())
         this.chars = JSON.parse(fs.readFileSync(this.charsetPath(), 'utf8')).chars
+        logger.info('ocr', 'onnx engine loaded', { chars: this.chars?.length })
         return true
       } catch (e) {
         this.loadFailed = true
         console.error('[ocr] failed to load ONNX engine:', e)
+        logger.error('ocr', 'onnx engine load failed', { error: (e as Error)?.message ?? String(e) })
         return false
       } finally {
         this.loading = null

@@ -8,6 +8,7 @@ import { Btn } from '@renderer/components/ui'
 import Typeahead from '@renderer/components/Typeahead'
 import OcrCalibrator from '@renderer/components/OcrCalibrator'
 import { useStore } from '@renderer/state/store'
+import { dlog } from '@renderer/state/log'
 import { useOtherJobs } from '../state/otherJobs'
 import { useOtherCapture } from '../state/otherCapture'
 import { applyOcrRows, applyOcrRewardOnly } from '../state/otherOcr'
@@ -54,6 +55,7 @@ export default function OtherCaptureModal(): React.ReactElement | null {
     const j = useOtherJobs.getState().jobs.find((x) => x.id === jobId)
     if (!j || j.steps.length > 0 || j.objectivesLocked) return
     let cancelled = false
+    dlog.info('other', 'modal auto-ocr begin', { ref: j.ref })
     void (async () => {
       setBusy(true)
       setStatus('Auto capturing with saved OCR settings\u2026')
@@ -67,12 +69,14 @@ export default function OtherCaptureModal(): React.ReactElement | null {
         const result = await window.supercargo.ocrRun()
         if (cancelled) return
         if (!result?.ok) {
+          dlog.warn('other', 'modal auto-ocr failed', { ref: j.ref, error: result?.error })
           setStatus(result?.error || 'OCR failed')
           close()
           return
         }
         const text = result.rawText || ''
         const parsed = parseOtherOcrText(text)
+        dlog.info('other', 'modal auto-ocr apply', { ref: j.ref, rows: parsed.rows.length })
         applyOcrRows(jobId, {
           reward: result.reward || parsed.reward || j.reward || 0,
           rows: parsed.rows
@@ -80,12 +84,14 @@ export default function OtherCaptureModal(): React.ReactElement | null {
         setStatus('Auto OCR done')
         close()
       } catch (e) {
+        dlog.warn('other', 'modal auto-ocr error', { ref: j.ref, cancelled, error: (e as Error)?.message ?? String(e) })
         if (!cancelled) close()
       } finally {
         if (!cancelled) setBusy(false)
       }
     })()
     return () => {
+      if (!cancelled) dlog.debug('other', 'modal auto-ocr effect cleanup', { ref: j.ref })
       cancelled = true
     }
   }, [open, autoRun, jobId])
@@ -118,6 +124,7 @@ export default function OtherCaptureModal(): React.ReactElement | null {
   const capture = async (): Promise<void> => {
     setBusy(true)
     setStatus('Capturing\u2026')
+    dlog.info('other', 'manual ocr capture', { ref: job.ref })
     try {
       const shot = await window.supercargo.ocrPreview?.()
       if (shot) {
@@ -126,14 +133,17 @@ export default function OtherCaptureModal(): React.ReactElement | null {
       }
       const result = await window.supercargo.ocrRun()
       if (!result?.ok) {
+        dlog.warn('other', 'manual ocr failed', { ref: job.ref, error: result?.error })
         setStatus(result?.error || 'OCR failed')
         return
       }
       const text = result.rawText || ''
       setRawText(text)
+      dlog.info('other', 'manual ocr parsed', { ref: job.ref, chars: text.length, rows: parseOtherOcrText(text).rows.length })
       applyParse(text, result.reward || 0)
       setStatus(text ? 'Review the steps, then confirm.' : 'No text. Check the capture area in Settings.')
     } catch (e) {
+      dlog.warn('other', 'manual ocr error', { ref: job.ref, error: e instanceof Error ? e.message : String(e) })
       setStatus(e instanceof Error ? e.message : 'OCR failed')
     } finally {
       setBusy(false)
@@ -153,6 +163,15 @@ export default function OtherCaptureModal(): React.ReactElement | null {
 
   const confirm = (): void => {
     if (preview) saveSessionOcrShot(job.id, preview)
+    dlog.info('other', 'ocr confirm', {
+      ref: job.ref,
+      rows: rows.length,
+      overwrite,
+      aUecOnly: updateAuecOnly,
+      locked,
+      fromLog,
+      dropped: locked && !overwrite && !(updateAuecOnly && !overwrite)
+    })
     if (updateAuecOnly && !overwrite) {
       applyOcrRewardOnly(job.id, reward)
       reset()

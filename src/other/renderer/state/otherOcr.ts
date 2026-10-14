@@ -8,6 +8,7 @@ import type { OtherOcrRow } from '@other/otherOcrParse'
 import type { OtherStep } from '@other/otherJob'
 import { useOtherJobs } from './otherJobs'
 import { useStore } from '@renderer/state/store'
+import { dlog } from '@renderer/state/log'
 import { mergeLocations } from './otherPlaces'
 
 let seq = 0
@@ -25,7 +26,11 @@ export function applyOcrObjectives(
 ): boolean {
   const store = useOtherJobs.getState()
   const job = store.jobs.find((j) => j.id === jobId)
+  if (!job) dlog.warn('other', 'ocr objectives: job not found', { jobId })
   if (!job) return false
+  if (job.objectivesLocked || job.steps.length > 0) {
+    dlog.info('other', 'ocr objectives skipped: job locked or has steps', { ref: job.ref, locked: !!job.objectivesLocked, steps: job.steps.length })
+  }
   if (job.objectivesLocked || job.steps.length > 0) return false
   const locations = mergeLocations(useStore.getState().locations)
 
@@ -50,7 +55,9 @@ export function applyOcrObjectives(
 
   const reward =
     job.reward > 0 ? job.reward : Math.max(0, Number(payload.reward) || 0)
+  if (steps.length === 0 && reward === job.reward) dlog.info('other', 'ocr objectives: nothing to apply', { ref: job.ref, rows: payload.objectives.length })
   if (steps.length === 0 && reward === job.reward) return false
+  dlog.info('other', 'ocr objectives applied', { ref: job.ref, rows: payload.objectives.length, steps: steps.length, reward })
 
   useOtherJobs.setState({
     jobs: store.jobs.map((j) =>
@@ -67,8 +74,12 @@ export function applyOcrRows(
 ): boolean {
   const store = useOtherJobs.getState()
   const job = store.jobs.find((j) => j.id === jobId)
+  if (!job) dlog.warn('other', 'ocr rows: job not found', { jobId })
   if (!job) return false
   const overwrite = !!payload.overwrite
+  if (!overwrite && (job.objectivesLocked || job.steps.length > 0)) {
+    dlog.info('other', 'ocr rows skipped: job locked or has steps', { ref: job.ref, locked: !!job.objectivesLocked, steps: job.steps.length })
+  }
   if (!overwrite && (job.objectivesLocked || job.steps.length > 0)) return false
   const locations = mergeLocations(useStore.getState().locations)
 
@@ -97,7 +108,16 @@ export function applyOcrRows(
   const reward = overwrite
     ? Math.max(0, Number(payload.reward) || 0)
     : job.reward > 0 ? job.reward : Math.max(0, Number(payload.reward) || 0)
+  if (steps.length === 0) dlog.info('other', 'ocr rows: no steps built', { ref: job.ref, rows: payload.rows.length })
   if (steps.length === 0) return false
+  dlog.info('other', 'ocr rows applied', {
+    ref: job.ref,
+    rows: payload.rows.length,
+    steps: steps.length,
+    overwrite,
+    replacedSteps: job.steps.length,
+    reward
+  })
 
   useOtherJobs.setState({
     jobs: store.jobs.map((j) =>
@@ -122,7 +142,9 @@ export function applyOcrRewardOnly(jobId: string, amount: number): boolean {
   if (!(amount > 0)) return false
   const store = useOtherJobs.getState()
   const job = store.jobs.find((j) => j.id === jobId)
+  if (!job || job.reward > 0) dlog.debug('other', 'ocr reward skipped', { jobId, found: !!job, has: job?.reward })
   if (!job || job.reward > 0) return false
+  dlog.info('other', 'ocr reward applied', { ref: job.ref, amount })
   useOtherJobs.setState({
     jobs: store.jobs.map((j) => (j.id === jobId ? { ...j, reward: amount } : j))
   })

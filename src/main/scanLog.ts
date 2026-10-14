@@ -2,13 +2,17 @@
 
 import * as fs from 'node:fs'
 import { parseLine, type MarkerEntry } from './logParser'
+import { logger } from './logger'
 import type { ScannedContract, ScanShare, SessionScan, ContractEndedEvent } from '@shared/types'
 
 export function scanSessionLog(logPath: string): SessionScan {
+  const t0 = Date.now()
+  logger.info('watch', 'session scan start', { path: logPath })
   let content: string
   try {
     content = fs.readFileSync(logPath, 'utf8')
-  } catch {
+  } catch (e) {
+    logger.warn('watch', 'session scan read failed', { path: logPath, error: (e as Error).message })
     return { contracts: [], shares: [] }
   }
 
@@ -18,11 +22,16 @@ export function scanSessionLog(logPath: string): SessionScan {
   const sharedToMe = new Set<string>()
   const leftByOthers = new Set<string>()
   let localGeid = ''
+  let lines = 0
+  let events = 0
 
   for (const line of content.split(/\r?\n/)) {
     if (!line) continue
+    lines++
     const parsed = parseLine(line, markers)
     if (!parsed) continue
+    events++
+    logger.debug('watch', 'scan matched line', { kind: parsed.kind, line: line.slice(0, 300) })
     switch (parsed.kind) {
       case 'identity':
         localGeid = parsed.geid
@@ -65,6 +74,14 @@ export function scanSessionLog(logPath: string): SessionScan {
     ownerLeft: leftByOthers.has(missionId) || undefined
   }))
 
+  logger.info('watch', 'session scan end', {
+    lines,
+    events,
+    active: active.size,
+    ids: [...active.keys()].map((id) => id.slice(0, 8)),
+    shares: shares.length,
+    ms: Date.now() - t0
+  })
   return { contracts: [...active.values()], shares }
 }
 

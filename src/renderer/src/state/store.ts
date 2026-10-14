@@ -1,4 +1,5 @@
 import { create } from 'zustand'
+import { dlog } from './log'
 import type {
   AppSettings,
   HaulingContract,
@@ -506,6 +507,7 @@ export const useStore = create<StoreState>((set, get) => {
     // never save the leader's run as theirs
     if (get().crew.role === 'member') return
     const doc = manifestDoc()
+    dlog.debug('haul', 'manifest persist', { contracts: doc.contracts.length, stops: doc.stopOrder?.length ?? 0 })
     void window.supercargo.saveManifest(doc)
     pushCrew(doc)
   }
@@ -605,6 +607,7 @@ export const useStore = create<StoreState>((set, get) => {
     deliveries: new Set(c.objectives.map((o) => o.destination)).size
   })
   const doReroute = async (seed?: string[]): Promise<void> => {
+    const rt0 = Date.now()
     const { contracts, locations, settings, startLocation, currentLocation, isRouteAuto, stopOrder, deferredObjectives, storAlls } = get()
     const installed = settings.installedModules[settings.activeShip]
     const capacity = gridCapacity(settings.activeShip, installed)
@@ -630,6 +633,7 @@ export const useStore = create<StoreState>((set, get) => {
       crates?.length ? fixtureMap(crates) : undefined
     )
     set({ route: plan })
+    dlog.debug('haul', 'reroute', { stops: plan?.stopKeys.length ?? 0, contracts: active.length, seeded: seed !== undefined, ms: Date.now() - rt0 })
     if (notifyAdd && !isCompactWindow) {
       const c = contracts.find((x) => x.id === notifyAdd!.id)
       // objectives arrive after the accept; wait, don't announce 0/0
@@ -693,6 +697,7 @@ export const useStore = create<StoreState>((set, get) => {
   const onShare = (e: ShareEvent): void => {
     const contracts = get().contracts
     const idx = contracts.findIndex((c) => c.id === e.missionId)
+    dlog.info('haul', 'share event', { kind: e.kind, id: e.missionId.slice(0, 8), isLocal: e.isLocal, held: idx < 0 })
     if (idx < 0) {
       pendingShare.set(e.missionId, [...(pendingShare.get(e.missionId) ?? []), e])
       return
@@ -703,6 +708,7 @@ export const useStore = create<StoreState>((set, get) => {
   const drainShare = (missionId: string): void => {
     const events = pendingShare.get(missionId)
     if (!events?.length) return
+    dlog.info('haul', 'share events drained', { id: missionId.slice(0, 8), count: events.length })
     pendingShare.delete(missionId)
     const contracts = get().contracts
     const idx = contracts.findIndex((c) => c.id === missionId)
@@ -728,6 +734,7 @@ export const useStore = create<StoreState>((set, get) => {
 
   // newest first, deduped by id
   const archive = (contract: HaulingContract, status: HistoryStatus): void => {
+    dlog.info('haul', 'archive contract', { id: contract.id.slice(0, 8), title: contract.title, status, compact: isCompactWindow })
     reportBoxOutcome(contract, status)
     // abandons stay out of history: rerolling contracts for a better offer is normal play
     if (status === 'abandoned') return
@@ -768,12 +775,15 @@ export const useStore = create<StoreState>((set, get) => {
     if (pending.length !== 1) {
       if (pending.length > 1)
         console.info(`[abandon] ${pending.length} ended together, looks like a disconnect, keeping them`)
+      if (pending.length > 1)
+        dlog.info('haul', 'ends coalesced: looks like disconnect, keeping contracts', { ids: pending.map(([id]) => id.slice(0, 8)) })
       return
     }
     const [id, status] = pending[0]
     const { contracts } = get()
     const contract = contracts.find((c) => c.id === id)
     if (!contract) return
+    dlog.info('haul', 'contract removed (lone end)', { id: id.slice(0, 8), status })
     archive(contract, status)
     commit(contracts.filter((c) => c.id !== id))
     set({ isRouteAuto: true })
@@ -931,6 +941,15 @@ export const useStore = create<StoreState>((set, get) => {
       ])
       // faces before grids for reconcile
       if (faceRoster?.gridFaces) setGridFaces(faceRoster.gridFaces)
+      dlog.info('haul', 'init loaded', {
+        contracts: manifest.contracts.length,
+        active: manifest.contracts.filter((c) => c.status === 'active').length,
+        history: historyDoc.entries.length,
+        workMode: settings.workMode ?? 'haul',
+        watcher: watcher?.connected,
+        compact: isCompactWindow,
+        listenersBound
+      })
 
       const active = manifest.contracts
         .filter((c) => c.status === 'active')
@@ -1034,12 +1053,16 @@ export const useStore = create<StoreState>((set, get) => {
       track(window.supercargo.onWatcherStatus((s) => set({ watcher: s })))
       track(window.supercargo.onUpdate((u) => set({ update: u })))
       track(window.supercargo.onContractAccepted((e: ContractAcceptedEvent) => {
+        const aid = e.missionId.slice(0, 8)
         // a member's own log can't touch the leader's run
+        if (get().crew.role === 'member') dlog.info('haul', 'accepted skipped: crew member', { id: aid })
         if (get().crew.role === 'member') return
         const { contracts, dismissedMissions } = get()
         // dedup relog re-emits
+        if (contracts.some((c) => c.id === e.missionId)) dlog.info('haul', 'accepted skipped: already on manifest', { id: aid })
         if (contracts.some((c) => c.id === e.missionId)) return
         // the user dismissed this one; the log keeps re-offering it, so keep ignoring
+        if (dismissedMissions.includes(e.missionId)) dlog.info('haul', 'accepted skipped: dismissed', { id: aid })
         if (dismissedMissions.includes(e.missionId)) return
         // empty manifest = fresh trip
         if (contracts.length === 0) {
@@ -1049,6 +1072,14 @@ export const useStore = create<StoreState>((set, get) => {
         const contract = makeLogContract(e, contracts.length)
         contract.pickup = resolveLogLocation(contract.pickup, get().locations)
         const willOcr = get().settings.ocrAutoCapture && contractNeedsOcr(contract)
+        dlog.info('haul', 'accepted ingest', {
+          id: aid,
+          title: e.title,
+          generator: e.generator,
+          willOcr,
+          workMode: get().settings.workMode ?? 'haul',
+          compact: isCompactWindow
+        })
         // hold until capture resolves
         commit([...contracts, willOcr ? { ...contract, pendingOcr: true } : contract])
         set({ isRouteAuto: true })
@@ -1080,9 +1111,11 @@ export const useStore = create<StoreState>((set, get) => {
         if (get().crew.role === 'member') return
         const { contracts } = get()
         const idx = contracts.findIndex((c) => c.id === e.missionId)
+        if (idx < 0) dlog.debug('haul', 'objective: no contract', { id: e.missionId.slice(0, 8) })
         if (idx < 0) return
         const c = contracts[idx]
         // once settled, ignore re-logged objectives (cross-system ones dupe)
+        if (c.objectivesSettled) dlog.debug('haul', 'objective ignored: settled', { id: e.missionId.slice(0, 8) })
         if (c.objectivesSettled) return
         const destination = resolveLogLocation(e.destination, get().locations)
         // key on scu too, so same commodity+dest can register twice (#27); exact re-emits still dedup
@@ -1092,6 +1125,7 @@ export const useStore = create<StoreState>((set, get) => {
           (o) =>
             `${o.commodity.trim().toLowerCase()}|${resolveLogLocation(o.destination, get().locations).toLowerCase()}|${o.scuAmount}` === ek
         )
+        if (exists) dlog.debug('haul', 'objective duplicate', { id: e.missionId.slice(0, 8), key: ek })
         if (exists) return
         const objectives = [
           ...c.objectives,
@@ -1102,6 +1136,14 @@ export const useStore = create<StoreState>((set, get) => {
         const newDest = withCoords.objectives[withCoords.objectives.length - 1].destination
         // cross-system deliveries log only the system name; OCR reads the real station off the contract screen
         const wantsOcr = get().settings.ocrAutoCapture && isSystemDestination(newDest) && !c.pendingOcr
+        dlog.info('haul', 'objective ingest', {
+          id: e.missionId.slice(0, 8),
+          commodity: e.commodity,
+          scu: e.scuAmount,
+          destination: newDest,
+          wantsOcr,
+          objectives: objectives.length
+        })
         const updated = [...contracts]
         updated[idx] = { ...withCoords, pendingOcr: c.pendingOcr || wantsOcr }
         commit(updated)
@@ -1116,6 +1158,13 @@ export const useStore = create<StoreState>((set, get) => {
         if (get().crew.role === 'member') return
         const { contracts } = get()
         const contract = contracts.find((c) => c.id === e.missionId)
+        dlog.info('haul', 'ended ingest', {
+          id: e.missionId.slice(0, 8),
+          completion: e.completion,
+          reason: e.reason,
+          onManifest: !!contract,
+          compact: isCompactWindow
+        })
         if (!contract) return
         if (e.completion === 'Complete') {
           pendingEnds.delete(e.missionId)
@@ -1131,6 +1180,11 @@ export const useStore = create<StoreState>((set, get) => {
         }
       }))
       track(window.supercargo.onContractPaid((e: ContractPaidEvent) => {
+        dlog.info('haul', 'paid ingest', {
+          id: e.missionId.slice(0, 8),
+          amount: e.amount,
+          inHistory: get().history.some((h) => h.id === e.missionId)
+        })
         const history = get().history.map((h) =>
           h.id === e.missionId ? { ...h, actualPayout: e.amount } : h
         )
@@ -1196,6 +1250,7 @@ export const useStore = create<StoreState>((set, get) => {
       // apply without persisting, avoids ping-pong
       track(window.supercargo.onManifestChanged((doc) => {
         if (get().crew.role === 'member') return
+        dlog.debug('haul', 'manifest changed (reload)', { contracts: doc.contracts.length })
         applyDoc(doc)
         // mirror main's order, don't re-optimize
         scheduleReroute(doc.stopOrder ?? [])
@@ -1453,6 +1508,7 @@ export const useStore = create<StoreState>((set, get) => {
     },
 
     removeContract: (id) => {
+      dlog.info('haul', 'contract removed by user', { id: id.slice(0, 8) })
       const contracts = get().contracts.filter((c) => c.id !== id)
       commit(contracts)
       set({ isRouteAuto: true })
@@ -1475,6 +1531,7 @@ export const useStore = create<StoreState>((set, get) => {
 
     abandonContract: (id) => {
       const contract = get().contracts.find((c) => c.id === id)
+      dlog.info('haul', 'contract abandoned by user', { id: id.slice(0, 8), found: !!contract })
       if (contract) archive(contract, 'abandoned')
       commit(get().contracts.filter((c) => c.id !== id))
       set({ isRouteAuto: true })
@@ -1718,6 +1775,7 @@ export const useStore = create<StoreState>((set, get) => {
     },
 
     editContract: (id, patch) => {
+      dlog.info('haul', 'contract edited by user', { id: id.slice(0, 8), fields: Object.keys(patch) })
       const contracts = get().contracts.map((c) => {
         if (c.id !== id) return c
         const next = { ...c }
@@ -1985,8 +2043,10 @@ export const useStore = create<StoreState>((set, get) => {
 
     scanSession: async () => {
       // StandAlone: do not hydrate Manifest from Game.log while Other mode is on.
+      if ((get().settings.workMode ?? 'haul') === 'other') dlog.info('haul', 'scanSession skipped: work mode other')
       if ((get().settings.workMode ?? 'haul') === 'other') return 0
       const { contracts: scanned, shares } = await window.supercargo.scanSession()
+      dlog.info('haul', 'scanSession result', { scanned: scanned.length, shares: shares.length, compact: isCompactWindow })
       if (!scanned.length && !shares.length) return 0
       const key = (o: { commodity: string; destination: string }): string =>
         `${o.commodity.trim().toLowerCase()}|${o.destination.trim().toLowerCase()}`
@@ -2038,6 +2098,11 @@ export const useStore = create<StoreState>((set, get) => {
       const queued = scanned.filter(
         (s) => !have.has(s.accepted.missionId) && !dismissedMissions.includes(s.accepted.missionId)
       )
+      dlog.info('haul', 'scanSession applied', {
+        touched,
+        objectivesAdded: objsChanged,
+        queued: queued.map((s) => s.accepted.missionId.slice(0, 8))
+      })
       set({ scanQueue: queued })
       return queued.length
     },
