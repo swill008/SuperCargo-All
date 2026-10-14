@@ -377,6 +377,25 @@ function whereFromPlace(name: string, source: WhereSource, at: string): Where {
   }
 }
 
+/** diagnostics: one `where` change (LOCATION HISTORY in the export) */
+export interface WhereHistoryEntry {
+  at: string
+  source: WhereSource | null
+  label: string | null
+  accuracy: number | null
+  outcome: 'applied' | 'older-ignored' | 'cleared'
+}
+const WHERE_HISTORY_MAX = 30
+const whereRing: WhereHistoryEntry[] = []
+function recordWhere(w: Where | null, outcome: WhereHistoryEntry['outcome'], src?: WhereSource): void {
+  whereRing.push({ at: w?.at ?? new Date().toISOString(), source: w?.source ?? src ?? null, label: w?.label ?? w?.name ?? null, accuracy: w?.accuracy ?? null, outcome })
+  if (whereRing.length > WHERE_HISTORY_MAX) whereRing.splice(0, whereRing.length - WHERE_HISTORY_MAX)
+}
+/** the last 30 `where` changes, oldest first (live re-reads only when something changed) */
+export function whereHistory(): readonly WhereHistoryEntry[] {
+  return whereRing.map((e) => ({ ...e }))
+}
+
 /** set where from a clue when it is not older than the current one; trace either way
  *  (quiet: live re-reads trace only when name / label / source / accuracy change) */
 function takeWhere(cur: Where | null, next: Where, why?: Record<string, unknown>, quiet = false): Where | null {
@@ -388,9 +407,11 @@ function takeWhere(cur: Where | null, next: Where, why?: Record<string, unknown>
     if (quiet) return cur
     decide('where: older clue ignored', undefined, { from, to, ...why })
     dlog.debug('other', 'where: older clue ignored', { from, to })
+    recordWhere(next, 'older-ignored')
     return cur
   }
   if (!(quiet && same)) {
+    recordWhere(next, 'applied')
     decide(`where: ${next.source}`, undefined, { from, to, ...why })
     dlog.debug('other', 'where set', { from, to })
   }
@@ -672,6 +693,7 @@ function reduce(d: Draft, e: OtherLogEvent, ctx: Ctx): void {
       else if (d.where?.source === 'inventory' && isNewer(d.where, e)) {
         decide('where: cleared (inventory left place)', undefined, { from: { name: d.where.name, source: d.where.source, at: d.where.at }, to: null })
         dlog.debug('other', 'where cleared by inventory', { from: d.where.name })
+        recordWhere({ ...d.where, at: e.at }, 'cleared')
         d.where = null
       } else decide('where: inventory left place, kept', undefined, { from: d.where ? { name: d.where.name, source: d.where.source, at: d.where.at } : null })
       break

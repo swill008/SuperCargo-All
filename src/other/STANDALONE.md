@@ -19,6 +19,7 @@ After merging AquatikJustice/SuperCargo, restore:
 13. `src/main/index.ts` — `onOtherSettingsChanged(patch)` (line 788) at the end of the settings-set handler, just before `return settings`: starts, restarts or stops the live position timer when `otherWhereLive` / `otherWhereLiveSec` change. AFK needs no tie of its own: `registerOther()` calls `registerOtherAfkIpc()` and stops AFK (and the live timer) on `will-quit`.
 14. `src/renderer/src/pages/SettingsPage.tsx` — the Capture hotkey row (lines 488-497): the upstream text `<input>` (and its `hotkey` state + sync `useEffect`) is replaced by `<HotkeyRecorder value={settings.ocrHotkey} onChange={…updateSettings({ ocrHotkey: v })} conflicts={[otherSetting(settings, 'otherWhereHotkey'), 'CommandOrControl+Shift+D']} />`, with the imports on lines 10-11 (`HotkeyRecorder` from `@other/renderer/components/HotkeyRecorder`, `otherSetting` from `@other/workMode`). To drop Other, put the upstream input back.
 15. `src/shared/channels.ts` and `src/preload/index.ts`, in the Other blocks — hotkey recorder channels `otherHotkeysPause` (`otherHotkeys:pause`), `otherHotkeysResume` (`otherHotkeys:resume`), `otherHotkeyCheck` (`otherHotkeys:check`); AFK channels `otherAfkStart` (`otherAfk:start`), `otherAfkStop` (`otherAfk:stop`), `otherAfkGet` (`otherAfk:get`), `evtOtherAfk` (`evt:other:afk`); preload methods `otherHotkeysPause()`, `otherHotkeysResume()`, `otherHotkeyCheck(accel)`, `otherAfkStart()`, `otherAfkStop()`, `otherAfkGet()`, `onOtherAfk(cb)` (and the `AfkState` type import).
+16. `src/main/index.ts` — diagnostics (batch 3): `setDiagSource({ info: debugInfo, settings: () => settings, mainWindow: () => mainWindow, overlayWindow: () => compactWindow })` (line 1017, in `app.whenReady`; upstream has no `overlayWindow`), so the export can ask the overlay for its own snapshot and take its picture. In the `diagExport` IPC handler (lines 723-724) two option lines pass `note` (when not blank, max 4000 chars) and `includeImages` through. `src/shared/trace.ts` adds `note?`, `includeImages?` to `DiagExportOptions` and `images?` to `DiagExportResult`. The Other sections need no tie in index.ts: `registerOther()` calls `setOtherDiagSource(...)` in `src/main/diagnostics.ts`.
 
 Do not merge Other into packer, hold, CargoGridPage, or `manifest.json`.
 Tag: `StandAlone`.
@@ -61,5 +62,25 @@ These are the intended behaviour of Other mode. Change them only with the user.
 Options for these behaviours live in Settings (Other block); defaults in `OTHER_SETTING_DEFAULTS` (`src/other/workMode.ts`).
 
 ## Diagnostics footprint in upstream files
+
+`src/main/diagnostics.ts` (upstream file) also gains the Other hook `setOtherDiagSource({ sections, images })`, the overlay snapshot request (same `diagSnapshotRequest` / `diagSnapshotReply` channels, its own reqId, sent to the overlay window), the `## NOTE`, `## GAME LOG HEALTH` and `## IMAGES` sections and the picture saving. The EXPORT DIAGNOSTICS areas of `src/renderer/src/pages/SettingsPage.tsx` and `src/renderer/src/pages/DebugPage.tsx` gain the "What went wrong? (optional)" text box and the "Include images" tick box. Dropping Other: remove the `setOtherDiagSource` call in `register.ts` and the Other sections disappear; the rest still works.
+
+**Export sections, in file order** (every text section passes the sanitiser: handle → PLAYER, other players → OWNER-n, OS user → %USERNAME%):
+
+| Section | What it shows | Source |
+|---|---|---|
+| `## NOTE` | The "What went wrong?" text typed at export (omitted when empty) | dialog |
+| `## SUMMARY`, `## SETTINGS`, `## SNAPSHOT` | As before. SNAPSHOT `other` adds `locationHistory` (last 30 `where` changes: at, source, label, accuracy, outcome `applied` / `older-ignored` / `cleared`), per distance-table row `lookup` (`explainPlaceLookup`: raw, cleaned, method `exact` / `contains` / `address` / `folded` / `none`, match, hasCoords, up to 5 candidates) and `travel` (`explainTravel`: aSystem, bSystem, sameSystem, gatewayOut/In, surface, body, meters, jumps), and `places` (roster counts per system and per source UEX / starmap / other, with and without coords) | main window |
+| `## OVERLAY` | What the overlay last rendered: place-list size, start (label, kind, accuracy, stale), current stop index / place, distance text, no-distance text, last read message, AFK state shown, tracked id, the settings it rendered with | overlay window (`otherOverlayDiag.ts`) |
+| `## WHERE AM I HISTORY` | Last 10 reads: why, at, ok, zone, ms, `timings` (capture ms, OCR ms per zone, parse+resolve ms), note, checks, accuracy, label, error, raw text per zone | `whereAmI.ts` `getWhereDiag()` |
+| `## CAPTURE` | Last capture: displays (size, scaleFactor, bounds), target used (game window / display id), image size, zone 1 / 2 boxes in pixels and fractions; `null` when nothing was captured (e.g. the `SC_WHERE_TEXT_FILE` test seam) | same |
+| `## LIVE` | Live position read counts (`getWhereLiveStats()`) | same |
+| `## HOTKEYS` | `ocrHotkey` and `otherWhereHotkey`: value, registered now, last registration result, paused for recording | same |
+| `## AFK LOG` | Current AfkState, last 50 presses (at, key, scan code, game window found, focus ok, helper reply / error), helper stderr (last 20 lines), helper start-up ms, restarts | `afk.ts` `getAfkDiag()` |
+| `## GAME LOG HEALTH` | Log path, size, modified time, last line time seen, median / max lag between a line's timestamp and when the app recorded it, watcher lag samples, rotations seen | `diagnostics.ts` |
+| `## IMAGES` | The picture files saved, or why none / "(not included…)" | `diagnostics.ts` |
+| `## UNKNOWN LINES` … `## LOG EXCERPT` | As before | |
+
+**Images are opt-in** (tick box off by default): "Include images (OCR crops and an overlay picture). Pictures can't be cleaned of names." When ticked, the last zone 1 and zone 2 crops (unscaled, from the last WHERE AM I capture) and a `capturePage()` picture of the overlay window are saved next to the export as `<export base>-zone1.png`, `-zone2.png`, `-overlay.png`, listed under `## IMAGES` and in the export result. Pictures are not sanitised: they can show the player's handle or other players' names, so check them before sharing.
 
 The diagnostics trace (EXPORT DIAGNOSTICS) adds `trace(...)` calls to upstream Haul files: `src/main/logWatcher.ts`, `src/main/scanLog.ts`, `src/main/ocr/index.ts`, `src/main/contractData.ts`, `src/renderer/src/state/store.ts` (edit actions wrapped in a pass-through that records the action), `src/renderer/src/state/route.ts`. They change no behaviour; after an upstream merge, re-add them or drop them (the export still works, with less Haul detail).

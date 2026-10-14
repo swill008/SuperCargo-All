@@ -8,7 +8,7 @@ import { C, F } from '@renderer/theme'
 import { useStore } from '@renderer/state/store'
 import { otherSetting } from '@other/workMode'
 import { useOtherJobs } from '../state/otherJobs'
-import { useMergedLocations } from '../state/otherPlaces'
+import { useMergedLocations, otherPlacesVersion } from '../state/otherPlaces'
 import {
   listOpenStops, stepActivePlace, stepActionLabel, formatPlaceWithBodySystem, formatMapDistance,
   resolveOrigin, groupByPlace, remainingRoute
@@ -18,6 +18,7 @@ import { formatTravel } from '@other/otherGeo'
 import type { WhereRunResult, WhereSource } from '@other/otherWhere'
 import { miniBtn, otherView, withoutWithdrawn, JobTags } from '../pages/JobsPartsStyles'
 import { AccTag, TrackedTag } from './AccuracyMeter'
+import { setOverlayDiag, overlayDiag } from '../state/otherOverlayDiag'
 
 /** AFK keep-alive state (src/other/otherAfk.ts AfkState); preload methods may be missing mid-build */
 interface AfkView { on: boolean; nextAt?: string; lastError?: string }
@@ -58,6 +59,8 @@ const APPROX_TIP = 'Approximate: measured from the mission marker (no UEX coordi
 /** ① ② ... for stop numbers up to 20 */
 const circled = (n: number): string => (n >= 1 && n <= 20 ? String.fromCharCode(0x2460 + n - 1) : `#${n}`)
 const hintStyle: React.CSSProperties = { fontFamily: F.display, fontSize: 9, letterSpacing: '0.12em', color: C.ghost }
+// only the compact window answers for the overlay; the main window has its own responder (App.tsx)
+const IS_OVERLAY_WINDOW = typeof window !== 'undefined' && window.location.hash === '#compact'
 
 export default function OtherOverlay(): React.ReactElement {
   const jobs = useOtherJobs((s) => s.jobs)
@@ -162,6 +165,7 @@ export default function OtherOverlay(): React.ReactElement {
   }, [fixedTyped])
   useEffect(() => {
     if (!whereMsg) return
+    setOverlayDiag({ lastReadMessage: whereMsg, lastReadMessageAt: new Date().toISOString() })
     const t = window.setTimeout(() => setWhereMsg(null), WHERE_MSG_MS)
     return () => window.clearTimeout(t)
   }, [whereMsg])
@@ -254,6 +258,36 @@ export default function OtherOverlay(): React.ReactElement {
   const startWord = origin.kind ? `${SOURCE_WORD[origin.kind]}${origin.stale ? ' \u00b7 stale' : ''}` : ''
   const nextLeg = showDistance && nextGroup && nextGroup.leg != null ? nextGroup.leg : null
   const left = useMemo(() => remainingRoute(groups, idx), [groups, idx])
+
+  // ## OVERLAY in EXPORT DIAGNOSTICS: what this card is showing now
+  const distanceShown = showDistance && group && legMeters != null ? `${travelText(legMeters, legJumps, legSurface, legApprox)} ${legFrom}` : null
+  const placeShown = group && current ? formatPlaceWithBodySystem(group.place || stepActivePlace(current.step) || current.step.label, locations) : null
+  useEffect(() => {
+    setOverlayDiag({
+      placeListSize: locations.length,
+      placeListVersion: otherPlacesVersion(),
+      start: { label: startName || null, kind: origin.kind ?? null, accuracy: originAccuracy(origin), stale: !!origin.stale },
+      stop: { index: shown, total },
+      place: placeShown,
+      distanceText: distanceShown,
+      noDistanceText: showDistance ? noDistanceText : null,
+      noDistanceWhy: group?.noDistanceWhy ?? null,
+      afk: { on: afk.on, nextAt: afk.nextAt ?? null, error: afkErr },
+      trackedMissionId: trackedMissionId ?? null,
+      settings: { otherOverlayDistance: showDistance, otherStartMode: startMode, listOrder: order }
+    })
+  }, [locations.length, startName, origin, shown, total, placeShown, distanceShown, noDistanceText, group?.noDistanceWhy,
+    afk.on, afk.nextAt, afkErr, trackedMissionId, showDistance, startMode, order])
+  useEffect(() => {
+    if (!IS_OVERLAY_WINDOW) return
+    return window.supercargo.onDiagSnapshotRequest((reqId) => {
+      try {
+        window.supercargo.diagSnapshotReply(reqId, { overlay: overlayDiag() })
+      } catch (e) {
+        window.supercargo.diagSnapshotReply(reqId, { overlay: { error: e instanceof Error ? e.message : String(e) } })
+      }
+    })
+  }, [])
 
   return (
     <div

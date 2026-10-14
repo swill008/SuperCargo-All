@@ -19,15 +19,18 @@ import type { OtherLogEvent } from '@other/otherEvents'
 import { createTracedOtherParser, createLocationEmitter, currentLocationRoster, lineTime } from './scanLog'
 import { wipeOtherOcrSession, hookOtherOcrSessionQuit } from './ocrSession'
 import {
+  getWhereDiag,
+  getWhereImages,
   registerOtherWhereIpc,
   registerOtherWhereHotkey as registerWhereHotkey,
   setOtherHotkeyReregister,
   stopWhereLive,
   syncWhereLive
 } from './whereAmI'
-import { registerOtherAfkIpc, stopOtherAfk } from './afk'
+import { getAfkDiag, registerOtherAfkIpc, stopOtherAfk } from './afk'
 import { loadCachedLocations } from '../../main/uex'
 import { logger } from '../../main/logger'
+import { setOtherDiagSource } from '../../main/diagnostics'
 
 /** Anything that emits raw Game.log lines (index.ts relays each LogWatcher's 'line'). */
 export interface OtherLineSource {
@@ -53,6 +56,20 @@ export function registerOther({ watcher, getSettings, getMainWindow, reregisterH
   if (reregisterHotkeys) setOtherHotkeyReregister(reregisterHotkeys)
   syncWhereLive(getSettings)
   registerOtherAfkIpc(getSettings)
+  // diagnostics export: each key becomes a '## <KEY>' section (sanitised there); zone crops only when images are opted in
+  setOtherDiagSource({
+    sections: () => {
+      const w = getWhereDiag()
+      return {
+        'WHERE AM I HISTORY': w.history,
+        CAPTURE: w.capture ?? { note: 'no screen capture yet this run (no WHERE AM I read from the screen; test-seam reads capture nothing)' },
+        LIVE: w.live,
+        HOTKEYS: w.hotkeys,
+        'AFK LOG': getAfkDiag()
+      }
+    },
+    images: () => getWhereImages()
+  })
   app.on('will-quit', () => {
     stopWhereLive()
     stopOtherAfk()

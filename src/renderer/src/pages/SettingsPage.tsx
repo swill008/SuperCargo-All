@@ -662,24 +662,70 @@ export default function SettingsPage(): React.ReactElement {
   )
 }
 
+const NOTE_MAX = 2000
+const IMAGES_LABEL = "Include images (OCR crops and an overlay picture). Pictures can't be cleaned of names."
+
 function DiagExportRow(): React.ReactElement {
-  const [state, setState] = useState<{ busy: boolean; msg: string; err: boolean }>({ busy: false, msg: '', err: false })
+  const [state, setState] = useState<{ busy: boolean; msg: string; err: boolean; images: string[] }>({
+    busy: false, msg: '', err: false, images: []
+  })
+  const [asking, setAsking] = useState(false)
+  const [note, setNote] = useState('')
+  const [includeImages, setIncludeImages] = useState(false)
   const run = async (): Promise<void> => {
-    setState({ busy: true, msg: 'saving…', err: false })
+    setAsking(false)
+    setState({ busy: true, msg: 'saving…', err: false, images: [] })
     try {
-      const r = await window.supercargo.diagExport({ includeLogExcerpt: true })
-      if (r.ok) setState({ busy: false, msg: `${r.path ?? ''}${r.bytes != null ? ` (${fmtBytes(r.bytes)})` : ''}`, err: false })
-      else setState({ busy: false, msg: r.error || 'export failed', err: true })
+      const opts = { includeLogExcerpt: true, note: note.trim() || undefined, includeImages }
+      const r = await window.supercargo.diagExport(opts)
+      if (r.ok) {
+        setState({
+          busy: false, msg: `${r.path ?? ''}${r.bytes != null ? ` (${fmtBytes(r.bytes)})` : ''}`, err: false, images: r.images ?? []
+        })
+        setNote('')
+      } else setState({ busy: false, msg: r.error || 'export failed', err: true, images: [] })
     } catch (e) {
-      setState({ busy: false, msg: e instanceof Error ? e.message : String(e), err: true })
+      setState({ busy: false, msg: e instanceof Error ? e.message : String(e), err: true, images: [] })
     }
   }
   return (
-    <div style={{ display: 'flex', alignItems: 'center', gap: 12, flexWrap: 'wrap' }}>
-      <SmallBtn onClick={() => { if (!state.busy) void run() }}>EXPORT DIAGNOSTICS</SmallBtn>
-      <span style={{ fontFamily: F.mono, fontSize: 12, color: state.err ? C.red : C.dim, wordBreak: 'break-all' }}>
-        {state.msg || 'this game session, with log excerpt; player names and ids are removed'}
-      </span>
+    <div style={{ display: 'flex', flexDirection: 'column', gap: 8, flex: 1, minWidth: 0 }}>
+      <div style={{ display: 'flex', alignItems: 'center', gap: 12, flexWrap: 'wrap' }}>
+        <SmallBtn onClick={() => { if (!state.busy) setAsking(true) }}>EXPORT DIAGNOSTICS</SmallBtn>
+        <span style={{ fontFamily: F.mono, fontSize: 12, color: state.err ? C.red : C.dim, wordBreak: 'break-all' }}>
+          {state.msg || 'this game session, with log excerpt; player names and ids are removed'}
+        </span>
+      </div>
+      {state.images.map((p) => (
+        <span key={p} style={{ fontFamily: F.mono, fontSize: 12, color: C.dim, wordBreak: 'break-all' }}>
+          image: {p}
+        </span>
+      ))}
+      {asking && (
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 8, maxWidth: 640, padding: 10, border: `1px solid ${C.line}` }}>
+          <span style={{ fontFamily: F.body, fontSize: 12, color: C.dim }}>What went wrong? (optional)</span>
+          <textarea
+            value={note}
+            maxLength={NOTE_MAX}
+            rows={4}
+            autoFocus
+            onChange={(e) => setNote(e.target.value.slice(0, NOTE_MAX))}
+            placeholder="What you did, what you expected, what happened"
+            style={{
+              fontFamily: F.body, fontSize: 12, color: C.text, background: 'rgba(0,0,0,0.35)',
+              border: `1px solid ${C.line}`, padding: 6, resize: 'vertical'
+            }}
+          />
+          <label style={{ display: 'flex', alignItems: 'center', gap: 6, fontFamily: F.body, fontSize: 12, color: C.body, cursor: 'pointer' }}>
+            <input type="checkbox" checked={includeImages} onChange={(e) => setIncludeImages(e.target.checked)} />
+            {IMAGES_LABEL}
+          </label>
+          <div style={{ display: 'flex', gap: 8 }}>
+            <SmallBtn onClick={() => void run()}>EXPORT</SmallBtn>
+            <SmallBtn onClick={() => setAsking(false)}>CANCEL</SmallBtn>
+          </div>
+        </div>
+      )}
     </div>
   )
 }

@@ -141,3 +141,48 @@ export function formatTravel(t: Travel | null): string {
   if (t.jumps > 0) s += ` + ${t.jumps} jump${t.jumps === 1 ? '' : 's'}`
   return s
 }
+
+export interface TravelExplain {
+  /** normalised roster system keys ('' = unknown to the roster) */
+  aSystem: string
+  bSystem: string
+  sameSystem: boolean
+  /** gateway names used when crossing systems (absent = not found / not needed) */
+  gatewayOut?: string
+  gatewayIn?: string
+  surface: boolean
+  /** body both sit on, when measured over its surface */
+  body?: string
+  meters: number | null
+  jumps: number | null
+  /** why there is no travel */
+  why?: 'no point' | 'no gateway'
+}
+
+/** the gateway roster entry gateway() picks (same test), for its name */
+function gatewayLocation(inSys: string, to: string, locations: Location[]): Location | undefined {
+  const want = `${to} gateway`
+  return locations.find((l) => {
+    if (!finite(l) || baseSystem(l.system) !== inSys) return false
+    const n = norm(l.name)
+    return n === want || n === `${want} (${inSys})`
+  })
+}
+
+/** Diagnostics: travel()'s steps for a -> b (system keys, gateways, surface body). meters/jumps come from travel() itself. */
+export function explainTravel(a: GeoPoint | undefined, b: GeoPoint | undefined, locations: Location[]): TravelExplain {
+  const t = travel(a, b, locations)
+  const aSystem = a ? systemKey(a.system, locations) : ''
+  const bSystem = b ? systemKey(b.system, locations) : ''
+  const sameSystem = !aSystem || !bSystem || aSystem === bSystem
+  const out: TravelExplain = { aSystem, bSystem, sameSystem, surface: !!t?.surface, meters: t?.meters ?? null, jumps: t?.jumps ?? null }
+  if (!a || !b || !finite(a) || !finite(b)) return { ...out, why: 'no point' }
+  if (!sameSystem) {
+    const gwA = gatewayLocation(aSystem, bSystem, locations)
+    const gwB = gatewayLocation(bSystem, aSystem, locations)
+    if (gwA) out.gatewayOut = gwA.name
+    if (gwB) out.gatewayIn = gwB.name
+    if (!t) out.why = 'no gateway'
+  } else if (t?.surface) out.body = a.body?.trim() || undefined
+  return out
+}

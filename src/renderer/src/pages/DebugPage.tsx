@@ -84,21 +84,34 @@ function fmtBytes(n: number): string {
   return `${(n / 1024 / 1024).toFixed(1)} MB`
 }
 
+const NOTE_MAX = 2000
+const IMAGES_LABEL = "Include images (OCR crops and an overlay picture). Pictures can't be cleaned of names."
+
 function DiagExportBar(): React.ReactElement {
   const [period, setPeriod] = useState('session')
   const [excerpt, setExcerpt] = useState(true)
   const [busy, setBusy] = useState(false)
   const [msg, setMsg] = useState<{ text: string; err: boolean } | null>(null)
+  const [images, setImages] = useState<string[]>([])
+  const [asking, setAsking] = useState(false)
+  const [note, setNote] = useState('')
+  const [includeImages, setIncludeImages] = useState(false)
 
   const run = async (): Promise<void> => {
     if (busy) return
+    setAsking(false)
     setBusy(true)
+    setImages([])
     setMsg({ text: 'saving…', err: false })
     try {
       const hours = PERIODS.find((p) => p.id === period)?.hours
-      const r = await window.supercargo.diagExport({ hours, includeLogExcerpt: excerpt })
-      if (r.ok) setMsg({ text: `saved ${r.path ?? ''}${r.bytes != null ? ` (${fmtBytes(r.bytes)})` : ''}`, err: false })
-      else setMsg({ text: r.error || 'export failed', err: true })
+      const opts = { hours, includeLogExcerpt: excerpt, note: note.trim() || undefined, includeImages }
+      const r = await window.supercargo.diagExport(opts)
+      if (r.ok) {
+        setMsg({ text: `saved ${r.path ?? ''}${r.bytes != null ? ` (${fmtBytes(r.bytes)})` : ''}`, err: false })
+        setImages(r.images ?? [])
+        setNote('')
+      } else setMsg({ text: r.error || 'export failed', err: true })
     } catch (e) {
       setMsg({ text: e instanceof Error ? e.message : String(e), err: true })
     } finally {
@@ -107,20 +120,56 @@ function DiagExportBar(): React.ReactElement {
   }
 
   return (
-    <div style={{ display: 'flex', flexWrap: 'wrap', alignItems: 'center', gap: 6, padding: '8px 14px', borderTop: `1px solid ${C.line}` }}>
-      <ActBtn onClick={() => void run()}>{busy ? 'SAVING…' : 'EXPORT DIAGNOSTICS'}</ActBtn>
-      {PERIODS.map((p) => (
-        <Chip key={p.id} on={period === p.id} onClick={() => setPeriod(p.id)}>
-          {p.label}
-        </Chip>
-      ))}
-      <label style={{ display: 'flex', alignItems: 'center', gap: 5, fontFamily: F.mono, fontSize: 11, color: C.body, cursor: 'pointer', marginLeft: 6 }}>
-        <input type="checkbox" checked={excerpt} onChange={(e) => setExcerpt(e.target.checked)} />
-        include log excerpt
-      </label>
-      <span style={{ flex: '1 1 200px', fontFamily: F.mono, fontSize: 11, color: msg?.err ? C.red : msg ? C.acc : C.ghost, wordBreak: 'break-all' }}>
-        {msg?.text ?? 'Everything Claude needs to review the program; player names and ids are removed.'}
-      </span>
+    <div style={{ borderTop: `1px solid ${C.line}` }}>
+      <div style={{ display: 'flex', flexWrap: 'wrap', alignItems: 'center', gap: 6, padding: '8px 14px' }}>
+        <ActBtn onClick={() => { if (!busy) setAsking(true) }}>{busy ? 'SAVING…' : 'EXPORT DIAGNOSTICS'}</ActBtn>
+        {PERIODS.map((p) => (
+          <Chip key={p.id} on={period === p.id} onClick={() => setPeriod(p.id)}>
+            {p.label}
+          </Chip>
+        ))}
+        <label style={{ display: 'flex', alignItems: 'center', gap: 5, fontFamily: F.mono, fontSize: 11, color: C.body, cursor: 'pointer', marginLeft: 6 }}>
+          <input type="checkbox" checked={excerpt} onChange={(e) => setExcerpt(e.target.checked)} />
+          include log excerpt
+        </label>
+        <span style={{ flex: '1 1 200px', fontFamily: F.mono, fontSize: 11, color: msg?.err ? C.red : msg ? C.acc : C.ghost, wordBreak: 'break-all' }}>
+          {msg?.text ?? 'Everything Claude needs to review the program; player names and ids are removed.'}
+        </span>
+      </div>
+      {images.length > 0 && (
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 2, padding: '0 14px 8px' }}>
+          {images.map((p) => (
+            <span key={p} style={{ fontFamily: F.mono, fontSize: 11, color: C.acc, wordBreak: 'break-all' }}>
+              image {p}
+            </span>
+          ))}
+        </div>
+      )}
+      {asking && (
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 6, padding: '0 14px 10px', maxWidth: 720 }}>
+          <span style={{ fontFamily: F.mono, fontSize: 11, color: C.dim }}>What went wrong? (optional)</span>
+          <textarea
+            value={note}
+            maxLength={NOTE_MAX}
+            rows={3}
+            autoFocus
+            onChange={(e) => setNote(e.target.value.slice(0, NOTE_MAX))}
+            placeholder="What you did, what you expected, what happened"
+            style={{
+              fontFamily: F.mono, fontSize: 11, color: C.text, background: 'rgba(0,0,0,0.35)',
+              border: `1px solid ${C.line}`, padding: 6, resize: 'vertical'
+            }}
+          />
+          <label style={{ display: 'flex', alignItems: 'center', gap: 5, fontFamily: F.mono, fontSize: 11, color: C.body, cursor: 'pointer' }}>
+            <input type="checkbox" checked={includeImages} onChange={(e) => setIncludeImages(e.target.checked)} />
+            {IMAGES_LABEL}
+          </label>
+          <div style={{ display: 'flex', gap: 6 }}>
+            <ActBtn onClick={() => void run()}>EXPORT</ActBtn>
+            <ActBtn onClick={() => setAsking(false)}>CANCEL</ActBtn>
+          </div>
+        </div>
+      )}
     </div>
   )
 }

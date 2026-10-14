@@ -720,6 +720,8 @@ function registerIpc(): void {
     const clean: DiagExportOptions = {}
     if (typeof o['hours'] === 'number' && Number.isFinite(o['hours']) && o['hours'] > 0) clean.hours = o['hours']
     if (o['includeLogExcerpt'] === false) clean.includeLogExcerpt = false
+    if (typeof o['note'] === 'string' && o['note'].trim()) clean.note = o['note'].slice(0, 4000)
+    if (o['includeImages'] === true) clean.includeImages = true
     return buildDiagnostics(clean)
   })
   registerDiagSnapshotReply()
@@ -1012,7 +1014,7 @@ if (!gotLock) {
     autoDetectLogPath()
     setReportSource({ info: debugInfo, settings: () => settings })
     setTraceEnabled(() => settings.traceInterpretation !== false)
-    setDiagSource({ info: debugInfo, settings: () => settings, mainWindow: () => mainWindow })
+    setDiagSource({ info: debugInfo, settings: () => settings, mainWindow: () => mainWindow, overlayWindow: () => compactWindow })
     startPerfSampler()
     {
       const i = debugInfo()

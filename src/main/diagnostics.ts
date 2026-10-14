@@ -26,12 +26,24 @@ interface Source {
   info: () => DebugInfo
   settings: () => AppSettings
   mainWindow: () => BrowserWindow | null
+  overlayWindow?: () => BrowserWindow | null // the compact/overlay window; answers its own snapshot request
 }
 let source: Source | null = null
 const waiting = new Map<string, (snap: unknown) => void>()
 
 export function setDiagSource(s: Source): void {
   source = s
+}
+
+// Other mode's main-side state: each key of sections() becomes `## <KEY>`; images() are only saved on request
+interface OtherDiagSource {
+  sections: () => Record<string, unknown>
+  images: () => { name: string; png: Buffer }[]
+}
+let otherSource: OtherDiagSource | null = null
+
+export function setOtherDiagSource(s: OtherDiagSource): void {
+  otherSource = s
 }
 
 // main window answers IPC.diagSnapshotRequest here
@@ -46,14 +58,14 @@ export function registerDiagSnapshotReply(): void {
   })
 }
 
-function requestSnapshot(): Promise<unknown> {
-  const win = source?.mainWindow()
-  if (!win || win.isDestroyed()) return Promise.resolve({ note: 'no main window' })
+// who: 'main' | 'overlay'; each window answers on the same reply channel with its own reqId
+function requestSnapshot(win: BrowserWindow | null | undefined, who: string, hint = ''): Promise<unknown> {
+  if (!win || win.isDestroyed()) return Promise.resolve({ note: `no ${who} window` })
   const reqId = randomUUID()
   return new Promise((resolve) => {
     const timer = setTimeout(() => {
       waiting.delete(reqId)
-      resolve({ note: `main window did not answer within ${SNAPSHOT_WAIT_MS} ms` })
+      resolve({ note: `no reply: ${who} window did not answer within ${SNAPSHOT_WAIT_MS} ms${hint ? ` (${hint})` : ''}` })
     }, SNAPSHOT_WAIT_MS)
     waiting.set(reqId, (snap) => {
       clearTimeout(timer)
@@ -67,6 +79,71 @@ function requestSnapshot(): Promise<unknown> {
       resolve({ note: `snapshot request failed: ${(e as Error).message}` })
     }
   })
+}
+
+function otherSections(): [string, unknown][] {
+  if (!otherSource) return []
+  try {
+    const secs = otherSource.sections()
+    return Object.entries(secs ?? {})
+  } catch (e) {
+    return [['OTHER DIAG ERROR', { error: (e as Error).message }]]
+  }
+}
+
+// filled first, in this order; any other key follows
+const OTHER_ORDER = ['WHERE AM I HISTORY', 'CAPTURE', 'LIVE', 'HOTKEYS', 'AFK LOG']
+
+async function overlayPicture(): Promise<Buffer | null> {
+  const win = source?.overlayWindow?.()
+  if (!win || win.isDestroyed()) return null
+  try {
+    const img = await win.webContents.capturePage()
+    return img.isEmpty() ? null : img.toPNG()
+  } catch {
+    return null
+  }
+}
+
+function median(xs: number[]): number {
+  const s = [...xs].sort((a, b) => a - b)
+  const m = Math.floor(s.length / 2)
+  return s.length % 2 ? s[m] : Math.round((s[m - 1] + s[m]) / 2)
+}
+
+// GAME LOG HEALTH: file facts + lag between a line's <timestamp> and when the app traced it
+function gameLogHealth(logPath: string, all: TraceRecord[], recs: TraceRecord[]): string[] {
+  const out: string[] = [`path: ${logPath || '(none)'}`]
+  if (logPath) {
+    try {
+      const st = fs.statSync(logPath)
+      out.push(`size: ${st.size} bytes`, `modified: ${iso(st.mtimeMs)}`)
+    } catch (e) {
+      out.push(`stat failed: ${(e as NodeJS.ErrnoException).code ?? (e as Error).message}`)
+    }
+  }
+  let lastLine: number | null = null
+  for (const r of all) {
+    if (r.area !== 'parse' || !r.line) continue
+    const t = stampMs(r.line)
+    if (t !== null && (lastLine === null || t > lastLine)) lastLine = t
+  }
+  out.push(`last line time seen: ${lastLine !== null ? iso(lastLine) : '(none)'}`)
+  // rescans of old lines would show hours of "lag"; only live tail records count
+  const lags = recs
+    .filter((r) => r.area === 'parse' && r.line && !/^scan\b/i.test(r.what))
+    .map((r) => {
+      const t = stampMs(r.line ?? '')
+      return t === null ? null : r.t - t
+    })
+    .filter((x): x is number => x !== null)
+  if (lags.length) out.push(`lag (record time - line time) over ${lags.length} parse records: median ${median(lags)} ms, max ${Math.max(...lags)} ms`)
+  else out.push('lag: (no timed parse records in period)')
+  const watcherLag = recs.filter((r) => r.what === 'watcher lag' && typeof r.ms === 'number').map((r) => r.ms as number)
+  if (watcherLag.length) out.push(`watcher lag samples: ${watcherLag.length}, median ${median(watcherLag)} ms, max ${Math.max(...watcherLag)} ms`)
+  const rotations = getRecent().filter((e) => e.msg.includes('rotated/truncated')).length
+  out.push(`rotations seen this run: ${rotations}`)
+  return out
 }
 
 function readTraceFile(): TraceRecord[] {
@@ -176,7 +253,14 @@ export async function buildDiagnostics(opts: DiagExportOptions = {}, savePath?: 
     const settings = source?.settings()
     const info = source?.info()
     const now = Date.now()
-    const snapshotP = requestSnapshot()
+    const snapshotP = requestSnapshot(source?.mainWindow(), 'main')
+    // only the Other-mode overlay answers; in Haul mode the compact window is CompactWindowApp, so don't wait for it
+    const overlayP =
+      info && info.workMode !== 'other'
+        ? Promise.resolve({ note: `skipped: work mode is ${info.workMode} (the overlay snapshot is Other mode only)` })
+        : requestSnapshot(source?.overlayWindow?.(), 'overlay', 'overlay not in Other mode or not open')
+    // before any save dialog can cover it
+    const overlayPngP = opts.includeImages ? overlayPicture() : Promise.resolve(null)
 
     const all = readTraceFile()
     const gameLog = readGameLog(settings?.gameLogPath ?? '')
@@ -200,6 +284,16 @@ export async function buildDiagnostics(opts: DiagExportOptions = {}, savePath?: 
     )
     const clean = makeSanitizer(ident)
     const snapshot = await snapshotP
+    const overlaySnap = await overlayP
+    // a typed "## " line must not start a fake section
+    const note = typeof opts.note === 'string' ? opts.note.trim().replace(/^#/gm, ' #') : ''
+    const otherSecs = otherSections().sort(([a], [b]) => {
+      const ia = OTHER_ORDER.indexOf(a)
+      const ib = OTHER_ORDER.indexOf(b)
+      return (ia < 0 ? OTHER_ORDER.length : ia) - (ib < 0 ? OTHER_ORDER.length : ib)
+    })
+    const otherText = otherSecs.flatMap(([k, v]) => [`## ${k.toUpperCase()}`, JSON.stringify(sanitizeDeep(v, clean), null, 2) ?? 'null', ''])
+    const IMAGES_MARK = '\u0000IMAGES\u0000'
 
     // summary numbers
     const counts = AREAS.map((a) => {
@@ -251,6 +345,7 @@ export async function buildDiagnostics(opts: DiagExportOptions = {}, savePath?: 
       '# SuperCargo diagnostics',
       'Read by Claude to review how the app reads the game, what it decides and how it performs. Personal data removed: player handle -> PLAYER, own ids -> 1, other players -> OWNER-n, OS user -> %USERNAME%.',
       '',
+      ...(note ? ['## NOTE', note, ''] : []),
       '## SUMMARY',
       `version: ${info?.version ?? app.getVersion()}`,
       `commit: ${info?.commit ?? 'unknown'}  branch: ${info?.branch ?? 'unknown'}`,
@@ -274,6 +369,16 @@ export async function buildDiagnostics(opts: DiagExportOptions = {}, savePath?: 
       '',
       '## SNAPSHOT',
       JSON.stringify(sanitizeDeep(snapshot, clean), null, 2),
+      '',
+      '## OVERLAY',
+      JSON.stringify(sanitizeDeep(overlaySnap, clean), null, 2),
+      '',
+      ...otherText,
+      '## GAME LOG HEALTH',
+      ...gameLogHealth(settings?.gameLogPath ?? '', all, recs),
+      '',
+      '## IMAGES',
+      IMAGES_MARK,
       '',
       '## UNKNOWN LINES',
       unknownSorted.length
@@ -305,7 +410,7 @@ export async function buildDiagnostics(opts: DiagExportOptions = {}, savePath?: 
       ''
     ].join('\n')
     // every section, cleaned in one pass
-    const out = text
+    const cleaned = text
       .split('\n')
       .map((l) => clean(l))
       .join('\n')
@@ -323,10 +428,41 @@ export async function buildDiagnostics(opts: DiagExportOptions = {}, savePath?: 
       dest = picked.filePath
     }
     fs.mkdirSync(path.dirname(dest), { recursive: true })
+
+    // pictures can't be cleaned of names, so only when asked; saved as <base>-<name>.png next to the export
+    const images: string[] = []
+    const imageNotes: string[] = []
+    if (opts.includeImages) {
+      const base = dest.replace(/\.[^./\\]+$/, '')
+      const pics: { name: string; png: Buffer }[] = []
+      try {
+        pics.push(...(otherSource?.images() ?? []))
+      } catch (e) {
+        imageNotes.push(`OCR crops failed: ${(e as Error).message}`)
+      }
+      const overlayPng = await overlayPngP
+      if (overlayPng) pics.push({ name: 'overlay', png: overlayPng })
+      else imageNotes.push('overlay picture: no overlay window or capture failed')
+      for (const p of pics) {
+        const name = String(p.name).toLowerCase().replace(/[^a-z0-9-]+/g, '-').replace(/^-+|-+$/g, '') || 'image'
+        const file = `${base}-${name}.png`
+        try {
+          fs.writeFileSync(file, p.png)
+          images.push(file)
+        } catch (e) {
+          imageNotes.push(`${name}: save failed: ${(e as Error).message}`)
+        }
+      }
+    }
+    const imagesBody = opts.includeImages
+      ? [...(images.length ? images.map((f) => `saved: ${path.basename(f)}`) : ['(no images available)']), ...imageNotes]
+      : ['(not included; tick "Include images" to save OCR crops and an overlay picture)']
+    const out = cleaned.replace(IMAGES_MARK, imagesBody.map((l) => clean(l)).join('\n'))
+
     fs.writeFileSync(dest, out, 'utf8')
     const bytes = Buffer.byteLength(out)
-    logger.info('app', 'diagnostics exported', { path: dest, bytes, records: recs.length })
-    return { ok: true, path: dest, bytes }
+    logger.info('app', 'diagnostics exported', { path: dest, bytes, records: recs.length, images: images.length })
+    return { ok: true, path: dest, bytes, ...(opts.includeImages ? { images } : {}) }
   } catch (e) {
     logger.error('app', 'diagnostics export failed', { error: (e as Error).message })
     return { ok: false, error: (e as Error).message }

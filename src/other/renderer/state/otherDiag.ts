@@ -5,15 +5,15 @@
  */
 import type { Location } from '@shared/types'
 import type { ListOrder, OtherHistoryEntry, OtherJob, OtherStep } from '@other/otherJob'
-import { findRosterLocation, listOpenStops, resolveOrigin, stepActivePlace } from '@other/otherNext'
-import type { GeoPoint } from '@other/otherGeo'
+import { explainPlaceLookup, findRosterLocation, listOpenStops, locationPoint, resolveOrigin, stepActivePlace } from '@other/otherNext'
+import { explainTravel, systemKey, type GeoPoint } from '@other/otherGeo'
 import { accuracyWord, whereAccuracy, type DisplayInfo, type Where } from '@other/otherWhere'
 import { isRootFrame, isSmallZone, type MarkerPos } from '@other/otherMarkers'
 import { OTHER_SETTING_DEFAULTS, otherSetting, resolveWorkMode } from '@other/workMode'
 import { useStore } from '@renderer/state/store'
-import { useOtherJobs, otherMissionMarkers, otherLastWhereRun, otherLiveWhereReads } from './otherJobs'
+import { useOtherJobs, otherMissionMarkers, otherLastWhereRun, otherLiveWhereReads, whereHistory } from './otherJobs'
 import { useOtherHistory } from './otherHistory'
-import { mergeLocations } from './otherPlaces'
+import { mergeLocations, otherPlacesVersion } from './otherPlaces'
 
 const hasCoords = (p?: { x?: number; y?: number; z?: number } | null): boolean => !!p && p.x != null && p.y != null && p.z != null
 const round = (n: number | null | undefined): number | null => (n == null || !Number.isFinite(n) ? null : Math.round(n))
@@ -166,6 +166,40 @@ function markerInfo(missionId: string | undefined, step: OtherStep): Record<stri
   return { zone: m.zoneHostId, x: round(m.x), y: round(m.y), z: round(m.z), root: isRootFrame(m), small: isSmallZone(m) }
 }
 
+/** where a roster place came from: UEX rows carry a uexId; starmap-only places (uex.ts addStarmapPlaces) have uexId 0 and no code */
+function placeSource(l: Location): 'uex' | 'starmap' | 'other' {
+  if (l.uexId > 0) return 'uex'
+  if (l.uexId === 0 && !l.code) return 'starmap'
+  return 'other'
+}
+
+/** roster counts per system (normalised key) and per source, with / without coords */
+function placesSummary(locations: Location[], haulCount: number): Record<string, unknown> {
+  type Count = { total: number; withCoords: number; withoutCoords: number }
+  const add = (m: Record<string, Count>, k: string, c: boolean): void => {
+    const e = (m[k] ??= { total: 0, withCoords: 0, withoutCoords: 0 })
+    e.total += 1
+    if (c) e.withCoords += 1
+    else e.withoutCoords += 1
+  }
+  const bySystem: Record<string, Count> = {}
+  const bySource: Record<string, Count> = {}
+  for (const l of locations) {
+    const c = hasCoords(l)
+    add(bySystem, systemKey(l.system, locations) || '(none)', c)
+    add(bySource, placeSource(l), c)
+  }
+  return {
+    total: locations.length,
+    withCoords: locations.filter(hasCoords).length,
+    haulRoster: haulCount,
+    // otherPlaces.ts keeps a version counter but doesn't export it
+    rosterVersion: otherPlacesVersion(),
+    bySystem,
+    bySource
+  }
+}
+
 export function otherDiagSnapshot(): Record<string, unknown> {
   try {
     const s = useOtherJobs.getState()
@@ -178,6 +212,7 @@ export function otherDiagSnapshot(): Record<string, unknown> {
     const origin = resolveOrigin({ typed: s.startLocation, typedAt: s.startTypedAt, where: s.where, mode: startMode, locations })
     const start = origin.name ?? ''
     const startLoc = start.trim() ? findRosterLocation(start, locations) : undefined
+    const fromPoint = origin.point ?? locationPoint(startLoc)
     const useMarker = otherSetting(settings, 'otherMarkerDistance')
     const withdrawn = otherSetting(settings, 'otherWithdrawnSteps')
     const showAll = !!settings.overlayShowAllObjectives
@@ -216,7 +251,12 @@ export function otherDiagSnapshot(): Record<string, unknown> {
           legSurface: r.legSurface,
           distanceSource: r.distanceSource,
           noDistance: r.noDistance,
-          why: r.distance == null ? noDistanceWhy(r.step, r.job.missionId, startLoc, origin.point, locations, useMarker, zones) : undefined
+          why: r.distance == null ? noDistanceWhy(r.step, r.job.missionId, startLoc, origin.point, locations, useMarker, zones) : undefined,
+          lookup: explainPlaceLookup(place, locations),
+          travel: (() => {
+            const t = explainTravel(fromPoint, r.point, locations)
+            return { ...t, meters: round(t.meters) }
+          })()
         }
       })
     }
@@ -295,6 +335,8 @@ export function otherDiagSnapshot(): Record<string, unknown> {
         uex: startLoc ? { name: startLoc.name, coords: hasCoords(startLoc) } : null
       },
       locations: { count: locations.length, withCoords: locations.filter(hasCoords).length },
+      places: placesSummary(locations, useStore.getState().locations?.length ?? 0),
+      locationHistory: whereHistory(),
       distanceTable
     }
   } catch (err) {

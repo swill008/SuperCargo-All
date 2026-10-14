@@ -205,6 +205,66 @@ async function cdpEval(port, which, expression, ms = 20000) {
   }
 }
 const windowText = (port, which) => cdpEval(port, which, 'document.body.innerText')
+// main process: launch with --inspect=<port> to run JS in Electron's main (node inspector, same protocol)
+const inspectArgs = (port) => [`--inspect=${port}`]
+async function mainEval(port, expression, ms = 20000) {
+  let url
+  for (let t0 = Date.now(); !url && Date.now() - t0 < 15000; await sleep(250)) {
+    try {
+      url = (await (await fetch(`http://127.0.0.1:${port}/json/list`)).json())[0]?.webSocketDebuggerUrl
+    } catch {
+      // not listening yet
+    }
+  }
+  if (!url) throw new Error(`inspect: no main process on port ${port}`)
+  const ws = new WebSocket(url)
+  await new Promise((resolve, reject) => {
+    ws.onopen = resolve
+    ws.onerror = () => reject(new Error('inspect: websocket failed'))
+  })
+  try {
+    return await new Promise((resolve, reject) => {
+      const timer = setTimeout(() => reject(new Error(`inspect: no answer in ${ms} ms`)), ms)
+      ws.onmessage = (m) => {
+        const msg = JSON.parse(String(m.data))
+        if (msg.id !== 1) return
+        clearTimeout(timer)
+        const r = msg.result
+        if (msg.error) reject(new Error(`inspect: ${msg.error.message}`))
+        else if (r?.exceptionDetails) reject(new Error(`js: ${r.exceptionDetails.exception?.description ?? r.exceptionDetails.text}`))
+        else resolve(r?.result?.value)
+      }
+      // includeCommandLineAPI: gives the expression a require()
+      ws.send(JSON.stringify({ id: 1, method: 'Runtime.evaluate', params: { expression, awaitPromise: true, returnByValue: true, includeCommandLineAPI: true } }))
+    })
+  } finally {
+    ws.close()
+  }
+}
+// the Export diagnostics button asks where to save: answer the save dialog with `file` (no OS dialog in tests)
+const stubSaveDialog = (port, file) =>
+  mainEval(port, `(() => { const { dialog } = require('electron'); dialog.showSaveDialog = async () => ({ canceled: false, filePath: ${JSON.stringify(file)} }); return true })()`)
+// first value under a key matching re, anywhere in a parsed JSON value
+function findKey(v, re, depth = 0) {
+  if (!v || typeof v !== 'object' || depth > 12) return undefined
+  for (const [k, x] of Object.entries(v)) if (re.test(k)) return x
+  for (const x of Object.values(v)) {
+    const f = findKey(x, re, depth + 1)
+    if (f !== undefined) return f
+  }
+  return undefined
+}
+// a section body that is JSON -> value (null when it isn't)
+function sectionJson(body) {
+  const s = (body ?? '').trim()
+  const i = s.search(/[[{]/)
+  if (i < 0) return null
+  try {
+    return JSON.parse(s.slice(i, Math.max(s.lastIndexOf('}'), s.lastIndexOf(']')) + 1))
+  } catch {
+    return null
+  }
+}
 // poll fn() until it returns truthy (or ms passes); returns the last value
 async function until(fn, ms = 12000) {
   let v
@@ -311,6 +371,52 @@ const findJob = (doc, id) => allJobs(doc).find((j) => j.missionId === id || j.id
 const copies = (doc, id) => allJobs(doc).filter((j) => j.missionId === id || j.id === id).length
 const logJob = (id, extra = {}) => ({ id, ref: 'J01', title: 'Bounty Hunt', kind: 'delivery', reward: 0, status: 'active', steps: [], createdAt: Date.now(), missionId: id, source: 'log', ...extra })
 const histEntry = (id, extra = {}) => ({ id, ref: 'J01', title: 'Bounty Hunt', kind: 'delivery', reward: 0, outcome: 'abandoned', movedBy: 'manual', steps: [], archivedAt: Date.now(), createdAt: Date.now(), missionId: id, source: 'log', ...extra })
+
+// a handle the export must never carry (made up, not a real player)
+const DIAG_REAL = 'Zorblax9000'
+// fixed start, two steps (same system + through a gateway), a log with the handle in it, two WHERE AM I reads
+// (test seam) and a dry-run AFK, then Export diagnostics from the main window with opts
+async function diagExportRun(name, opts) {
+  const step = (id, s) => ({ id, kind: 'go', label: `Go to ${s}`, location: s, have: 0, need: 1, done: false })
+  const e = setup(name, { otherStartMode: 'fixed', otherAfkFirstKey: 'F2', otherAfkCycleKey: 'F1' }, {
+    jobs: [logJob(mission(), { steps: [step('s1', 'Port Tressler'), step('s2', 'Ruin Station')] })],
+    history: [],
+    startLocation: 'Seraphim Station',
+    startTypedAt: iso(ago(60)),
+    listOrder: 'distance'
+  })
+  const textFile = path.join(e.home, 'where-text.json')
+  fs.writeFileSync(textFile, JSON.stringify({ zone2: DISPLAY_INFO_HURSTON, zone1: '' }))
+  const out = path.join(e.data, 'export', `${name}.txt`)
+  const port = await freePort()
+  const iport = await freePort()
+  const stop = await launch(e, [...cdpArgs(port), ...inspectArgs(iport)], { SC_WHERE_TEXT_FILE: textFile, SC_AFK_DRYRUN: '1', SC_AFK_INTERVAL_MS: '500' })
+  let res
+  let err = ''
+  try {
+    const id = mission()
+    e.append(L.accept(id, 'Bounty Hunt'), L.objective(id, 'Go to Port Tressler'), L.endAs(mission(), 'Abandon', DIAG_REAL, '1'), L.arrive('1510935576', DIAG_REAL), L.inventory('RR_CRU_L1', DIAG_REAL))
+    await until(() => e.jobs()?.where?.source === 'inventory', 8000)
+    await cdpEval(port, 'main', 'window.supercargo.otherWhereRun()')
+    fs.writeFileSync(textFile, JSON.stringify({ zone2: '', zone1: 'STANTON SYSTEM > 0.00° 1.06° 12.47GM' }))
+    await cdpEval(port, 'main', 'window.supercargo.otherWhereRun()')
+    await cdpEval(port, 'main', 'window.supercargo.otherAfkStart()')
+    await until(() => cdpEval(port, 'main', 'window.supercargo.otherAfkGet()').then((s) => (s?.presses >= 2 ? s : null)), 4000)
+    await cdpEval(port, 'main', 'window.supercargo.otherAfkStop()')
+    await stubSaveDialog(iport, out)
+    res = await cdpEval(port, 'main', `window.supercargo.diagExport(${JSON.stringify(opts)})`, 40000)
+  } catch (x) {
+    err = String(x?.message ?? x)
+  }
+  await stop()
+  let text = null
+  try {
+    text = fs.readFileSync(res?.path ?? out, 'utf8')
+  } catch {
+    // checked by the caller
+  }
+  return { e, res, text, sec: diagSections(text), err }
+}
 
 const scenarios = {
   // #1 both windows ingest the same accept
@@ -1254,6 +1360,73 @@ const scenarios = {
       ['one Other "init loaded" in the main window', inits === 1, `lines=${inits}`],
       ['one start-up scan result', scans === 1, `lines=${scans}`],
       ['the scan applied the accept', findJob(e.jobs(), id)?.status === 'active', `status=${findJob(e.jobs(), id)?.status}`]
+    ]
+  },
+
+  // Batch 3 diagnostics (items 1-5, 7-13): Export diagnostics from the main window (as the button does) with a
+  // note, after two WHERE AM I reads and a dry-run AFK; every new section is in the file, cleaned, no pictures
+  'diag-sections-new': async () => {
+    const r = await diagExportRun('diag-sections-new', { note: 'test note PLAYER-free', includeImages: false })
+    const { text, res, sec, err } = r
+    const first = /^##\s+(.+?)\s*$/m.exec(text ?? '')?.[1]
+    const overlay = sectionJson(sec['OVERLAY'])
+    const placeN = findKey(overlay, /place.*(size|count)|^places$|placeList/i)
+    const placeSize = typeof placeN === 'number' ? placeN : Array.isArray(placeN) ? placeN.length : Number(findKey(placeN, /size|count|n$/i))
+    const hist = sectionJson(sec['WHERE AM I HISTORY'])
+    const reads = Array.isArray(hist) ? hist : findKey(hist, /history|reads|entries/i)
+    const afk = sectionJson(sec['AFK LOG'])
+    const presses = findKey(afk, /^presses$/i)
+    const hot = sec['HOTKEYS'] ?? ''
+    const health = sec['GAME LOG HEALTH'] ?? ''
+    const snap = snapshotJson(text)
+    const locHist = findKey(snap, /^locationHistory$/i)
+    const lookup = findKey(snap, /lookup/i)
+    const travel = findKey(snap, /travel/i)
+    const places = findKey(snap, /^places/i)
+    const dir = res?.path ? path.dirname(res.path) : r.e.data
+    const pngs = fs.existsSync(dir) ? fs.readdirSync(dir).filter((f) => f.endsWith('.png')) : []
+    return [
+      ['export written through the button path', res?.ok === true && text != null, `result=${JSON.stringify(res)} ${err}`],
+      ['## NOTE is the first section, with the note', first === 'NOTE' && (sec['NOTE'] ?? '').includes('test note PLAYER-free'), `first=${first} note=${JSON.stringify((sec['NOTE'] ?? '').slice(0, 100))}`],
+      ['## OVERLAY has a place-list size > 0', placeSize > 0, `size=${JSON.stringify(placeN)} overlay=${JSON.stringify((sec['OVERLAY'] ?? '(missing)').slice(0, 300))}`],
+      ['## OVERLAY has the start label', (sec['OVERLAY'] ?? '').includes('Seraphim Station'), `overlay=${JSON.stringify((sec['OVERLAY'] ?? '(missing)').slice(0, 300))}`],
+      ['## WHERE AM I HISTORY has the 2 reads', Array.isArray(reads) && reads.length === 2, `reads=${Array.isArray(reads) ? reads.length : JSON.stringify(sec['WHERE AM I HISTORY'] ?? '(missing)').slice(0, 300)}`],
+      ['each read has timings', Array.isArray(reads) && reads.length > 0 && reads.every((x) => findKey(x, /^timings$|^ms$/i) !== undefined), `read=${JSON.stringify(reads?.[0])?.slice(0, 300)}`],
+      ['## CAPTURE present and says there was no capture (test seam)', 'CAPTURE' in sec && /\bno\b|none|null|not|seam|text file/i.test(sec['CAPTURE']), `capture=${JSON.stringify((sec['CAPTURE'] ?? '(missing)').slice(0, 300))}`],
+      ['## AFK LOG has >= 2 presses', Array.isArray(presses) && presses.length >= 2, `presses=${Array.isArray(presses) ? presses.length : JSON.stringify(sec['AFK LOG'] ?? '(missing)').slice(0, 300)}`],
+      ['## HOTKEYS lists both hotkeys', /ocrHotkey/.test(hot) && /otherWhereHotkey/.test(hot), `hotkeys=${JSON.stringify(hot.slice(0, 300) || '(missing)')}`],
+      ['## LIVE present', 'LIVE' in sec, `sections=${Object.keys(sec).join(',')}`],
+      ['## GAME LOG HEALTH has the log path and a lag figure', health.includes('Game.log') && /lag[^\n]*\d/i.test(health), `health=${JSON.stringify(health.slice(0, 400) || '(missing)')}`],
+      ['SNAPSHOT has locationHistory', Array.isArray(locHist) && locHist.length > 0, `locationHistory=${JSON.stringify(locHist)?.slice(0, 200)}`],
+      ['SNAPSHOT has a per-row place lookup', !!lookup && /"method"/.test(JSON.stringify(lookup)), `lookup=${JSON.stringify(lookup)?.slice(0, 200)}`],
+      ['SNAPSHOT has a per-row travel detail', !!travel && /sameSystem/.test(JSON.stringify(travel)), `travel=${JSON.stringify(travel)?.slice(0, 200)}`],
+      ['SNAPSHOT has a places summary', !!places && typeof places === 'object', `places=${JSON.stringify(places)?.slice(0, 200)}`],
+      ['no pictures without the tick box', !(res?.images?.length) && pngs.length === 0, `images=${JSON.stringify(res?.images)} pngs=${pngs.join(',')}`],
+      ['real player name absent', text != null && !text.includes(DIAG_REAL), `hits=${count(text ?? '', new RegExp(DIAG_REAL, 'g'))}`],
+      ['PLAYER placeholder present', /PLAYER/.test(text ?? ''), `hits=${count(text ?? '', /PLAYER/g)}`]
+    ]
+  },
+
+  // items 6/14: the "Include images" tick box saves the overlay picture next to the export and lists it
+  // (no zone crops in the test seam: WHERE AM I reads a text file, nothing is captured); the note is cleaned too
+  'diag-images': async () => {
+    const r = await diagExportRun('diag-images', { note: `went wrong for ${DIAG_REAL}`, includeImages: true })
+    const { text, res, sec, err } = r
+    const imgs = res?.images ?? []
+    const overlayPng = imgs.find((f) => /-overlay\.png$/.test(f))
+    let size = 0
+    try {
+      size = fs.statSync(overlayPng).size
+    } catch {
+      // checked below
+    }
+    return [
+      ['export written', res?.ok === true && text != null, `result=${JSON.stringify(res)} ${err}`],
+      ['result lists <base>-overlay.png', !!overlayPng && path.basename(overlayPng) === path.basename(res.path).replace(/\.txt$/, '') + '-overlay.png', `images=${JSON.stringify(imgs)}`],
+      ['overlay PNG saved (non-empty)', size > 0, `bytes=${size}`],
+      ['the export lists the saved picture', !!overlayPng && (text ?? '').includes(path.basename(overlayPng)), `sections=${Object.keys(sec).join(',')}`],
+      ['no zone crops in the test seam', !imgs.some((f) => /-zone[12]\.png$/.test(f)), `images=${JSON.stringify(imgs)}`],
+      ['note cleaned (no player name)', /PLAYER/.test(sec['NOTE'] ?? '') && !(text ?? '').includes(DIAG_REAL), `note=${JSON.stringify((sec['NOTE'] ?? '(missing)').slice(0, 100))}`]
     ]
   },
 

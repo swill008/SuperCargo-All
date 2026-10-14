@@ -14,6 +14,11 @@ export function setOtherPlaces(list: Location[]): void {
   for (const l of listeners) l()
 }
 
+/** bumps each time the Other places load or change */
+export function otherPlacesVersion(): number {
+  return version
+}
+
 function subscribe(cb: () => void): () => void {
   listeners.add(cb)
   return () => listeners.delete(cb)

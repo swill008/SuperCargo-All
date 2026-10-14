@@ -188,6 +188,52 @@ export interface HelperReply {
   ready?: boolean
 }
 
+// ---- diagnostics (item 4) ----
+
+export interface AfkPressDiag {
+  at: string
+  key: string
+  scan?: number
+  /** game window found (undefined = no reply / dry run) */
+  found?: boolean
+  /** helper brought the game to the front */
+  focusOk?: boolean
+  ok: boolean
+  error?: string
+  dryRun?: boolean
+}
+
+const PRESS_MAX = 50
+const STDERR_MAX = 20
+const pressLog: AfkPressDiag[] = []
+const stderrLog: string[] = []
+let helperStartupMs: number | null = null
+let helperStarts = 0
+
+function pushRing<T>(a: T[], v: T, max: number): void {
+  a.push(v)
+  if (a.length > max) a.splice(0, a.length - max)
+}
+
+function logPress(key: string, r: HelperReply | null): void {
+  const sc = afkScanCode(key)
+  pushRing(
+    pressLog,
+    {
+      at: new Date().toISOString(),
+      key,
+      scan: sc?.scan,
+      found: r?.found,
+      // focus failed replies say so; a sent key means focus worked
+      focusOk: r ? (r.ok ? true : r.found === true && /front/i.test(r.error ?? '') ? false : undefined) : undefined,
+      ok: r ? r.ok : true,
+      error: r?.error,
+      ...(r ? {} : { dryRun: true })
+    },
+    PRESS_MAX
+  )
+}
+
 const REPLY_TIMEOUT_MS = 8_000
 const READY_TIMEOUT_MS = 20_000 // Add-Type compiles C# on first start
 
@@ -222,7 +268,10 @@ class PsHelper {
     child.stdout.setEncoding('utf8')
     child.stdout.on('data', (d: string) => this.onData(d))
     child.stderr.setEncoding('utf8')
-    child.stderr.on('data', (d: string) => logger.warn('other', 'afk: helper stderr', { text: d.slice(0, 500) }))
+    child.stderr.on('data', (d: string) => {
+      logger.warn('other', 'afk: helper stderr', { text: d.slice(0, 500) })
+      for (const l of d.split(/\r?\n/)) if (l.trim()) pushRing(stderrLog, l.slice(0, 500), STDERR_MAX)
+    })
     child.on('error', (e) => logger.error('other', 'afk: helper spawn error', { error: e.message }))
     child.on('exit', (code) => {
       if (this.child !== child) return
@@ -234,7 +283,12 @@ class PsHelper {
       }
       this.onExit?.(code)
     })
-    this.readyP = this.wait(READY_TIMEOUT_MS)
+    helperStarts++
+    const t0 = Date.now()
+    this.readyP = this.wait(READY_TIMEOUT_MS).then((r) => {
+      helperStartupMs = Date.now() - t0
+      return r
+    })
     return this.readyP
   }
 
@@ -416,6 +470,7 @@ async function tick(): Promise<void> {
     }
     const key = afkNextKey(state, cfg)
     if (isDryRun()) {
+      logPress(key, null)
       set(afkPressed(state, Date.now(), cfg, key))
       scheduleWhere(Date.now(), cfg)
       scheduleNext()
@@ -427,6 +482,7 @@ async function tick(): Promise<void> {
     } catch (e) {
       r = { ok: false, error: errText(e) }
     }
+    logPress(key, r)
     if (!state.on) return // stopped while the press was in flight
     if (r.ok) {
       focusFails = 0
@@ -485,4 +541,25 @@ export function registerOtherAfkIpc(getSettings: () => AppSettings): void {
   ipcMain.handle(IPC.otherAfkStart, () => startOtherAfk())
   ipcMain.handle(IPC.otherAfkStop, () => stopOtherAfk())
   ipcMain.handle(IPC.otherAfkGet, () => getAfkState())
+}
+
+/** diagnostics: current state, last 50 presses, helper stderr (last 20 lines), start-up ms, restarts */
+export function getAfkDiag(): {
+  state: AfkState
+  presses: AfkPressDiag[]
+  stderr: string[]
+  startupMs: number | null
+  restarts: number
+  helperStarts: number
+  helperAlive: boolean
+} {
+  return {
+    state: getAfkState(),
+    presses: pressLog.map((p) => ({ ...p })),
+    stderr: stderrLog.slice(),
+    startupMs: helperStartupMs,
+    restarts,
+    helperStarts,
+    helperAlive: !!helper?.alive
+  }
 }

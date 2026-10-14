@@ -7,7 +7,7 @@
  * Hotkeys: pauseOtherHotkeys() unregisters every app global shortcut while the recorder listens.
  */
 import * as fs from 'node:fs'
-import { BrowserWindow, globalShortcut, ipcMain, type NativeImage } from 'electron'
+import { BrowserWindow, globalShortcut, ipcMain, screen, type NativeImage } from 'electron'
 import { IPC } from '@shared/channels'
 import type { AppSettings, CropRect } from '@shared/types'
 import {
@@ -52,10 +52,104 @@ function errText(e: unknown): string {
   return e instanceof Error ? e.message : String(e)
 }
 
+// ---- diagnostics state (items 3, 5, 6, 15) ----
+
+export interface WhereTimings {
+  captureMs?: number
+  ocrMs: { zone1?: number; zone2?: number }
+  /** parse + resolve, all zones tried */
+  parseMs: number
+}
+
+export interface WhereHistoryEntry {
+  why?: Why
+  at: string
+  ok: boolean
+  zone?: Zone
+  ms: number
+  timings: WhereTimings
+  note?: string
+  checks?: unknown
+  accuracy?: number
+  label?: string
+  error?: string
+  /** raw OCR text per zone (the export sanitises it) */
+  raw: { zone1?: string; zone2?: string }
+  seam: boolean
+}
+
+interface ZoneBox {
+  px: { x: number; y: number; w: number; h: number }
+  frac: CropRect
+  /** size of the crop actually taken (cropImage falls back to the whole frame when too small) */
+  cropSize?: { width: number; height: number }
+}
+
+export interface WhereCaptureDiag {
+  at: string
+  /** 'game window' | 'display <id>' | 'none' */
+  target: string
+  requested: AppSettings['ocrCaptureTarget']
+  displayId?: string
+  image?: { width: number; height: number }
+  displays: { id: number; label?: string; size: { width: number; height: number }; scaleFactor: number; bounds: Electron.Rectangle; primary: boolean }[]
+  zones: { zone1?: ZoneBox; zone2?: ZoneBox }
+}
+
+const history: WhereHistoryEntry[] = []
+let curTimings: WhereTimings = { ocrMs: {}, parseMs: 0 }
+let lastCapture: WhereCaptureDiag | null = null
+let curCapture: WhereCaptureDiag | null = null
+const lastCrops: { zone1?: Buffer; zone2?: Buffer } = {}
+
+function displayList(): WhereCaptureDiag['displays'] {
+  try {
+    const primary = screen.getPrimaryDisplay().id
+    return screen.getAllDisplays().map((d) => ({
+      id: d.id,
+      label: d.label || undefined,
+      size: { ...d.size },
+      scaleFactor: d.scaleFactor,
+      bounds: { ...d.bounds },
+      primary: d.id === primary
+    }))
+  } catch {
+    return []
+  }
+}
+
+function zoneBox(img: NativeImage, crop: CropRect, cropped?: NativeImage): ZoneBox {
+  const size = img.getSize()
+  return {
+    // same rounding as cropImage
+    px: {
+      x: Math.max(0, Math.round(crop.x * size.width)),
+      y: Math.max(0, Math.round(crop.y * size.height)),
+      w: Math.min(size.width, Math.round(crop.w * size.width)),
+      h: Math.min(size.height, Math.round(crop.h * size.height))
+    },
+    frac: { ...crop },
+    ...(cropped ? { cropSize: cropped.getSize() } : {})
+  }
+}
+
 async function captureScreen(settings: AppSettings): Promise<NativeImage | null> {
   // same source order as upstream capturePreview
   let img = settings.ocrCaptureTarget === 'display' ? null : await captureGameWindow()
-  if (!img) img = await captureDisplay(settings.ocrDisplayId)
+  let target = img ? 'game window' : 'none'
+  if (!img) {
+    img = await captureDisplay(settings.ocrDisplayId)
+    if (img) target = `display ${settings.ocrDisplayId || 'primary'}`
+  }
+  curCapture = {
+    at: new Date().toISOString(),
+    target,
+    requested: settings.ocrCaptureTarget,
+    displayId: settings.ocrDisplayId || undefined,
+    image: img ? img.getSize() : undefined,
+    displays: displayList(),
+    zones: {}
+  }
   return img
 }
 
@@ -72,6 +166,14 @@ function seamText(): { zone1?: string; zone2?: string } | null {
 
 async function ocrZone(img: NativeImage, crop: CropRect, zone: Zone): Promise<string> {
   const cropped = cropImage(img, crop)
+  // diagnostics: unscaled crop + its box
+  try {
+    if (zone === 1) lastCrops.zone1 = cropped.toPNG()
+    else lastCrops.zone2 = cropped.toPNG()
+    if (curCapture) curCapture.zones[zone === 1 ? 'zone1' : 'zone2'] = zoneBox(img, crop, cropped)
+  } catch (e) {
+    logger.debug('other', 'where: crop keep failed', { zone, error: errText(e) })
+  }
   // zone 2's debug text is small: upscale more
   const png = toUpscaledPng(cropped, zone === 2 ? 3 : 2)
   engine ??= new TesseractEngine()
@@ -122,7 +224,10 @@ async function doRun(settings: AppSettings, zones: Zone | 'both' | undefined): P
 
   let img: NativeImage | null = null
   if (!seam) {
+    const tc = Date.now()
     img = await captureScreen(settings)
+    curTimings.captureMs = Date.now() - tc
+    if (curCapture) lastCapture = curCapture
     if (!img) {
       logger.warn('other', 'where: capture failed: no source', { target: settings.ocrCaptureTarget })
       return fail(WHERE_FAIL_MESSAGE)
@@ -135,7 +240,12 @@ async function doRun(settings: AppSettings, zones: Zone | 'both' | undefined): P
       if (seam) text = (zone === 1 ? seam.zone1 : seam.zone2) ?? ''
       else {
         const crop = otherSetting(settings, zone === 1 ? 'otherWhereZone1' : 'otherWhereZone2')
-        text = await ocrZone(img as NativeImage, crop, zone)
+        const to = Date.now()
+        try {
+          text = await ocrZone(img as NativeImage, crop, zone)
+        } finally {
+          curTimings.ocrMs[zone === 1 ? 'zone1' : 'zone2'] = Date.now() - to
+        }
       }
     } catch (e) {
       logger.warn('other', 'where: recognize failed', { zone, error: errText(e) })
@@ -144,11 +254,13 @@ async function doRun(settings: AppSettings, zones: Zone | 'both' | undefined): P
     if (zone === 1) raw.zone1 = text
     else raw.zone2 = text
     let where: Where | null = null
+    const tp = Date.now()
     try {
       where = readZone(zone, text, at, parsed)
     } catch (e) {
       logger.warn('other', 'where: parse failed', { zone, error: errText(e) })
     }
+    curTimings.parseMs += Date.now() - tp
     if (where) {
       const r: WhereRunResult = { ok: true, where, zone, raw, ms: Date.now() - t0 }
       if (parsed.info) r.info = parsed.info
@@ -163,6 +275,22 @@ async function doRun(settings: AppSettings, zones: Zone | 'both' | undefined): P
 
 function record(r: WhereRunResult, why: Why, seam: boolean): void {
   remember(r)
+  history.push({
+    why,
+    at: new Date().toISOString(),
+    ok: r.ok,
+    zone: r.zone,
+    ms: r.ms,
+    timings: { ...curTimings, ocrMs: { ...curTimings.ocrMs } },
+    note: r.note,
+    checks: r.info?.checks,
+    accuracy: r.where?.accuracy,
+    label: r.where?.label,
+    error: r.error,
+    raw: { ...r.raw },
+    seam
+  })
+  if (history.length > RECENT_MAX) history.splice(0, history.length - RECENT_MAX)
   logger.info('other', 'where: run done', {
     why,
     ok: r.ok,
@@ -193,7 +321,8 @@ function record(r: WhereRunResult, why: Why, seam: boolean): void {
       tracked: r.info?.trackedMission?.id,
       zone1: r.raw.zone1?.slice(0, 500),
       // whole panel (all fields), not cut
-      zone2: r.raw.zone2?.slice(0, 4000)
+      zone2: r.raw.zone2?.slice(0, 4000),
+      timings: curTimings
     }
   })
 }
@@ -224,6 +353,8 @@ export async function runWhere(opts: RunWhereOptions = {}): Promise<WhereRunResu
   const why: Why = opts.why ?? 'button'
   let r: WhereRunResult
   lastParsed = {}
+  curTimings = { ocrMs: {}, parseMs: 0 }
+  curCapture = null
   try {
     r = await doRun(getSettingsRef(), opts.zones)
   } catch (e) {
@@ -442,4 +573,50 @@ export function registerOtherWhereIpc(getSettings: () => AppSettings): void {
   ipcMain.handle(IPC.otherHotkeysPause, () => pauseOtherHotkeys())
   ipcMain.handle(IPC.otherHotkeysResume, () => resumeOtherHotkeys())
   ipcMain.handle(IPC.otherHotkeyCheck, (_e, accel: unknown) => checkOtherHotkey(accel))
+}
+
+// ---- diagnostics export (items 3, 5, 6, 9, 10, 15) ----
+
+function hotkeyInfo(value: unknown, last?: unknown): Record<string, unknown> {
+  const v = typeof value === 'string' ? value.trim() : ''
+  let isRegistered: boolean | string = false
+  if (v) {
+    try {
+      isRegistered = globalShortcut.isRegistered(v)
+    } catch (e) {
+      isRegistered = `error: ${errText(e)}`
+    }
+  }
+  return { value: v || '(off)', isRegistered, ...(last !== undefined ? { lastRegistration: last } : {}) }
+}
+
+export interface WhereDiag {
+  history: WhereHistoryEntry[]
+  capture: WhereCaptureDiag | null
+  live: WhereLiveStats
+  hotkeys: Record<string, unknown>
+}
+
+/** diagnostics: last 10 reads (raw text kept; the export sanitises), last capture, live stats, hotkey state */
+export function getWhereDiag(): WhereDiag {
+  const s = getSettingsRef?.()
+  return {
+    history: history.map((h) => ({ ...h, timings: { ...h.timings, ocrMs: { ...h.timings.ocrMs } }, raw: { ...h.raw } })),
+    capture: lastCapture,
+    live: getWhereLiveStats(),
+    hotkeys: {
+      paused: hotkeysPaused,
+      // registered by upstream registerHotkey(); its result is only logged there
+      ocrHotkey: hotkeyInfo(s?.ocrHotkey, 'not tracked (upstream registerHotkey logs it)'),
+      otherWhereHotkey: hotkeyInfo(s ? otherSetting(s, 'otherWhereHotkey') : undefined, getWhereHotkeyStatus())
+    }
+  }
+}
+
+/** diagnostics: last zone 1 / zone 2 crops, unscaled PNG */
+export function getWhereImages(): { name: string; png: Buffer }[] {
+  const out: { name: string; png: Buffer }[] = []
+  if (lastCrops.zone1) out.push({ name: 'zone1', png: lastCrops.zone1 })
+  if (lastCrops.zone2) out.push({ name: 'zone2', png: lastCrops.zone2 })
+  return out
 }

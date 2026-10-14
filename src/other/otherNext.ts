@@ -99,6 +99,60 @@ export function findRosterLocation(raw: string, locations: Location[]): Location
   )
 }
 
+export interface PlaceLookupExplain {
+  raw: string
+  /** the name findRosterLocation compares (resolveLogLocation of the trimmed text) */
+  cleaned: string
+  method: 'exact' | 'contains' | 'address' | 'folded' | 'none'
+  match?: string
+  hasCoords: boolean
+  /** up to 5 roster places the chosen step considered (or near names when nothing matched) */
+  candidates: { name: string; system: string | null; hasCoords: boolean }[]
+}
+
+/**
+ * Diagnostics: the steps findRosterLocation takes for `raw`, and which one matched.
+ * 'exact' = name equals the text; 'address' = equals it after resolveLogLocation cleaned it
+ * (address suffix, tag, partial name); then 'contains', then 'folded' (OCR-tolerant). Read-only.
+ */
+export function explainPlaceLookup(raw: string, locations: Location[]): PlaceLookupExplain {
+  const trimmed = raw.trim()
+  const cand = (ls: Location[]): PlaceLookupExplain['candidates'] =>
+    ls.slice(0, 5).map((l) => ({ name: l.name, system: l.system ?? null, hasCoords: hasCoords(l) }))
+  const out = (method: PlaceLookupExplain['method'], cleaned: string, match: Location | undefined, pool: Location[]): PlaceLookupExplain => ({
+    raw,
+    cleaned,
+    method: match ? method : 'none',
+    ...(match ? { match: match.name } : {}),
+    hasCoords: hasCoords(match),
+    candidates: cand(pool)
+  })
+  if (!trimmed || locations.length === 0) return out('none', trimmed, undefined, [])
+  const resolved = resolveLogLocation(trimmed, locations)
+  const key = resolved.toLowerCase()
+  const exactHits = locations.filter((l) => l.name.toLowerCase() === key)
+  if (exactHits.length) return out(key === trimmed.toLowerCase() ? 'exact' : 'address', resolved, exactHits[0], exactHits)
+  const containsHits = locations.filter((l) => {
+    const n = l.name.toLowerCase()
+    return n.includes(key) || key.includes(n)
+  })
+  if (containsHits.length) return out('contains', resolved, containsHits[0], containsHits)
+  const folded = findFolded(trimmed, locations)
+  if (folded) {
+    const fk = foldPlaceName(splitLogAddress(trimmed).name)
+    const pool = locations.filter((l) => {
+      const n = foldPlaceName(l.name)
+      return n === fk || (n.length >= 4 && /\d/.test(n) && (n.includes(fk) || fk.includes(n)))
+    })
+    // the chosen one first
+    return out('folded', resolved, folded, [folded, ...pool.filter((l) => l !== folded)])
+  }
+  // nothing matched: roster names sharing a word (4+ letters) with the text, as a hint
+  const words = foldPlaceName(trimmed).split(' ').filter((w) => w.length >= 4)
+  const near = words.length ? locations.filter((l) => foldPlaceName(l.name).split(' ').some((w) => words.includes(w))) : []
+  return out('none', resolved, undefined, near)
+}
+
 /** Official UEX name only when the match is unique. Otherwise keep OCR text. */
 export function snapLocationToUex(raw: string, locations: Location[]): string {
   const trimmed = raw.trim()

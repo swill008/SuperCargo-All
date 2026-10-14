@@ -28,6 +28,8 @@ export interface TraceRecord {
 export interface DiagExportOptions {
   hours?: number // only the last N hours; default: this game session
   includeLogExcerpt?: boolean // default true: the cleaned Game.log lines the app used
+  note?: string // "What went wrong?" text typed at export -> ## NOTE at the top (cleaned)
+  includeImages?: boolean // default false: save OCR crops + an overlay picture next to the export (can't be cleaned)
 }
 
 export interface DiagExportResult {
@@ -35,4 +37,5 @@ export interface DiagExportResult {
   path?: string // the saved file
   bytes?: number
   error?: string
+  images?: string[] // PNGs saved next to the export (only when includeImages)
 }

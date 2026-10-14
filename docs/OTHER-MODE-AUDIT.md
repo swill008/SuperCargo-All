@@ -202,6 +202,41 @@ on the batch-1 build): `where-real-near-hurston`, `where-real-space`, `where-sys
 - The tracked mission id is matched on its first 8 hex characters only; a badly garbled id matches nothing.
 - Live reads need r_DisplayInfo 3 on and the panel visible; they never fall back to the map line.
 
+## Diagnostics export additions (batch 3)
+
+Added 2026-10-14, all user-approved (CONTRACT3 items 1-15). Section list and the images privacy note in
+[STANDALONE.md](../src/other/STANDALONE.md#diagnostics-footprint-in-upstream-files); files and data flow in
+[SYSTEM-MAP.md](SYSTEM-MAP.md).
+
+| # | Item | Where in the export | Owner | Test |
+|---|---|---|---|---|
+| 1 | "What went wrong?" note | `## NOTE`, first section | `diagnostics.ts`, Settings / Debug export area | `diag-sections-new`, `diag-images` (note cleaned) |
+| 2 | Overlay's own snapshot | `## OVERLAY` (place-list size, start, stop, distance text, last read message, AFK, tracked id, settings) | `otherOverlayDiag.ts`, `OtherOverlay.tsx`, `diagnostics.ts` | `diag-sections-new` |
+| 3 | WHERE AM I history (last 10) | `## WHERE AM I HISTORY` | `whereAmI.ts` `getWhereDiag()` | `diag-sections-new` (2 reads) |
+| 4 | AFK log | `## AFK LOG` (presses, helper stderr, start-up ms, restarts, state) | `afk.ts` `getAfkDiag()` | `diag-sections-new` (dry run, ≥2 presses) |
+| 5 | Capture details | `## CAPTURE` (`null` when nothing captured) | `whereAmI.ts` | `diag-sections-new` (test seam: no capture) |
+| 6 | OCR zone crops (opt-in) | `<base>-zone1.png`, `-zone2.png`; `## IMAGES` | `whereAmI.ts` `getWhereImages()`, `diagnostics.ts` | not testable in the seam (no capture); `diag-images` checks none appear |
+| 7 | Location history (last 30) | SNAPSHOT `other.locationHistory` | `otherJobs.ts` `whereHistory()` | `diag-sections-new` |
+| 8 | Place lookup per stop | SNAPSHOT distance rows `lookup` | `otherNext.ts` `explainPlaceLookup()` | `diag-sections-new`, `diag_checks.mjs` |
+| 9 | Hotkeys | `## HOTKEYS` (value, registered now, last result, paused) | `whereAmI.ts` | `diag-sections-new` |
+| 10 | Live stats | `## LIVE` | `whereAmI.ts` | `diag-sections-new` (present) |
+| 11 | Places summary | SNAPSHOT `other.places` | `otherDiag.ts` | `diag-sections-new` |
+| 12 | Distance detail per stop | SNAPSHOT distance rows `travel` | `otherGeo.ts` `explainTravel()` | `diag-sections-new`, `diag_checks.mjs` |
+| 13 | Game log health | `## GAME LOG HEALTH` (path, size, mtime, last line, lag median/max, rotations) | `diagnostics.ts` | `diag-sections-new` |
+| 14 | Overlay picture (opt-in) | `<base>-overlay.png`; `## IMAGES` | `diagnostics.ts` (`capturePage()`) | `diag-images` (saved and listed under xvfb) |
+| 15 | Per-read timings | `timings` in each history entry (capture ms, OCR ms per zone, parse+resolve ms) | `whereAmI.ts` | `diag-sections-new` |
+
+Every text section passes the sanitiser (handle → PLAYER, other players → OWNER-n); both replay scenarios put a
+made-up handle in the log and the note and check it is absent. Pictures can't be sanitised, so they are off by
+default and the tick box says so.
+
+**Known limits.**
+- `## CAPTURE` is `null` (no words) when no capture has happened yet; zone crops only exist after a real WHERE AM I
+  capture, so they are untested here (the test seam reads a text file).
+- `## OVERLAY` gives the place-list size but not the place-list version (item 2 asked for both).
+- The replay scenarios answer the save dialog by replacing `dialog.showSaveDialog` through the main-process inspector;
+  the `--export-diagnostics` CLI flag still takes no note or images.
+
 ## Suggested order
 
 1. **Make it green:**
