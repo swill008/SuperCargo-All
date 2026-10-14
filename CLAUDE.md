@@ -118,17 +118,27 @@ repo. Where a rule here and one above disagree, the newer user instruction wins 
    spec with their answer, then code. Code that differs from the spec is a gap to fix (failing test first), not a
    spec change.
 3. **Spec line in commits.** Every commit touching `src/` has a line `Spec: <file> <rule/decision refs>` naming
-   what it implements, or `Spec: none (no behaviour change)`.
+   what it implements, or `Spec: none (no behaviour change)`. `test/replay/spec_line_checks.mjs` fails otherwise
+   (like Gremlin's `test_spec_line.py`).
 4. **Keep the map current.** Every batch updates the docs it touches (SYSTEM-MAP files and IPC, STANDALONE rules and
-   re-tie points, DECISIONS, TODO, README/FAQ, release notes) in the same commit. Before every release, do a full
+   re-tie points, DECISIONS, TODO, README/FAQ, release notes) in the same commit.
+   `test/replay/map_covers_files_checks.mjs` fails when a file under `src/` isn't named in `docs/SYSTEM-MAP.md` or
+   `src/other/STANDALONE.md` (like Gremlin's `test_program_map_covers_files.py`). `npm run test:checks` runs every
+   check script; CI runs it on every push. Before every release, do a full
    map check (counts, gaps, anything stale).
 5. **How we work.** Trace end to end first; fix at the shared owner; tests drive the real path and fail on the old
    code; an independent re-trace of a fix; build in a batch, then test.
-6. **Agents: parallel by default.** Before any task, and whenever new work appears mid-task, split it into
-   independent pieces, one agent each, running at the same time. Contract first, one owner per file; the lead keeps
-   shared files (`src/main/index.ts`, `src/shared/*`, `src/preload/index.ts`). Show the split table (above) before
-   spawning, with the agent count coming from the file analysis, and a "Left out:" line. Give every agent the rules
-   in this section and a time budget from `docs/timings.md`.
+6. **Agents: parallel by default, count from the analysis** (Gremlin rule 4; user, 2026-10-14: "what good are
+   rules if you ignore them?"). Before any task, and whenever new work appears mid-task, split it into independent
+   pieces, one agent each, running at the same time. Every time agents start, the message shows, before the table:
+   the files the change touches; their owners; the shared contract (names, data shapes, ids); then the table
+   (`| Agent | Files | Job | Why parallel / why one |`) covering: one agent per independent group of program files;
+   test-only agents (end-to-end on the real path, carry-through to every path that carries the change, updating
+   tests that pin the old behaviour); an audit agent for the same fault elsewhere; spec/map/docs as their own agent;
+   then a "Left out:" line (same file, strict order, over ~8-10). The count comes from that analysis, never from
+   habit. Stagger an agent that must wait for a file another agent holds. The lead keeps shared files
+   (`src/main/index.ts`, `src/shared/*`, `src/preload/index.ts`, `CLAUDE.md`, `package.json`, CI files). Give every
+   agent this section and a time budget from `docs/timings.md`.
 7. **Overseeing agents.** Watch commands, not only results. When an agent's fix is proven (fails on old code,
    passes on new), stop further proof runs. Tell the user about any agent step over 5 min when it starts.
 8. **Live output.** Agents log every step to `/home/user/SuperCargo-activity.log`

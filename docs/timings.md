@@ -37,3 +37,6 @@ with a push: + CI (~10 min, in the background); a release: + ~4 min.
 | 2026-10-14 | Overlay footer e2e incl. old-code proof (e2e agent) | agent | ~6 min | 2 min | 22:11-22:13 |
 | 2026-10-14 | Overlay FROM row to the bottom + 24px pin (fromrow agent) | agent | 2-6 min | 1 min | 22:14-22:15 |
 | 2026-10-14 | FROM row e2e incl. old-code proof (e2e agent) | agent | ~6 min | 2 min | 22:14-22:16 |
+| 2026-10-14 | Port test_spec_line.py (specline agent) | agent | 2-6 min | 1 min | 22:20 |
+| 2026-10-14 | Port test_program_map_covers_files.py + 41 map entries (mapcheck agent) | agent | 2-6 min | 1.5 min | 22:20-22:21 |
+| 2026-10-14 | npm run test:checks (all 20 check scripts) | test | ~1 min | ~1 min | 22:22 |

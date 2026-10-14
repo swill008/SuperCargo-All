@@ -49,6 +49,12 @@ The compact overlay is the same renderer bundle at `#compact`, in a second alway
 | `releaseNotes.ts` | "What's new" text for every version between the running and the offered one (batch 12) | GitHub API releases |
 | `dataCheck.ts` | Damaged-data check and "Moved for Repair" (batch 12) | data folder |
 | `installDetect.ts` | Finds Star Citizen installs (Windows: powershell + drive scan) | OS |
+| `logger.ts` | Main-process debug log: memory ring + log file (`logger`, `getRecent`, `getProblems`, `onEntry`) | data folder (`paths.ts`), `shared/debugLog` |
+| `trace.ts` | Diagnostics trace: memory ring + `logs/trace.jsonl` (rotated at 20 MB), 30 s perf sampler (`trace()`, `writeTrace()`) | data folder, `shared/trace` |
+| `crash.ts` | Crash and window-health hooks; everything goes to the debug log, nothing exits | `logger` |
+| `debugWindow.ts` | Debug window and the copy-paste bug report | `logger`, `store`, `shared/debugLog` |
+| `crew.ts` | Crew sessions: one row per crew, the leader writes, members watch (realtime) | Supabase `crew_sessions` |
+| `env.d.ts`, `assets.d.ts` | Type declarations: build-time constants `__APP_COMMIT__` / `__APP_BRANCH__` (from `electron.vite.config.ts`) and `?asset` imports | |
 
 ### IPC (names in `src/shared/channels.ts`, handlers in `src/main/index.ts:429-625`)
 
@@ -99,6 +105,16 @@ The compact overlay is the same renderer bundle at `#compact`, in a second alway
 | `contract.ts`, `logLocation.ts`, `markerResolve.ts` | Title parsing, pickup-bug workaround, log address → location, destination backfill |
 | `ships.ts`, `shipModules.ts`, `uexMap.ts` | Ship roster, modular cargo, UEX API mapping |
 | `payout.ts`, `run.ts`, `legal.ts`, `channels.ts` | Payout factors, run ids, legal text, IPC names |
+| `pickups.ts` | Per-pickup SCU amounts (the game shows only a total; the last unknown stop is found by subtraction) |
+| `debugLog.ts` | Debug log contract shared by main, preload and both windows (levels, categories, `LogEntry`, `formatEntry`) |
+| `release.ts` | Release naming (line "R1", product, owner/repo, `releaseLabel`), shared by the updater, the version line and `release_checks.mjs` |
+
+## Preload (`src/preload`)
+
+| File | Role |
+|---|---|
+| `src/preload/index.ts` | The context bridge: exposes `window.supercargo` (`SuperCargoApi`), one method per IPC channel |
+| `src/preload/index.d.ts` | Type declarations for the preload API: declares `window.supercargo: SuperCargoApi` on the global `Window` for the renderer |
 
 ## Renderer (`src/renderer/src`)
 
@@ -115,10 +131,20 @@ The compact overlay is the same renderer bundle at `#compact`, in a second alway
   4. The pages read the result through atomic selectors.
 - **State helpers.** `state/manifest.ts` (stops, totals, history entries), `state/loading.ts` (the
   loading-walk steps), `state/layout.ts` (frozen layout and reconcile).
-- **Pages.** `ManifestPage`, `ContractsPage` (inline edit), `CargoGridPage` (3.5k lines: R3F hold,
-  loading walk, drag and drop, Stor-All crates), `HistoryPage`, `SettingsPage`.
-- **Components.** TopBar, BottomNav, CaptureModal and OcrCalibrator (OCR), ScanReviewModal, TurnInModal,
-  BoxEditModal, Typeahead, Onboarding, UpdateBanner, PrivacyPolicy.
+- **Pages** (`pages/`). `ManifestPage.tsx`, `ContractsPage.tsx` (inline edit), `CargoGridPage.tsx` (3.5k lines:
+  R3F hold, loading walk, drag and drop, Stor-All crates), `HistoryPage.tsx`, `SettingsPage.tsx`.
+- **Components** (`components/`). `TopBar.tsx`, `BottomNav.tsx`, `CaptureModal.tsx` and `OcrCalibrator.tsx` (OCR),
+  `ScanReviewModal.tsx`, `TurnInModal.tsx`, `BoxEditModal.tsx`, `Typeahead.tsx`, `Onboarding.tsx`, `UpdateBanner.tsx`,
+  `PrivacyPolicy.tsx`; the overlay entry `CompactGate.tsx` (Other mode's checklist card, else stock
+  `CompactWindowApp.tsx`); `CrashGuard.tsx` (render-crash boundary); `LoadBar.tsx` (aboard / peak / Stor-All reserve
+  bar); `PageHeader.tsx`, `Placeholder.tsx`, `Toast.tsx`, `ui.tsx` (shared page header, empty-page text, toast,
+  hover helpers).
+- **Window-side helpers** (`state/`). `state/log.ts` (debug log lines batched to main), `state/trace.ts`
+  (diagnostics trace batched to main), `state/haulDiag.ts` (Haul-mode snapshot for EXPORT DIAGNOSTICS),
+  `state/useViewport.ts` (`useNarrow()` width hook).
+- **Shell.** `src/renderer/index.html` (page shell, loads `main.tsx`), `src/renderer/src/main.tsx` (bundled fonts,
+  React root), `global.css`, `theme.ts` (colours and fonts `C`, `F`), `vite-env.d.ts` (Vite client and font-import
+  types).
 
 ## Tooling, data and backend
 

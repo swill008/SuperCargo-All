@@ -20,6 +20,8 @@ jobs:
     timeout-minutes: 20
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+        with:
+          fetch-depth: 0
       - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
         with:
           # 22: replay.mjs uses Node's built-in WebSocket (Node 20 has none, which failed every CDP scenario)
@@ -28,6 +30,9 @@ jobs:
       - run: npm ci
       - run: npm run typecheck
       - run: npm run build
+      # every test/replay/*_checks.mjs, including the rule checks (Spec: line, map covers every src file), like
+      # Gremlin-Platforms' test_spec_line.py / test_program_map_covers_files.py; full history for the Spec: check
+      - run: npm run test:checks
       # ubuntu-latest is 24.04, where libasound2 became libasound2t64.
       - name: Install xvfb and Electron runtime libs
         run: |
