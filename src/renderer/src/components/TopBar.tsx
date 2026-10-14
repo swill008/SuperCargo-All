@@ -743,9 +743,9 @@ function ChromeButton({
         display: 'flex',
         alignItems: 'center',
         gap: 8,
-        border: `1px solid ${active ? C.green : 'rgba(255,255,255,0.18)'}`,
-        background: active ? 'rgba(95,208,137,0.1)' : 'transparent',
-        color: active ? C.text : C.body,
+        border: `1px solid ${active ? C.acc : C.lineStrong}`,
+        background: active ? C.acc : 'transparent',
+        color: active ? '#111' : C.dim,
         fontFamily: F.display,
         fontSize: 12,
         fontWeight: 600,
@@ -753,7 +753,7 @@ function ChromeButton({
         padding: compact ? '8px 10px' : '8px 14px',
         cursor: 'pointer'
       }}
-      hoverStyle={{ border: `1px solid ${active ? C.green : C.acc}`, color: C.text, textShadow: GLOW }}
+      hoverStyle={{ border: `1px solid ${C.acc}`, color: active ? '#111' : C.text }}
     >
       {icon}
       {!compact && label}
