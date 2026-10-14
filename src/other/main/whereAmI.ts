@@ -9,8 +9,8 @@
  * Hotkeys: pauseOtherHotkeys() unregisters every app global shortcut while the recorder listens.
  */
 import * as fs from 'node:fs'
-import * as path from 'node:path'
-import { app, BrowserWindow, globalShortcut, ipcMain, nativeImage, screen, type NativeImage } from 'electron'
+import { BrowserWindow, globalShortcut, ipcMain, nativeImage, screen, type NativeImage } from 'electron'
+import { cachePath as appCachePath } from '../../main/paths'
 import { IPC } from '@shared/channels'
 import type { AppSettings, CropRect } from '@shared/types'
 import {
@@ -194,7 +194,7 @@ async function whereWorker(): Promise<TessWorker | null> {
     const t0 = Date.now()
     try {
       // same tessdata cache as the shared engine
-      const cachePath = path.join(app.getPath('userData'), 'tessdata')
+      const cachePath = appCachePath('tessdata')
       fs.mkdirSync(cachePath, { recursive: true })
       const t = (await import('tesseract.js')) as unknown as { createWorker?: CreateWorker; default?: { createWorker?: CreateWorker } }
       const create = t.createWorker ?? t.default?.createWorker
@@ -390,6 +390,10 @@ function record(r: WhereRunResult, why: Why, seam: boolean): void {
       note: r.note,
       accuracy: r.where?.accuracy,
       checks: r.info?.checks,
+      // O3: 'computed' = the screen altitude was garbled/missing and |position| − radius was used
+      altitude: r.info?.altitudeM,
+      altSource: r.info?.altitudeSource,
+      altComputed: r.info?.altitudeComputedM,
       tracked: r.info?.trackedMission?.id,
       zone1: r.raw.zone1?.slice(0, 500),
       // whole panel (all fields), not cut

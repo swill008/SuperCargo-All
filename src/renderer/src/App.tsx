@@ -15,6 +15,7 @@ import ScanReviewModal from './components/ScanReviewModal'
 import CompactGate from './components/CompactGate'
 import Onboarding from './components/Onboarding'
 import UpdateBanner from './components/UpdateBanner'
+import UpdateWindow from './components/UpdateWindow'
 import Toast from './components/Toast'
 import CrashGuard from './components/CrashGuard'
 import DebugPage from './pages/DebugPage'
@@ -161,6 +162,7 @@ function MainApp(): React.ReactElement {
       <CaptureModal />
       <OtherModals />
       <ScanReviewModal />
+      <UpdateWindow />
       {ready && !onboarded && <Onboarding />}
     </div>
   )

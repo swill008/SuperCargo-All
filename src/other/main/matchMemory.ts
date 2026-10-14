@@ -1,11 +1,11 @@
 /**
- * Match memory (M1-M8), saved under userData (other-matches.json).
+ * Match memory (M1-M8), saved in the data folder (other-matches.json).
  * The main process owns the file; both windows read it via IPC and get every change broadcast.
  * Saves are coalesced to at most one per second and flushed on quit.
  */
 import * as fs from 'node:fs'
-import * as path from 'node:path'
-import { app, BrowserWindow, ipcMain } from 'electron'
+import { BrowserWindow, ipcMain } from 'electron'
+import { dataPath } from '../../main/paths'
 import { IPC } from '@shared/channels'
 import {
   CHANGES_MAX,
@@ -39,7 +39,7 @@ let lastSave = 0
 let timer: ReturnType<typeof setTimeout> | null = null
 
 function filePath(): string {
-  return path.join(app.getPath('userData'), FILE)
+  return dataPath(FILE)
 }
 
 const isStr = (v: unknown): v is string => typeof v === 'string'

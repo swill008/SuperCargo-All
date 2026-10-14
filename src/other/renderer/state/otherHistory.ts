@@ -26,6 +26,7 @@ function toHistory(job: OtherJob, movedBy: OtherMovedBy): OtherHistoryEntry {
     contractName: job.contractName,
     source: job.source,
     rep: job.rep,
+    repMax: job.repMax,
     sharedBy: job.sharedBy,
     sessionAt: job.sessionAt,
     acceptedAt: job.acceptedAt,

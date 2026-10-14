@@ -7,6 +7,7 @@ import Typeahead from './Typeahead'
 import { shipCapacity } from '@shared/shipModules'
 import { hasGridMarkup } from '@shared/cargoGrids'
 import { DISCORD_URL } from '@shared/legal'
+import { releaseLabel } from '@shared/release'
 
 function useOutsideClose<T extends HTMLElement>(): {
   open: boolean
@@ -78,7 +79,7 @@ export default function TopBar(): React.ReactElement {
             </div>
             {appVersion && !narrow && (
               <div style={{ fontFamily: F.mono, fontSize: 10, letterSpacing: '0.1em', color: C.faint, marginTop: 3 }}>
-                v{appVersion}
+                {releaseLabel(appVersion)}
               </div>
             )}
           </div>

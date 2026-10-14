@@ -2,6 +2,7 @@
 import * as fs from 'node:fs'
 import * as path from 'node:path'
 import { app } from 'electron'
+import { dataPath } from './paths'
 import type { Ship } from '@shared/ships'
 import { withModules } from '@shared/shipModules'
 import type {
@@ -23,7 +24,7 @@ const GRIDFACES_FILE = 'uex-grid-faces.json'
 const OVERRIDES_FILE = 'uex-contract-overrides.json'
 
 function cachePath(file: string): string {
-  return path.join(app.getPath('userData'), file)
+  return dataPath(file)
 }
 
 // working-tree file the markup writes

@@ -1,9 +1,10 @@
-// main-process diagnostics trace: memory ring + userData/logs/trace.jsonl (rotated at 20 MB to trace.1.jsonl)
+// main-process diagnostics trace: memory ring + <data folder>/logs/trace.jsonl (rotated at 20 MB to trace.1.jsonl)
 // plus a 30 s perf sampler. trace()/writeTrace() are the contract other modules call.
 
 import { app, BrowserWindow } from 'electron'
 import * as fs from 'node:fs'
 import * as path from 'node:path'
+import { dataPath } from './paths'
 import type { TraceRecord } from '@shared/trace'
 
 const RING_MAX = 5000
@@ -15,6 +16,7 @@ const ring: TraceRecord[] = []
 let pending: string[] = []
 let flushTimer: ReturnType<typeof setTimeout> | null = null
 let fileBytes = -1
+let fileFor = '' // trace file fileBytes belongs to; data folder can move at boot
 let quitHooked = false
 let enabled: () => boolean = () => true
 
@@ -32,7 +34,7 @@ export function isTraceOn(): boolean {
 }
 
 export function traceDir(): string {
-  return path.join(app.getPath('userData'), 'logs')
+  return dataPath('logs')
 }
 
 // oldest first: [trace.1.jsonl, trace.jsonl]
@@ -55,6 +57,10 @@ export function flushTrace(): void {
   try {
     const [old, cur] = traceFiles()
     fs.mkdirSync(traceDir(), { recursive: true })
+    if (fileFor !== cur) {
+      fileFor = cur
+      fileBytes = -1
+    }
     if (fileBytes < 0) {
       try {
         fileBytes = fs.statSync(cur).size

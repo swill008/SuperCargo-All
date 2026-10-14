@@ -29,6 +29,13 @@ if (!python) {
 }
 console.log(`run_all: ${files.length} fixture(s) x ${modes.join('+')}, results under ${outDir}`)
 
+// release notes for package.json's version must exist and pass the release rules (release_checks.mjs)
+const releaseRun = spawnSync(process.execPath, [path.join(here, 'release_checks.mjs')], { encoding: 'utf8' })
+const releaseOk = releaseRun.status === 0
+const releaseOut = `${releaseRun.stdout ?? ''}\n${releaseRun.stderr ?? ''}`.trim()
+console.log(`${releaseOk ? 'PASS' : 'FAIL'}  release_checks.mjs  ${releaseOut.split('\n').slice(-1)[0] ?? ''}`)
+if (!releaseOk) for (const r of releaseOut.split('\n').slice(0, -1)) console.log(`      ${r}`)
+
 // each replay is its own app instance and data dir, so run REPLAY_JOBS at once
 const run = (cmd, args) =>
   new Promise((resolve) => {
@@ -75,12 +82,12 @@ await Promise.all(
     }
   })
 )
-let failed = 0
+let failed = releaseOk ? 0 : 1
 for (const { line, f, mode, secs, detail, retried } of results) {
   if (line === 'FAIL') failed++
   const [summary, ...rest] = detail.split('\n')
   console.log(`${line}  ${f} [${mode}] ${secs}s${retried}  ${summary}`)
   if (line === 'FAIL') for (const r of rest) console.log(`      ${r}`)
 }
-console.log(failed ? `\n${failed} replay(s) failed` : '\nall replays passed')
+console.log(failed ? `\n${failed} check(s) failed${releaseOk ? '' : ' (including release_checks.mjs)'}` : '\nall replays passed')
 process.exit(failed ? 1 : 0)

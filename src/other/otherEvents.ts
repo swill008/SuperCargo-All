@@ -11,6 +11,7 @@ export type OtherLogEvent =
       missionId: string
       title: string // cleaned, no <EM4> markup
       rep?: number // from "<EM4>[313 Rep]</EM4>" in the title
+      repMax?: number // high end of a "[100–500 Rep]" range; set only when above rep
       generator?: string
       contractName?: string
       isHauling: boolean

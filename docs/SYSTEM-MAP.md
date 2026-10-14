@@ -32,20 +32,22 @@ The compact overlay is the same renderer bundle at `#compact`, in a second alway
 
 | File | Role | Talks to |
 |---|---|---|
-| `index.ts` | App lifecycle, main and compact windows, CSP (packaged only), all IPC handlers (`registerIpc`), OCR auto-capture and hotkey, hourly update check | everything below |
+| `index.ts` | App lifecycle, main and compact windows, CSP (packaged only), all IPC handlers (`registerIpc`), OCR auto-capture and hotkey, start-up data check, start-up update check | everything below |
 | `logWatcher.ts` | Polls Game.log every 200 ms, handles rotation, emits contract events | `logParser` |
 | `logParser.ts` | Regex parse of one log line into accepted, objective, ended, paid and share events | `shared/contract` |
 | `scanLog.ts` | One-shot full log read to recover contracts accepted while the app was closed | fs |
 | `contractData.ts` | Title, blueprint and box-size index from the game's `global.ini` and `contracts.ini`, plus overrides | fs, `shared/fuzzy` |
-| `dataSync.ts` | Copies bundled `data/uex` into userData; refreshes from `raw.githubusercontent.com/AquatikJustice/SuperCargo/main/data/uex`, verified by `hashes.json` | GitHub |
-| `uex.ts` | Loads the cached ships, locations, commodities, grid faces and contract overrides | userData |
-| `store.ts` | JSON persistence: settings, manifest, history, window state | userData |
+| `dataSync.ts` | Copies bundled `data/uex` into the data folder; refreshes from `raw.githubusercontent.com/AquatikJustice/SuperCargo/main/data/uex`, verified by `hashes.json` | GitHub |
+| `uex.ts` | Loads the cached ships, locations, commodities, grid faces and contract overrides | data folder |
+| `store.ts` | JSON persistence: settings (default folder), manifest, history, window state | data folder (`paths.ts`) |
 | `capture.ts` | `desktopCapturer` grabs, crop, upscale and grayscale | Electron |
 | `ocr/` | Engine selection (`tesseractEngine`, `onnxEngine`), `runOcr`, sample stash | jsdelivr (tess data), userData/ocr-model |
 | `telemetry.ts` | Opt-in OCR sample upload queue (5 min retry) | Supabase Storage `ocr-samples` |
 | `usageStats.ts` | Daily anonymous ping (**on by default**) | Supabase `usage_pings` |
 | `boxReports.ts` | Box-size correction report when a contract ends (same flag) | Supabase `box_size_reports` |
-| `updater.ts` | electron-updater wrapper | GitHub Releases |
+| `updater.ts` | electron-updater wrapper: start-up / by-hand check, asks before download, skip, updated notice (batch 12) | GitHub Releases |
+| `releaseNotes.ts` | "What's new" text for every version between the running and the offered one (batch 12) | GitHub API releases |
+| `dataCheck.ts` | Damaged-data check and "Moved for Repair" (batch 12) | data folder |
 | `installDetect.ts` | Finds Star Citizen installs (Windows: powershell + drive scan) | OS |
 
 ### IPC (names in `src/shared/channels.ts`, handlers in `src/main/index.ts:429-625`)
@@ -60,12 +62,13 @@ The compact overlay is the same renderer bundle at `#compact`, in a second alway
   - telemetry:status
   - window: control / isMaximized / setAlwaysOnTop
   - ocr: listDisplays / engineInfo / preview / run / saveSample
-  - app:version, updater: check / quitAndInstall
+  - app:version, updater: check / quitAndInstall / download / skip / state / updatedNotice
+  - refData: get / check; dataFolder: get / choose / reset / open / restart / repair
 - **send (renderer → main, one-way):** loading:set, telemetry:boxReport, ocr:requestCapture, ocr:reportAccuracy.
 - **events (main → renderer):**
   - evt:watcher:status, evt:contract:{accepted, ended, paid, share}, evt:objective
   - evt:ships / locations / commodities / gridFaces
-  - evt:window:state, evt:ocr:result / status, evt:update
+  - evt:window:state, evt:ocr:result / status, evt:update, evt:refData
   - broadcast to every window: evt:manifest:changed, evt:compact:state, evt:loading:state, evt:settings
   - `evt:openCapture` is declared but never sent.
 
@@ -77,7 +80,8 @@ The compact overlay is the same renderer bundle at `#compact`, in a second alway
 | Supabase `box_size_reports` | Contract ends, same flag | Mission id, contract title and name, objectives (full report) |
 | Supabase Storage `ocr-samples` | Only if `contributeTrainingData` | Grayscale crop plus OCR text and corrections |
 | GitHub raw `data/uex` | Launch and manual refresh | – |
-| GitHub Releases | 4 s after launch, then hourly | – |
+| GitHub Releases | At launch when "Check for updates at start-up" is on (default), and on CHECK FOR UPDATES | – |
+| GitHub API `repos/swill008/SuperCargo-All/releases` | With an update check that finds a new version (release notes) | – |
 | jsdelivr tesseract data | First Tesseract use | – |
 
 ## Shared logic (`src/shared`)
@@ -268,7 +272,7 @@ old `out/` with its `package.json` and `data/`).
 
 **Known limits.**
 - A body's radius is estimated from its roster places (median distance from the centre); a body with no places
-  with coordinates can't be matched. The local planet table (src/other/otherBodies.ts, main/bodies.ts, userData/other-bodies.json) refines it with the panel's exact `Radius:` once read; marker points take their body from the nearest place within 25 km so same-body legs are measured over the surface.
+  with coordinates can't be matched. The local planet table (src/other/otherBodies.ts, main/bodies.ts, <data folder>/other-bodies.json) refines it with the panel's exact `Radius:` once read; marker points take their body from the nearest place within 25 km so same-body legs are measured over the surface.
 - Hurston and microTech are both ~1000 km: only the 10 km place check tells them apart; a marker with no place near
   it on either stays uncalibrated ("Not found in UEX").
 - `near` is a label only: the stop's distance comes from the marker point, not from the near place.
@@ -409,7 +413,7 @@ of past matches: what it saw, what the game proved (Objective Complete + a fresh
 | File | Owns (batch 8) | Entry points |
 |---|---|---|
 | `src/other/otherMemory.ts` (new, pure) | The memory doc: entries, changes (before/after, last 50), caps (500 entries, user entries kept), proof counting, disputed rule, labels | `memoryKey()`, `lookupMemory()`, `recordSeen()`, `recordProof()`, `setUserPlace()`, `forgetEntry()`, `undoChange()`, `learnedPlace()`, `memoryLabel()`, `emptyMemoryDoc()`; `MEMORY_MAX`, `CHANGES_MAX`, `PROOF_WINDOW_MS`, `PROOF_METERS`; types `MemoryEntry`, `MemoryChange`, `MemoryDoc`, `MemoryWhere`, `MemoryOrigin` |
-| `src/other/main/matchMemory.ts` (new) | `userData/other-matches.json` (atomic write, saves coalesced to 1 per second, doc validation); IPC handlers; broadcast to every window; `## MATCH MEMORY` diagnostics section | registered from `src/other/main/register.ts` |
+| `src/other/main/matchMemory.ts` (new) | `<data folder>/other-matches.json` (atomic write, saves coalesced to 1 per second, doc validation); IPC handlers; broadcast to every window; `## MATCH MEMORY` diagnostics section | registered from `src/other/main/register.ts` |
 | `src/shared/channels.ts`, `src/preload/index.ts` (Other blocks) | `otherMemory:get` / `:seen` / `:proof` / `:set` / `:forget` / `:undo`, `evt:other:memory` | `otherMemoryGet/Seen/Proof/Set/Forget/Undo`, `onOtherMemory` |
 | `src/other/otherResolve.ts` | `ResolveCtx.memory`; statuses `user` ("✓ you set") and `learned` ("✓ learned"); user entry wins outright (10, disputed 6); learned +4, proven wrong −4; `StopPlace.memoryKey` and `memory` | `resolveStopPlace()` |
 | `src/other/otherNext.ts` | `ListOpenStopsOpts.memory` passed into the resolver (also the step distance helpers) | `listOpenStops()` |
@@ -439,7 +443,7 @@ Run only the batch 8 app scenarios (after `npm run build`):
 **Known limits.**
 - Proof needs a position read near the completion (within 10 minutes, accuracy 7+); without one nothing is learned.
 - A stop the resolver gets exactly right is not remembered (exact matches are left out of the log).
-- The memory is per PC (`userData`); it is not shared or exported other than in diagnostics.
+- The memory is per PC (the data folder); it is not shared or exported other than in diagnostics.
 
 ## Other mode: data sources, OCR typo matching, OCR tune-up (batch 8 addendum 2, 2026-10-14)
 
@@ -450,7 +454,7 @@ source: the roster is still UEX plus the bundled starmap file, now tagged by sou
 | File | Owns (addendum 2) | Entry points |
 |---|---|---|
 | `src/shared/types.ts` (upstream, re-tie 20) | `Location.source?` and `Location.coordsFrom?` (`'uex' \| 'starmap'`) | |
-| `src/other/main/uex.ts` | Sets the tags: `fillFromPositions` -> `coordsFrom: 'starmap'`, `addStarmapPlaces` -> `source: 'starmap'` | `loadOtherPlaces()`, `refreshOtherPlaces()` |
+| `src/other/main/uex.ts` | Sets the tags: `fillFromPositions` -> `coordsFrom: 'starmap'`, `addStarmapPlaces` -> `source: 'starmap'` | `loadOtherPlaces()`, `refreshOtherPlaces()` (one download at a time: overlapping refreshes share it; `test/replay/places_checks.mjs`) |
 | `src/other/workMode.ts` | Setting `otherSourceStarmap` (default on) in `OTHER_SETTING_DEFAULTS` | `otherSetting()` |
 | `src/other/renderer/state/otherPlaces.ts` | Off: drops starmap-only places and strips starmap-filled coordinates (and the body that came with them); `useMergedLocations` re-computes on the setting. Body fill: a place with coordinates but no body takes the body of the same place (same name or Center/Centre spelling) within 1 km | `mergeLocations()`, `useMergedLocations()` |
 | `src/other/renderer/components/DataSources.tsx` (new), `src/other/renderer/OtherSettingsPage.tsx` (was settingsBlock.tsx, removed in batch 10) | Settings → OTHER MODE → DATA SOURCES: one row per source with counts and its switch (UEX: "base list", always on) | `DataSources` |
@@ -495,8 +499,8 @@ gives the site codes (which place has a Security Compound, Storehouse, …). One
 | `scripts/gen-site-codes.mjs` (new) | Builds `data/uex/site-codes.json` from `trade_locations.json` | `node scripts/gen-site-codes.mjs` |
 | `data/uex/site-codes.json` (new, bundled) | `{ generatedAt, sites: [{ code, name, parentCode?, parentName? }] }` | |
 | `src/other/otherSiteCodes.ts` (new, pure) | Site table lookups and the builders shared by the script and the updater | `siteByCode()`, `sitesNamed()`, `gameDataPlace()`, `parentForCode()`, `tradeCodeForPanel()`, `codeFromText()`, `stripCode()`, `buildSiteCodes()`, `buildStarmapPlaces()`, `normalizeSiteCodesDoc()`, `setSiteCodes()`, `siteCodesDoc()`; types `SiteCode`, `SiteCodesDoc`, `GameDataStatus`, `GameDataReply` |
-| `src/other/main/gameData.ts` (new) | Bundled or `userData/game-data/` copy; UPDATE download (raw.githubusercontent.com, timeout, 10 MB cap, shape check) and rebuild; IPC; `## GAME DATA` | `registerOtherGameDataIpc()`, `getGameDataStatus()`, `getSiteCodes()`, `gameDataPositionsFile()`, `onGameDataUpdated()`, `updateGameData()`; `GAME_DATA_BASE`, `GAME_DATA_CREDIT` |
-| `src/other/main/uex.ts` | Prefers the `userData/game-data/` positions over the bundled file | |
+| `src/other/main/gameData.ts` (new) | Bundled or `<data folder>/game-data/` copy; UPDATE download (raw.githubusercontent.com, timeout, 10 MB cap, shape check) and rebuild; IPC; `## GAME DATA` | `registerOtherGameDataIpc()`, `getGameDataStatus()`, `getSiteCodes()`, `gameDataPositionsFile()`, `onGameDataUpdated()`, `updateGameData()`; `GAME_DATA_BASE`, `GAME_DATA_CREDIT` |
+| `src/other/main/uex.ts` | Prefers the `<data folder>/game-data/` positions over the bundled file | |
 | `src/other/main/register.ts`, `src/shared/channels.ts`, `src/preload/index.ts` (re-tie 21) | `otherGameData:get` / `:update`, `evt:other:gameData`; `'GAME DATA'` diagnostics section | `otherGameDataGet()`, `otherGameDataUpdate()`, `onOtherGameData()` |
 | `src/other/renderer/state/otherGameDataStore.ts` (new) | Renderer copy of the site table; imported from `otherJobs.ts` so both windows have it | `startGameData()`, `updateGameData()`, `useGameData()` |
 | `src/other/renderer/components/DataSources.tsx` | Row "Star Citizen Wiki game data (scunpacked-data)": counts, bundled/downloaded date, UPDATE, credit, switch | `DataSources` |
@@ -507,7 +511,7 @@ gives the site codes (which place has a Security Compound, Storehouse, …). One
 
 ```
 scunpacked-data trade_locations.json ─► gen-site-codes.mjs ─► data/uex/site-codes.json (bundled)
-UPDATE ─► otherGameData:update ─► download starmap_positions + trade_locations ─► userData/game-data/ ─► evt:other:gameData
+UPDATE ─► otherGameData:update ─► download starmap_positions + trade_locations ─► <data folder>/game-data/ ─► evt:other:gameData
 main/gameData ─► otherGameData:get ─► otherGameDataStore (both windows) ─► otherSiteCodes ─► resolver (+2 / −2, [CODE] exact)
 ```
 
@@ -641,3 +645,61 @@ LearnedDataPage
 
 Run (after `npm run build`): `node test/replay/replay.mjs learned-data-tab memory-undo settings-tabs`; pure:
 `node test/replay/memory_checks.mjs`.
+
+## Data folder and releases (batch 12, 2026-10-14)
+
+Rules 81-85 in [STANDALONE.md](../src/other/STANDALONE.md#data-folder-and-releases-batch-12-user-2026-10-14); audit in
+[OTHER-MODE-AUDIT.md](OTHER-MODE-AUDIT.md#data-folder-and-releases-batch-12). The app's files move from Electron's userData
+to `%USERPROFILE%\SuperCargo-OtherModes` (movable, checked for damaged data); releases are a Setup exe and a Portable zip
+from `swill008/SuperCargo-All`; updates work like Gremlin's (Check for Updates window); reference data status; overlay O1-O3;
+release notes rules (rules 86-96).
+
+| File | Owns (batch 12) | Entry points |
+|---|---|---|
+| `src/main/paths.ts` (new) | Every app path: data folder (default `<HOME>/SuperCargo-OtherModes`, `DATA_FOLDER_NAME`, or `settings.dataFolder` when usable), `settings.json` in the default folder, caches in userData, the fallback reason | `defaultDataFolder()`, `dataFolder()`, `dataPath(...)`, `settingsFile()`, `cachePath(...)`, `setDataFolderOverride()`, `dataFolderStatus()` |
+| `src/main/dataFolderIpc.ts` (new) | DATA FOLDER IPC: show, choose (picked folder used as is; copy when it holds no SuperCargo files, never overwrite; damaged data -> `needsRepair` without saving), repair, reset, open, restart | `registerDataFolderIpc(deps)`, `info()`, `switchTo()`, `copyMissing()`, `holdsData()` |
+| `src/main/dataCheck.ts` (new) | Validates each SuperCargo JSON file with its loader's shape rule; moves all SuperCargo files to `Moved for Repair\<YYYY-MM-DD HH-MM>\` (structure kept, `settings.json` stays); start-up warning dialog | `checkDataFolder(dir)`, `moveForRepair(dir, when?)`, `startupDataCheck()` |
+| `src/renderer/src/components/DataFolderRow.tsx` (new, split from SettingsPage) | GENERAL → DATA FOLDER row, the inline damaged-data warning with RESET AND CONTINUE / CANCEL | `DataFolderRow` |
+| `src/main/releaseNotes.ts` (new) | Release notes for the update window: GitHub releases between current and offered, "What's new" section of each, newest first, cached for the session | `whatsNew(body, version)`, `fetchNotes(current, offered)` |
+| `src/renderer/src/components/UpdateWindow.tsx` (new) | The "Check for Updates" modal: states, notes (safe markdown as React elements), buttons, reference data panel | `UpdateWindow` |
+| `src/renderer/src/components/RefDataStatus.tsx` (new) | Reference data panel: per-file state, date, last checked, source line, CHECK NOW | default `RefDataStatusPanel` |
+| `src/main/dataSync.ts` | Per-file reference data status (`reference-data-status.json`), broadcast `evt:refData`; `SC_TEST_REFDATA_BASE` | `refDataStatus()`, `checkRefDataNow()`, `loadRefDataStatus()`, `setRefDataBroadcast(fn)` |
+| `src/main/diagnostics.ts` | `REFERENCE DATA` export section | |
+| `src/renderer/src/components/UpdateBanner.tsx` | "Updated — now R1 <ver>" notice; "Update ready — INSTALL AND RESTART" bar after Later | |
+| `src/other/otherLogParse.ts`, `otherEvents.ts`, `otherJob.ts` | O2: rep ranges (`repMax`) parsed and carried | |
+| `src/other/otherWhere.ts`, `src/other/main/whereAmI.ts` | O3: altitude computed from position when the screen value isn't sane | |
+| `src/other/renderer/components/OtherOverlay.tsx` | O1: fixed-height stop header; O2: "+rep–repMax REP" | |
+| `src/main/*` (store, uex, dataSync, logger, trace, telemetry, debugWindow, diagnostics, ocr/*, index) | Paths from `paths.ts`; boot: settings from `settingsFile()`, then `setDataFolderOverride(settings.dataFolder)`, then the rest; `exports/` default save folder | |
+| `src/other/main/{bodies,gameData,jobs,matchMemory,ocrSession,uex,whereAmI}.ts` | `dataPath()` / `cachePath('tessdata')` | |
+| `src/renderer/src/pages/SettingsPage.tsx` | GENERAL → DATA FOLDER (renders `DataFolderRow`); UPDATES: CHECK FOR UPDATES opens the window, "Check for updates at start-up", the reference data ⚠ line; `UpdateStatus` pill | |
+| `src/shared/channels.ts`, `src/preload/index.ts`, `src/shared/types.ts` | Channels `dataFolder:*` (incl. `dataFolder:repair`), `updater:download / :skip / :state / :updatedNotice`, `refData:get / :check`, `evt:refData`; preload `getDataFolder`, `chooseDataFolder`, `resetDataFolder`, `openDataFolder`, `restartForDataFolder`, `repairDataFolder`, `downloadUpdate`, `skipUpdate`, `getUpdateState`, `getUpdatedNotice`, `getRefDataStatus`, `checkRefData`, `onRefData`; types `DataFolderInfo`, `DataFolderChangeResult` (`needsRepair?`, `movedTo?`), `DataFolderCheck`, `DataFolderProblem`, `UpdateState`, `UpdatedNotice`, `ReleaseNote`, `RefDataStatus` / `RefDataFileStatus` / `RefDataFileState`, `AppSettings.dataFolder / skippedUpdateVersion / lastRunVersion` | |
+| `electron-builder.yml`, `build/installer.nsh`, `package.json` | appId `space.supercargo.othermodes`, productName `SuperCargo-OtherModes`; win nsis + zip, `SuperCargo-OtherModes-R1-${version}-Setup.exe` / `-Portable.zip`; per-user, optional unticked desktop shortcut; publish `swill008/SuperCargo-All` | `npm run dist` |
+| `.github/workflows/release-win.yml` (new), `release-linux.yml`, `release-notes/`, `scripts/release-body.mjs` | Stop when the tag exists; check the notes (N1); build, check both files, upload or publish with `release-notes/<ver>.md`; body to the job summary | workflow_dispatch `publish` |
+| `src/main/updater.ts` | Installed copy: check, ask, download (checked size + sha512), install; portable zip: available + release page only; skip, updated notice, `SC_TEST_UPDATE_FEED` | `initUpdater(deps)`, `checkForUpdates(byHand)`, `downloadUpdate()`, `skipVersion(v)`, `lastUpdateState()`, `takeUpdatedNotice()`, `quitAndInstall()` |
+| `src/main/store.ts` | `autoCheckUpdates` default true | |
+| `test/replay/replay.mjs` | `dataDir(home)` = `<HOME>/SuperCargo-OtherModes` (every scenario seeds and reads there); `legacyDataDir(home)`; `readJsonIn(dir, file)`; `setup()` adds `e.settings()`; `GENERAL_SECTIONS` adds DATA FOLDER; scenarios `data-folder`, `damaged-data`, `update-window`, `refdata-status`, `overlay-header` | see the command below |
+| `test/replay/paths_checks.mjs` | Folder name, no subfolder, holdsData, checkDataFolder, moveForRepair, switchTo needsRepair / repair | `node test/replay/paths_checks.mjs` |
+| `test/replay/update_checks.mjs` (new) | whatsNew, fetchNotes filter / order (stubbed fetch), skip, updated notice | `npm run test:update` |
+| `test/replay/where_checks.mjs` | Rep ranges, altitude from position | `node test/replay/where_checks.mjs` |
+| `test/replay/refresh_checks.mjs` | HOME/USERPROFILE pointed at its temp folder; each reference data state from a local `file://` base, status saved and reloaded | |
+| `test/replay/release_checks.mjs` (new) | Release notes heading and N1 rules, README rule text, workflow summary + tag check, builder targets / names / publish owner; run by `run_all.mjs` | `node test/replay/release_checks.mjs` |
+
+**Data flow.**
+
+```
+boot: settingsFile() (<HOME>/SuperCargo-OtherModes/settings.json) ─► setDataFolderOverride(settings.dataFolder)
+      ─► dataFolder(): override usable? it : default (+ fallback reason) ─► dataPath(...) for every app file
+      ─► app ready ─► startupDataCheck(): checkDataFolder ─ problems ─► dialog: Reset (moveForRepair) | Quit
+Settings GENERAL DATA FOLDER ─► dataFolder:choose ─► picker ─► no SuperCargo files: copyMissing
+      │                                                     └► SuperCargo files: checkDataFolder ─ ok: use as is
+      │                                                                         └ damaged: needsRepair (not saved)
+      │                                    inline warning ─► RESET AND CONTINUE ─► dataFolder:repair ─► moveForRepair + copyMissing
+      ─► settings.dataFolder ─► pending ─► RESTART NOW ─► dataFolder:restart ─► app.relaunch + quit ─► next boot uses it
+start-up (autoCheckUpdates) / CHECK FOR UPDATES ─► updater: checking ─► fetchNotes ─► available ─► UpdateWindow
+      ─► Update Now ─► updater:download ─► downloading % ─► ready (checked) ─► Install and Restart ─► quitAndInstall
+dataSync refreshFromRepo ─► reference-data-status.json ─► evt:refData ─► RefDataStatus panel / Settings ⚠ line
+```
+
+Run (after `npm run build`): `node test/replay/replay.mjs data-folder damaged-data update-window refdata-status overlay-header settings-tabs`;
+pure: `node test/replay/paths_checks.mjs`, `npm run test:update`, `node test/replay/refresh_checks.mjs`,
+`node test/replay/where_checks.mjs`, `node test/replay/release_checks.mjs`.

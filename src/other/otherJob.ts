@@ -78,6 +78,8 @@ export interface OtherJob {
   source?: 'log' | 'manual'
   /** reputation from the contract title */
   rep?: number
+  /** high end of a reputation range ("[100–500 Rep]"); only when above rep */
+  repMax?: number
   /** ownerId when a party member shared this contract */
   sharedBy?: string
   /** game session (log start time) the job was accepted in; groups the History summary */
@@ -110,6 +112,7 @@ export interface OtherHistoryEntry {
   contractName?: string
   source?: 'log' | 'manual'
   rep?: number
+  repMax?: number
   sharedBy?: string
   sessionAt?: string
   acceptedAt?: string

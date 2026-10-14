@@ -1,7 +1,7 @@
 // opt-in OCR sample upload, queued + retried. insert-only bucket, the key can't read it back.
 import * as fs from 'node:fs'
 import * as path from 'node:path'
-import { app } from 'electron'
+import { dataPath } from './paths'
 import { logger } from './logger'
 
 // publishable key, safe to embed
@@ -20,10 +20,10 @@ interface QueueFile {
 }
 
 function outboxDir(): string {
-  return path.join(app.getPath('userData'), 'outbox')
+  return dataPath('outbox')
 }
 function queuePath(): string {
-  return path.join(app.getPath('userData'), 'upload-queue.json')
+  return dataPath('upload-queue.json')
 }
 
 let queue: QueueFile = { items: [], uploaded: 0 }

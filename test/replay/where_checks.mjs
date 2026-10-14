@@ -270,15 +270,57 @@ safe('full panel', () => {
   const bad = W.parseDisplayInfo(DI_FULL.replace('Stanton1\n', 'Stanton2\n'))
   const wb = W.resolveDisplayInfo(bad, roster, FULL_AT)
   check('full panel', 'index mismatch near a body -> null (no SolarSystem fallback)', wb === null && bad.checks?.some((c) => c.item === 'player location index agrees with body' && !c.ok) && bad.checks.some((c) => c.item === 'position' && !c.ok && /near Hurston but the body position failed/.test(c.why)), j(bad?.checks))
-  // altitude over 100 km -> step 2
+  check('full panel', 'sane screen altitude kept (O3: source screen)', f?.altitudeSource === 'screen' && near(f.altitudeComputedM, 1071.7, 1), `${f?.altitudeSource} ${f?.altitudeComputedM}`)
+  // O3: a screen altitude of 250 km while the position says ~1 km is garbled -> computed from position, body path kept
   const high = W.parseDisplayInfo(DI_FULL.replace('Altitude 7.436596', 'Altitude 250000'))
   const wh = W.resolveDisplayInfo(high, roster, FULL_AT)
-  check('full panel', 'altitude > 100 km -> SolarSystem line', wh?.accuracy === 9 && wh.body === null, j(wh))
+  check('full panel', 'garbled altitude > 100 km -> computed from position, still HDRSO-Stott', wh?.name === 'HDRSO-Stott' && wh.accuracy === 10 && high.altitudeSource === 'computed' && high.checks.some((c) => c.item === 'altitude from position'), j(wh))
   // Solar != Root -> nothing usable -> null (caller falls back to the map line)
   const split = W.parseDisplayInfo('Zone: SolarSystem_1 Pos: 1000km 2000km 3000km\nZone: Root Pos: 9000km 2000km 3000km')
   check('full panel', 'SolarSystem != Root -> null', W.resolveDisplayInfo(split, roster, AT) === null, j(split?.checks))
   const rootOnly = W.resolveDisplayInfo(W.parseDisplayInfo('Zone: Root Pos: 12472406.2902km 231654.0157km -233.7724km'), roster, AT)
   check('full panel', 'Root alone is used', rootOnly?.accuracy === 9 && near(rootOnly.point?.x, 12472406290.2, 1), j(rootOnly))
+})
+
+// O3: altitude from position. Made-up panel 436 km above Hurston (CamPos = 1,436 km along (0.6, 0.8, 0)).
+safe('altitude from position', () => {
+  const H = loc('Hurston')
+  const P = { x: 861600, y: 1148800, z: 0 }
+  const kmS = (m) => `${(m / 1000).toFixed(4)}km`
+  const panel = (altLine, extra = '') => `Zone: OOC_Stanton_1_Hurston Pos: ${kmS(P.x)} ${kmS(P.y)} ${kmS(P.z)}
+${extra}Current player location : Stanton1
+Planet:OOC_Stanton_1_Hurston (working) (Load Complete)
+CamPos Planet Zone: ${P.x}.000000 ${P.y}.000000 ${P.z}.000000
+Radius: 1000000.000000 ElevationUnderCam: 0.000000 ${altLine}`
+  const run = (text, opts) => {
+    const i = W.parseDisplayInfo(text)
+    return { i, w: i && W.resolveDisplayInfo(i, roster, AT, opts) }
+  }
+  // garbled small value (decimal point misread): was null (|pos| ≈ radius + altitude failed)
+  const g = run(panel('Altitude 43.6'))
+  check('altitude from position', 'garbled 43.6 m -> "Hurston · 436 km up"', /^Hurston · 436 km up\b/.test(g.w?.label ?? '') && g.i.altitudeSource === 'computed' && near(g.i.altitudeComputedM, 436000, 1), `${g.w?.label} ${g.i?.altitudeSource}`)
+  // garbled big value: was "> 100 km -> SolarSystem line" (open space)
+  const b = run(panel('Altitude 4360000000.0'))
+  check('altitude from position', 'garbled 4,360,000 km -> "Hurston · 436 km up"', /^Hurston · 436 km up\b/.test(b.w?.label ?? '') && b.i.altitudeSource === 'computed', `${b.w?.label}`)
+  // unreadable / missing
+  const m = run(panel('Altitude'))
+  check('altitude from position', 'missing -> "Hurston · 436 km up", source computed', /^Hurston · 436 km up\b/.test(m.w?.label ?? '') && m.i.altitudeSource === 'computed', `${m.w?.label} ${m.i?.altitudeSource}`)
+  // no Radius line: planet table radius (exact)
+  const t = run(panel('Altitude 43.6').replace('Radius: 1000000.000000 ', ''), { bodyRadius: (n) => (n === 'Hurston' ? 1_000_000 : null) })
+  check('altitude from position', 'no Radius line, table radius -> 436 km up', /^Hurston · 436 km up\b/.test(t.w?.label ?? '') && t.i.altitudeSource === 'computed', `${t.w?.label}`)
+  // sane and agreeing within 5 km (ground 3 km high): screen value kept, the existing > 100 km rule still applies
+  const solar = `Zone: SolarSystem_1 Pos: ${kmS(H.x + P.x)} ${kmS(H.y + P.y)} ${kmS(H.z)}\nZone: Root Pos: ${kmS(H.x + P.x)} ${kmS(H.y + P.y)} ${kmS(H.z)}\n`
+  const s = run(panel('Altitude 433000.0', solar))
+  check('altitude from position', 'screen 433 km agrees (within 5 km) -> kept, > 100 km -> SolarSystem line', s.i?.altitudeSource === 'screen' && s.w?.accuracy === 9 && s.w.body === null, `${s.i?.altitudeSource} ${j(s.w)}`)
+  // near the ground: screen 2 km, position 2.5 km -> screen kept for the label
+  const lowP = { x: 601500, y: 802000, z: 0 }
+  const low = W.parseDisplayInfo(`Zone: OOC_Stanton_1_Hurston Pos: ${kmS(lowP.x)} ${kmS(lowP.y)} 0km\nPlanet:OOC_Stanton_1_Hurston\nCamPos Planet Zone: ${lowP.x} ${lowP.y} 0\nRadius: 1000000 Altitude 2000.0`)
+  const wl = W.resolveDisplayInfo(low, roster, AT)
+  check('altitude from position', 'screen 2.0 km vs 2.5 km from position -> screen kept', low?.altitudeSource === 'screen' && /· 2,?0?00 m up|· 2 km up/.test(wl?.label ?? ''), `${wl?.label} ${low?.altitudeSource}`)
+  // garbled position (inside the body): the altitude is not replaced, the old check still rejects the read
+  const inside = W.parseDisplayInfo(panel('Altitude 436000.0').replaceAll(kmS(P.x), '86.1600km').replaceAll(kmS(P.y), '114.8800km').replace(`${P.x}.000000 ${P.y}.000000`, '86160.000000 114880.000000'))
+  const wi = W.resolveDisplayInfo(inside, roster, AT)
+  check('altitude from position', 'position inside the body -> not used to fix the altitude', wi === null && inside?.altitudeSource !== 'computed' && inside.checks.some((c) => c.item === 'altitude from position' && !c.ok), `${j(wi)} ${j(inside?.checks)}`)
 })
 
 safe('ServerTime staleness', () => {

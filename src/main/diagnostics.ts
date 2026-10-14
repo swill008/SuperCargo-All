@@ -10,6 +10,8 @@ import { formatEntry, type DebugInfo } from '@shared/debugLog'
 import type { AppSettings } from '@shared/types'
 import { stitchBitmaps, type Bitmap, type DiagCopyImagesResult, type DiagCopyTextResult, type DiagExportOptions, type DiagExportResult, type TraceArea, type TraceRecord } from '@shared/trace'
 import { getProblems, getRecent, logger } from './logger'
+import { dataPath } from './paths'
+import { loadRefDataStatus } from './dataSync'
 import { flushTrace, getTraceRing, isTraceOn, traceFiles } from './trace'
 import { learnIdentity, makeSanitizer, sanitizeDeep, type Clean } from './sanitize'
 
@@ -158,6 +160,21 @@ async function overlayPicture(): Promise<Buffer | null> {
     return img.isEmpty() ? null : img.toPNG()
   } catch {
     return null
+  }
+}
+
+// the original author's reference data: last check and each file's state
+function refDataLines(): string[] {
+  try {
+    const st = loadRefDataStatus()
+    return [
+      `checked at: ${st.checkedAt ? iso(st.checkedAt) : 'never'}`,
+      `list reached: ${st.reached ? 'yes' : 'no'}`,
+      `source: ${st.source}`,
+      ...st.files.map((f) => `  ${f.label} (${f.key}): ${f.state}  at ${f.at ? iso(f.at) : '-'}${f.detail ? `  ${f.detail}` : ''}`)
+    ]
+  } catch (e) {
+    return [`(status not readable: ${(e as Error).message})`]
   }
 }
 
@@ -438,6 +455,9 @@ export async function buildDiagnostics(opts: DiagExportOptions = {}, savePath?: 
       JSON.stringify(sanitizeDeep(overlaySnap, clean), null, 2),
       '',
       ...otherText,
+      '## REFERENCE DATA',
+      ...refDataLines(),
+      '',
       '## GAME LOG HEALTH',
       ...gameLogHealth(settings?.gameLogPath ?? '', all, recs),
       '',
@@ -484,7 +504,7 @@ export async function buildDiagnostics(opts: DiagExportOptions = {}, savePath?: 
       const win = source?.mainWindow()
       const opt = {
         title: 'Export diagnostics',
-        defaultPath: path.join(app.getPath('documents'), `SuperCargo-diagnostics-${fileStamp()}.txt`),
+        defaultPath: dataPath('exports', `SuperCargo-diagnostics-${fileStamp()}.txt`),
         filters: [{ name: 'Text', extensions: ['txt'] }]
       }
       const picked = win && !win.isDestroyed() ? await dialog.showSaveDialog(win, opt) : await dialog.showSaveDialog(opt)

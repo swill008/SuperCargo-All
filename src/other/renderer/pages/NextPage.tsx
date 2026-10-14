@@ -292,7 +292,7 @@ export default function NextPage(): React.ReactElement {
               {unsure ? <div style={{ fontFamily: F.body, fontSize: 12, color: C.amber, marginTop: 2 }}>{unsure}</div> : null}
             </div>
             {groupBy === 'job' && trackedMissionId && rows[0]?.job.missionId === trackedMissionId ? <TrackedTag /> : null}
-            {groupBy === 'job' && rows[0] ? <JobTags rep={rows[0].job.rep} sharedBy={rows[0].job.sharedBy} view={view} /> : null}
+            {groupBy === 'job' && rows[0] ? <JobTags rep={rows[0].job.rep} repMax={rows[0].job.repMax} sharedBy={rows[0].job.sharedBy} view={view} /> : null}
             {g.distance != null ? (
               <div style={{ textAlign: 'right', flex: 'none' }}>
                 <div title={distTip(g.distance, g.distanceSource)} style={{ fontFamily: F.mono, fontSize: 14, color: C.text }}>
@@ -342,7 +342,7 @@ export default function NextPage(): React.ReactElement {
                     <span title={distTip(distance, distanceSource)}>{` \u00b7 ${distText(distance, distanceSource, jumps, surface)}`}</span>
                   ) : ''}
                   {groupBy === 'job' && match ? <span style={{ marginLeft: 8 }}><MatchTag match={match} /></span> : null}
-                  {groupBy === 'location' ? <span style={{ marginLeft: 8 }}><JobTags rep={job.rep} sharedBy={job.sharedBy} view={view} /></span> : null}
+                  {groupBy === 'location' ? <span style={{ marginLeft: 8 }}><JobTags rep={job.rep} repMax={job.repMax} sharedBy={job.sharedBy} view={view} /></span> : null}
                 </div>
                 {/* location grouping says this once on the stop's heading */}
                 {groupBy === 'job' && candidatesLine(match) ? (

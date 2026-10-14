@@ -95,7 +95,7 @@ export function JobRow({ job, uex, expanded, editing, onToggle, onEdit, onCancel
           <div style={{ fontFamily: F.body, fontSize: 15, color: C.text }}>{job.title}</div>
           <div style={{ display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap' }}>
             <span style={{ fontFamily: F.body, fontSize: 12, color: C.dim }}>{done}/{total} objectives</span>
-            <JobTags rep={job.rep} sharedBy={job.sharedBy} view={view} />
+            <JobTags rep={job.rep} repMax={job.repMax} sharedBy={job.sharedBy} view={view} />
           </div>
         </div>
         <span style={tagStyle}>{OTHER_KIND_LABEL[job.kind]}</span>

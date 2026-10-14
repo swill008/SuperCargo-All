@@ -29,7 +29,11 @@ import type {
   BoxSizeReport,
   CrewSnapshot,
   CrewMirror,
-  CrewMember
+  CrewMember,
+  DataFolderInfo,
+  DataFolderChangeResult,
+  RefDataStatus,
+  UpdatedNotice
 } from '@shared/types'
 import type { OtherJobsDoc } from '@other/otherJob'
 import type { OtherLogEvent, OtherScanResult } from '@other/otherEvents'
@@ -158,6 +162,19 @@ const api = {
   getAppVersion: (): Promise<string> => ipcRenderer.invoke(IPC.appVersion),
   checkForUpdates: (): Promise<boolean> => ipcRenderer.invoke(IPC.updaterCheck),
   quitAndInstall: (): Promise<boolean> => ipcRenderer.invoke(IPC.updaterQuitAndInstall),
+  downloadUpdate: (): Promise<boolean> => ipcRenderer.invoke(IPC.updaterDownload),
+  skipUpdate: (version: string): Promise<boolean> => ipcRenderer.invoke(IPC.updaterSkip, version),
+  getUpdateState: (): Promise<UpdateState | null> => ipcRenderer.invoke(IPC.updaterState),
+  getUpdatedNotice: (): Promise<UpdatedNotice | null> => ipcRenderer.invoke(IPC.updaterUpdatedNotice),
+  getRefDataStatus: (): Promise<RefDataStatus> => ipcRenderer.invoke(IPC.refDataGet),
+  checkRefData: (): Promise<RefDataStatus> => ipcRenderer.invoke(IPC.refDataCheck),
+
+  getDataFolder: (): Promise<DataFolderInfo> => ipcRenderer.invoke(IPC.dataFolderGet),
+  chooseDataFolder: (): Promise<DataFolderChangeResult> => ipcRenderer.invoke(IPC.dataFolderChoose),
+  resetDataFolder: (): Promise<DataFolderChangeResult> => ipcRenderer.invoke(IPC.dataFolderReset),
+  openDataFolder: (): Promise<void> => ipcRenderer.invoke(IPC.dataFolderOpen),
+  restartForDataFolder: (): Promise<void> => ipcRenderer.invoke(IPC.dataFolderRestart),
+  repairDataFolder: (target: string): Promise<DataFolderChangeResult> => ipcRenderer.invoke(IPC.dataFolderRepair, target),
 
   onWatcherStatus: (cb: (s: WatcherStatus) => void): Unsubscribe =>
     on(IPC.evtWatcherStatus, cb),
@@ -206,6 +223,7 @@ const api = {
   onContractShare: (cb: (e: ShareEvent) => void): Unsubscribe =>
     on(IPC.evtContractShare, cb),
   onUpdate: (cb: (s: UpdateState) => void): Unsubscribe => on(IPC.evtUpdate, cb),
+  onRefData: (cb: (s: RefDataStatus) => void): Unsubscribe => on(IPC.evtRefData, cb),
   onOpenCapture: (cb: () => void): Unsubscribe => on(IPC.evtOpenCapture, cb),
   onShips: (cb: (roster: ShipRoster) => void): Unsubscribe => on(IPC.evtShips, cb),
   onLocations: (cb: (roster: LocationRoster) => void): Unsubscribe => on(IPC.evtLocations, cb),

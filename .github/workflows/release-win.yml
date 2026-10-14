@@ -1,0 +1,118 @@
+name: Release Windows (Setup + Portable)
+
+# Run by hand from the Actions tab. Builds SuperCargo-OtherModes-R1-<version>-Setup.exe
+# and -Portable.zip from package.json's version. With "publish" on, creates the GitHub
+# release tagged SuperCargo-OtherModes-R1-<version> ("SuperCargo-OtherModes R1 <version>")
+# with release-notes/<version>.md + "How to install", and uploads the files plus
+# latest.yml / .blockmap that the in-app updater reads. With it off, the files are kept
+# as a workflow artifact. electron-builder itself never publishes.
+on:
+  workflow_dispatch:
+    inputs:
+      publish:
+        description: "Publish a GitHub release (off: build only, files kept as a workflow artifact)"
+        type: boolean
+        default: true
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    runs-on: windows-latest
+    timeout-minutes: 40
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
+        with:
+          node-version: 20
+          cache: npm
+
+      # The updater, the file names and the tag all come from this version.
+      - name: Read version
+        id: version
+        shell: pwsh
+        run: |
+          $v = (Get-Content package.json -Raw | ConvertFrom-Json).version
+          "version=$v" >> $env:GITHUB_OUTPUT
+          "base=SuperCargo-OtherModes-R1-$v" >> $env:GITHUB_OUTPUT
+
+      # A version is released once: stop before building when its tag is already in the repo.
+      - name: Check the version isn't released yet
+        shell: pwsh
+        run: |
+          $base = "${{ steps.version.outputs.base }}"
+          $found = git ls-remote --tags origin "refs/tags/$base"
+          if ($LASTEXITCODE -ne 0) { throw "Couldn't read the tags of origin (git ls-remote failed)." }
+          if ($found) {
+            throw "The tag $base already exists: R1 ${{ steps.version.outputs.version }} is already released. Raise the version in package.json (npm version patch) and add release-notes/<new version>.md."
+          }
+
+      # Each version's notes live in release-notes/<version>.md; stop before building
+      # when they are missing, don't start with "## What's new in R1 <version>", have no
+      # filled New/Changed/Fixed section, hold a placeholder or repeat the last version's notes.
+      - name: Release notes
+        shell: pwsh
+        run: |
+          node scripts/release-body.mjs ${{ steps.version.outputs.version }} --out release-body.md
+          if ($LASTEXITCODE -ne 0) { exit 1 }
+
+      # The run's summary page shows the exact release text.
+      - name: Release text in the run summary
+        shell: pwsh
+        run: |
+          "# Release text for ${{ steps.version.outputs.base }}`n" | Add-Content -Path $env:GITHUB_STEP_SUMMARY -Encoding utf8
+          Get-Content release-body.md -Raw -Encoding utf8 | Add-Content -Path $env:GITHUB_STEP_SUMMARY -Encoding utf8
+
+      - run: npm ci
+
+      - name: Release checks
+        run: node test/replay/release_checks.mjs
+
+      - name: Build app
+        run: npx electron-vite build
+
+      - name: Build Setup.exe and Portable.zip
+        run: npx electron-builder --win --publish never
+
+      - name: Check the release files were built
+        shell: pwsh
+        run: |
+          $base = "${{ steps.version.outputs.base }}"
+          foreach ($f in "$base-Setup.exe", "$base-Setup.exe.blockmap", "$base-Portable.zip", "latest.yml") {
+            if (-not (Test-Path (Join-Path "release" $f))) { throw "release\$f is missing" }
+          }
+          $yml = Get-Content release\latest.yml -Raw
+          if ($yml -notmatch [regex]::Escape("$base-Setup.exe")) { throw "latest.yml does not name $base-Setup.exe" }
+          if ($yml -notmatch "version: ${{ steps.version.outputs.version }}") { throw "latest.yml has the wrong version" }
+
+      - name: Keep build files
+        if: ${{ !inputs.publish }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ steps.version.outputs.base }}
+          path: |
+            release/${{ steps.version.outputs.base }}-Setup.exe
+            release/${{ steps.version.outputs.base }}-Setup.exe.blockmap
+            release/${{ steps.version.outputs.base }}-Portable.zip
+            release/latest.yml
+
+      - name: Create GitHub release
+        if: ${{ inputs.publish }}
+        uses: softprops/action-gh-release@v3
+        with:
+          repository: swill008/SuperCargo-All
+          tag_name: ${{ steps.version.outputs.base }}
+          target_commitish: ${{ github.sha }}
+          name: SuperCargo-OtherModes R1 ${{ steps.version.outputs.version }}
+          body_path: release-body.md
+          draft: false
+          prerelease: false
+          make_latest: true
+          files: |
+            release/${{ steps.version.outputs.base }}-Setup.exe
+            release/${{ steps.version.outputs.base }}-Setup.exe.blockmap
+            release/${{ steps.version.outputs.base }}-Portable.zip
+            release/latest.yml
+          overwrite_files: true
+          token: ${{ secrets.GITHUB_TOKEN }}

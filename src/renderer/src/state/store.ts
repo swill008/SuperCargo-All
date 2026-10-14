@@ -8,6 +8,7 @@ import type {
   BoxAllocation,
   WatcherStatus,
   UpdateState,
+  UpdatedNotice,
   ContractAcceptedEvent,
   ObjectiveEvent,
   ContractEndedEvent,
@@ -104,7 +105,7 @@ const DEFAULT_SETTINGS: AppSettings = {
   overlayReturnSeconds: 8,
   overlayShowAllObjectives: false,
   overlayHideCompletedObjectives: true,
-  autoCheckUpdates: false,
+  autoCheckUpdates: true,
   // avoids a welcome-screen flash
   onboarded: true
 }
@@ -258,6 +259,10 @@ interface StoreState {
   history: HistoryEntry[]
   appVersion: string
   update: UpdateState | null
+  /** the Check for Updates window is showing */
+  updateWindowOpen: boolean
+  /** "Updated — now R1 x" banner, shown once after the app started on a newer version */
+  updatedNotice: UpdatedNotice | null
 
   // bundled snapshot, replaced by uex sync
   ships: Ship[]
@@ -386,7 +391,11 @@ interface StoreState {
   clearHistory: () => void
   deleteRun: (runId: string) => void
 
+  /** Check for Updates by hand: opens the window and checks */
   checkForUpdates: () => Promise<void>
+  openUpdateWindow: () => void
+  closeUpdateWindow: () => void
+  dismissUpdatedNotice: () => void
 
   /** pull active contracts from the log into the review queue; returns queued count */
   scanSession: () => Promise<number>
@@ -523,6 +532,9 @@ const NO_CREW: CrewState = { role: null, code: '', connected: false, lastAt: 0, 
 // the only actions a crew member keeps
 const MEMBER_OK = new Set([
   'init',
+  'openUpdateWindow',
+  'closeUpdateWindow',
+  'dismissUpdatedNotice',
   'setView',
   'setLoadingIdx',
   'setGroupBy',
@@ -693,6 +705,12 @@ export const useStore = create<StoreState>((set, get) => {
   // only main owns route ordering
   const isCompactWindow =
     typeof window !== 'undefined' && window.location.hash.replace('#', '') === 'compact'
+  // an offer from the start-up check opens the Check for Updates window by itself (like Gremlin);
+  // a skipped version, up to date and a failed check stay quiet. A check by hand opened it already.
+  const onUpdateState = (u: UpdateState): void => {
+    const open = u.kind === 'available' && !u.skipped && !isCompactWindow
+    set(open ? { update: u, updateWindowOpen: true } : { update: u })
+  }
   let rerouteTimer: ReturnType<typeof setTimeout> | null = null
   // stop baseline from before it joined (objectives arrive later)
   let notifyAdd: { id: string; baseStops: number } | null = null
@@ -1034,6 +1052,8 @@ export const useStore = create<StoreState>((set, get) => {
     history: [],
     appVersion: '',
     update: null,
+    updateWindowOpen: false,
+    updatedNotice: null,
     ships: ROSTER_SHIPS,
     shipsSyncedAt: '',
     locations: [],
@@ -1193,7 +1213,16 @@ export const useStore = create<StoreState>((set, get) => {
       }))
 
       track(window.supercargo.onWatcherStatus((s) => set({ watcher: s })))
-      track(window.supercargo.onUpdate((u) => set({ update: u })))
+      track(window.supercargo.onUpdate((u) => onUpdateState(u)))
+      // the start-up check may have finished before this window listened
+      if (!isCompactWindow) {
+        void window.supercargo.getUpdateState().then((u) => {
+          if (u && !get().update) onUpdateState(u)
+        })
+        void window.supercargo.getUpdatedNotice().then((n) => {
+          if (n) set({ updatedNotice: n })
+        })
+      }
       track(window.supercargo.onContractAccepted((e: ContractAcceptedEvent) => {
         const aid = e.missionId.slice(0, 8)
         // a member's own log can't touch the leader's run
@@ -2232,9 +2261,12 @@ export const useStore = create<StoreState>((set, get) => {
     },
 
     checkForUpdates: async () => {
-      set({ update: { kind: 'checking' } })
+      set({ update: { kind: 'checking' }, updateWindowOpen: true })
       await window.supercargo.checkForUpdates()
     },
+    openUpdateWindow: () => set({ updateWindowOpen: true }),
+    closeUpdateWindow: () => set({ updateWindowOpen: false }),
+    dismissUpdatedNotice: () => set({ updatedNotice: null }),
 
     scanSession: async () => {
       // StandAlone: do not hydrate Manifest from Game.log while Other mode is on.

@@ -141,7 +141,7 @@ function Row({ row, view }: { row: OtherHistoryEntry; view: OtherView }): React.
           <div style={{ fontFamily: F.body, fontSize: 15, color: C.text }}>{row.title}</div>
           <div style={{ display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap' }}>
             <span style={{ fontFamily: F.body, fontSize: 12, color: C.dim }}>{stamp}</span>
-            <JobTags rep={row.rep} sharedBy={row.sharedBy} view={view} />
+            <JobTags rep={row.rep} repMax={row.repMax} sharedBy={row.sharedBy} view={view} />
           </div>
         </div>
         <span style={{ fontFamily: F.display, fontSize: 11, letterSpacing: '0.12em', color: C.acc, border: `1px solid ${C.accBorder}`, padding: '3px 8px', textAlign: 'center' }}>

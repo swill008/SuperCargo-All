@@ -2,7 +2,7 @@ import React, { useEffect, useRef, useState } from 'react'
 import { useStore } from '../state/store'
 import { trace } from '../state/trace'
 import { diagCopyImagesLine, diagCopyTextLine, diagResultLine } from '@shared/trace'
-import type { AppSettings } from '@shared/types'
+import type { AppSettings, RefDataFileState, RefDataStatus } from '@shared/types'
 import { C, F, GLOW, ZOOM_MIN, ZOOM_MAX, ZOOM_STEP, ZOOM_DEFAULT, clampZoom } from '../theme'
 import PageHeader, { PAGE_PADDING } from '../components/PageHeader'
 import { Btn } from '../components/ui'
@@ -10,7 +10,9 @@ import OcrCalibrator from '../components/OcrCalibrator'
 import OtherSettingsPage from '@other/renderer/OtherSettingsPage'
 import HotkeyRecorder from '@other/renderer/components/HotkeyRecorder'
 import { otherSetting } from '@other/workMode'
+import { releaseLabel } from '@shared/release'
 import PrivacyPolicy from '../components/PrivacyPolicy'
+import DataFolderRow from '../components/DataFolderRow'
 import type { DisplayInfo, ContractDataStatus, DataSyncResult } from '@shared/types'
 import {
   APP_NAME,
@@ -288,6 +290,9 @@ export default function SettingsPage(): React.ReactElement {
           {!dataSyncing && dataStatus && <DataSyncPill result={dataStatus} />}
         </div>
       </div>
+
+      <Section title="DATA FOLDER" />
+      <DataFolderRow />
 
       <Section title="DISPLAY" />
       <div style={rowStyle}>
@@ -639,21 +644,22 @@ export default function SettingsPage(): React.ReactElement {
       <div style={rowStyle}>
         <span style={keyStyle}>Version</span>
         <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
-          <span style={{ fontFamily: F.mono, fontSize: 13, color: C.text, textShadow: GLOW }}>v{appVersion || '-'}</span>
+          <span style={{ fontFamily: F.mono, fontSize: 13, color: C.text, textShadow: GLOW }}>{appVersion ? releaseLabel(appVersion) : '-'}</span>
           <UpdateStatus />
-          <SmallBtn onClick={() => void checkForUpdates()}>CHECK NOW</SmallBtn>
+          <SmallBtn onClick={() => void checkForUpdates()}>CHECK FOR UPDATES</SmallBtn>
         </div>
       </div>
       <div style={rowStyle}>
-        <span style={keyStyle}>Auto-check on launch</span>
+        <span style={keyStyle}>Check for updates at start-up</span>
         <Toggle on={settings.autoCheckUpdates} onClick={() => void updateSettings({ autoCheckUpdates: !settings.autoCheckUpdates })} />
       </div>
-      {update?.kind === 'downloaded' && (
+      {update?.kind === 'ready' && (
         <div style={{ ...rowStyle, borderBottom: 'none' }}>
           <span style={keyStyle}>Update ready</span>
-          <SmallBtn onClick={() => void window.supercargo.quitAndInstall()}>RESTART &amp; INSTALL</SmallBtn>
+          <SmallBtn onClick={() => void window.supercargo.quitAndInstall()}>INSTALL AND RESTART</SmallBtn>
         </div>
       )}
+      <RefDataWarning />
 
       <Section title="USAGE STATS" />
       <div style={{ ...rowStyle, alignItems: 'flex-start' }}>
@@ -877,17 +883,46 @@ function AboutBlock(): React.ReactElement {
 function UpdateStatus(): React.ReactElement | null {
   const update = useStore((s) => s.update)
   if (!update) return null
-  const map: Record<string, { text: string; color: string }> = {
-    checking: { text: 'CHECKING...', color: C.dim },
-    available: { text: `UPDATE AVAILABLE${'version' in update ? ` v${update.version}` : ''}`, color: C.acc },
-    none: { text: 'UP TO DATE', color: C.green },
-    downloading: { text: `DOWNLOADING ${'percent' in update ? update.percent : 0}%`, color: C.acc },
-    downloaded: { text: 'DOWNLOADED', color: C.green },
-    error: { text: 'UPDATE ERROR', color: C.red }
-  }
-  const m = map[update.kind]
-  if (!m) return null
+  const m: { text: string; color: string } =
+    update.kind === 'checking'
+      ? { text: 'CHECKING...', color: C.dim }
+      : update.kind === 'upToDate'
+        ? { text: 'UP TO DATE', color: C.green }
+        : update.kind === 'available'
+          ? { text: `${releaseLabel(update.version)} AVAILABLE${update.skipped ? ' (SKIPPED)' : ''}`, color: update.skipped ? C.dim : C.acc }
+          : update.kind === 'downloading'
+            ? { text: `DOWNLOADING ${Math.round(update.percent)}%`, color: C.acc }
+            : update.kind === 'ready'
+              ? { text: 'READY TO INSTALL', color: C.green }
+              : update.kind === 'error'
+                ? { text: 'CHECK FAILED', color: C.red }
+                : { text: 'DOWNLOAD FAILED', color: C.red }
   return <span style={{ fontFamily: F.display, fontSize: 11, letterSpacing: '0.14em', color: m.color }}>{m.text}</span>
+}
+
+const REF_BAD: RefDataFileState[] = ['downloadFailed', 'hashMismatch', 'badFormat']
+
+// reference data files the last check couldn't update; the details are in the Check for Updates window
+function RefDataWarning(): React.ReactElement | null {
+  const [status, setStatus] = useState<RefDataStatus | null>(null)
+  useEffect(() => {
+    let live = true
+    void window.supercargo.getRefDataStatus().then((s) => {
+      if (live) setStatus(s)
+    })
+    const off = window.supercargo.onRefData((s) => setStatus(s))
+    return () => {
+      live = false
+      off()
+    }
+  }, [])
+  const n = status ? status.files.filter((f) => REF_BAD.includes(f.state)).length : 0
+  if (!n) return null
+  return (
+    <div data-testid="refdata-warning" style={{ padding: '10px 0', fontFamily: F.body, fontSize: 13, color: C.amber }}>
+      ⚠ Reference data: {n} file(s) couldn&apos;t be updated — see Check for Updates
+    </div>
+  )
 }
 
 function Pill({ color, text }: { color: string; text: string }): React.ReactElement {

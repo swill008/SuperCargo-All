@@ -36,6 +36,9 @@ const AFK_ERR_MS = 6000
 const LIVE_FAIL_LIMIT = 3
 
 const WHITE = '#eaf1f7'
+// O1: fixed header line heights (px); the tags are ~16 px tall, so line 2 fits them
+const HEAD_LINE1 = 18
+const HEAD_LINE2 = 17
 
 const ORDER_HINT: Record<ListOrder, string> = { distance: 'FROM START', route: 'ROUTE', manual: 'MANUAL' }
 // user-approved wording for a stop with no distance
@@ -276,6 +279,12 @@ export default function OtherOverlay(): React.ReactElement {
       ? stopPlaceText(match, group.place || stepActivePlace(current.step) || current.step.label, locations)
       : formatPlaceNear(group.place || stepActivePlace(current.step) || current.step.label, group.near, locations)
     : null
+  // O1: header line 1 = the place name, line 2 = the rest ("Body · System", "near …", "at …")
+  const [placeHead, ...placeChips] = placeShown ? placeShown.split(' \u00b7 ') : []
+  const placeRest = placeChips.join(' \u00b7 ')
+  const placeTip = placeShown
+    ? `${placeShown}${current?.step.locationSnapped && current.step.locationRaw ? `\nLog: ${current.step.locationRaw}` : ''}`
+    : undefined
   useEffect(() => {
     setOverlayDiag({
       placeListSize: locations.length,
@@ -328,21 +337,44 @@ export default function OtherOverlay(): React.ReactElement {
               fontFamily: F.display, fontSize: 12, display: 'inline-flex', alignItems: 'center', justifyContent: 'center', flex: 'none'
             }}>{shown}</span>
           )}
-          <div
-            title={current?.step.locationSnapped && current.step.locationRaw ? `Log: ${current.step.locationRaw}` : undefined}
-            style={{
-              fontFamily: F.display,
-              fontSize: 13,
-              letterSpacing: '0.08em',
-              color: current?.step.locationSnapped ? C.acc : WHITE,
-              textTransform: 'uppercase',
-              minWidth: 0
-            }}
-          >
-            {placeShown ?? 'NO OPEN STOP'}
+          {/* O1: fixed two-line header so stepping between stops never changes the card height.
+              Line 1 = place name (one line, cut with an ellipsis, full text on hover); line 2 = tags + Body · System. */}
+          <div data-testid="overlay-stop-header" style={{ display: 'flex', flexDirection: 'column', minWidth: 0, flex: 1 }}>
+            <div
+              data-testid="overlay-stop-name"
+              title={placeTip}
+              style={{
+                fontFamily: F.display,
+                fontSize: 13,
+                letterSpacing: '0.08em',
+                color: current?.step.locationSnapped ? C.acc : WHITE,
+                textTransform: 'uppercase',
+                minWidth: 0,
+                height: HEAD_LINE1,
+                lineHeight: `${HEAD_LINE1}px`,
+                whiteSpace: 'nowrap',
+                overflow: 'hidden',
+                textOverflow: 'ellipsis'
+              }}
+            >
+              {placeHead ?? 'NO OPEN STOP'}
+            </div>
+            <div
+              data-testid="overlay-stop-sub"
+              title={placeRest || undefined}
+              style={{
+                display: 'flex', alignItems: 'center', gap: 6, minWidth: 0,
+                height: HEAD_LINE2, lineHeight: `${HEAD_LINE2}px`, whiteSpace: 'nowrap', overflow: 'hidden',
+                fontSize: 11, color: C.dim
+              }}
+            >
+              {current ? <span style={{ flex: 'none', display: 'inline-flex', alignItems: 'center' }}><MatchTag match={match} /></span> : null}
+              {groupTracked ? <span style={{ flex: 'none', display: 'inline-flex', alignItems: 'center' }}><TrackedTag /></span> : null}
+              {placeRest ? (
+                <span style={{ minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis' }}>{placeRest}</span>
+              ) : null}
+            </div>
           </div>
-          {current ? <MatchTag match={match} /> : null}
-          {groupTracked ? <TrackedTag /> : null}
         </div>
         <div style={{ display: 'flex', alignItems: 'center', gap: 6, flexShrink: 0, WebkitAppRegion: 'no-drag' } as React.CSSProperties}>
           <button
@@ -448,7 +480,7 @@ export default function OtherOverlay(): React.ReactElement {
           {current.job.reward > 0 ? `${current.job.reward.toLocaleString()} aUEC \u00b7 ` : ''}
           {current.step.label}
           {(view.showRep && current.job.rep) || (view.sharedBadge && current.job.sharedBy) ? (
-            <span style={{ marginLeft: 8 }}><JobTags rep={current.job.rep} sharedBy={current.job.sharedBy} view={view} /></span>
+            <span style={{ marginLeft: 8 }}><JobTags rep={current.job.rep} repMax={current.job.repMax} sharedBy={current.job.sharedBy} view={view} /></span>
           ) : null}
         </div>
       ) : (

@@ -6,7 +6,9 @@
 
 import { spawn, spawnSync } from 'node:child_process'
 import { createRequire } from 'node:module'
+import * as crypto from 'node:crypto'
 import * as fs from 'node:fs'
+import * as http from 'node:http'
 import * as net from 'node:net'
 import * as os from 'node:os'
 import * as path from 'node:path'
@@ -66,8 +68,25 @@ const L = {
     `${stamp(at)} [Notice] <SystemQuit> CSystem::Quit invoked with - cause=30016, reason=Quit via console command, exitCode=0, thread id=22328, main thread id=22328 [Team_Unknown][System]`
 }
 
+// the app's data folder: <HOME>/SuperCargo-OtherModes (%USERPROFILE%\SuperCargo-OtherModes on Windows), settings.json
+// included (src/main/paths.ts DATA_FOLDER_NAME). Electron's own userData (Chromium caches, Local Storage, tessdata/ocr-model
+// downloads) stays where Electron puts it.
+const DATA_FOLDER_NAME = 'SuperCargo-OtherModes'
 function dataDir(home) {
+  return path.join(home, DATA_FOLDER_NAME)
+}
+// where the app kept its files before batch 12 (Electron's userData for package name "supercargo"); the app must
+// neither read nor write app files there (fresh start, no migration)
+function legacyDataDir(home) {
   return process.platform === 'win32' ? path.join(home, 'AppData', 'Roaming', 'supercargo') : path.join(home, '.config', 'supercargo')
+}
+// a JSON file in a folder, null when missing or not JSON
+function readJsonIn(dir, file) {
+  try {
+    return JSON.parse(fs.readFileSync(path.join(dir, file), 'utf8'))
+  } catch {
+    return null
+  }
 }
 
 function setup(name, settings, jobsDoc) {
@@ -102,13 +121,9 @@ function setup(name, settings, jobsDoc) {
       fs.mkdirSync(dir, { recursive: true })
       fs.writeFileSync(path.join(dir, name), lines.join('\n') + '\n')
     },
-    jobs: () => {
-      try {
-        return JSON.parse(fs.readFileSync(path.join(data, 'other-jobs.json'), 'utf8'))
-      } catch {
-        return null
-      }
-    },
+    jobs: () => readJsonIn(data, 'other-jobs.json'),
+    // settings.json always sits in the default data folder, even when the data folder was moved
+    settings: () => readJsonIn(data, 'settings.json'),
     log: () => {
       try {
         return fs.readFileSync(path.join(data, 'logs', 'supercargo.log'), 'utf8')
@@ -238,7 +253,10 @@ async function cdpTarget(port, which, ms = 15000) {
 /** evaluate an expression (promises awaited) in a window; returns its value, throws on a JS exception */
 async function cdpEval(port, which, expression, ms = 20000) {
   const t = await cdpTarget(port, which)
-  const ws = new WebSocket(t.webSocketDebuggerUrl)
+  return cdpEvalUrl(t.webSocketDebuggerUrl, expression, ms)
+}
+async function cdpEvalUrl(wsUrl, expression, ms = 20000) {
+  const ws = new WebSocket(wsUrl)
   await new Promise((resolve, reject) => {
     ws.onopen = resolve
     ws.onerror = () => reject(new Error('cdp: websocket failed'))
@@ -642,7 +660,7 @@ const short = (v, n = 400) => JSON.stringify(v ?? null)?.slice(0, n)
 const TAG = { corrected: /≈\s*corrected/i, marker: /📍\s*game marker/i, none: /✗\s*not found/i, unsure: /\?\s*not sure/i }
 const NON_EXACT_TAG = /≈\s*corrected|📍\s*game marker|\?\s*guess|⚠\s*mismatch|\?\s*not sure|✗\s*not found/i
 
-// CONTRACT9 (match memory, M1-M8). The app keeps userData/other-matches.json ({entries, changes}); the main window
+// CONTRACT9 (match memory, M1-M8). The app keeps <data folder>/other-matches.json ({entries, changes}); the main window
 // reports non-exact stops ("seen", debounced 5 s), Objective Complete with a fresh read near it is a game proof, the
 // tag on a stop opens MatchFix (✓ Right / ✗ Wrong → pick / Forget), the LEARNED DATA tab (CONTRACT12) lists entries + Undo.
 const SHUBIN = 'Shubin Mining Facility on Lyria'
@@ -993,7 +1011,215 @@ const clickRowToggle = (port, label) =>
   )
 // whole-line matches: the GENERAL About text mentions "Community data sources"
 const OTHER_ROWS = /^(Show reputation|Auto-tick objectives|Data Sources|Learned Places|SET UP ZONES|AFK key presser|Withdrawn steps)\b/im
-const GENERAL_SECTIONS = ['GAME', 'DATA', 'DISPLAY', 'OVERLAY', 'OCR CAPTURE', 'UPDATES', 'ABOUT']
+const GENERAL_SECTIONS = ['GAME', 'DATA', 'DATA FOLDER', 'DISPLAY', 'OVERLAY', 'OCR CAPTURE', 'UPDATES', 'ABOUT']
+
+// CONTRACT14 A (data-folder, damaged-data): answer the folder picker with `dir`; a confirm box gets its first
+// non-restart, non-cancel button; relaunch/exit are recorded, not done (the harness restarts the app itself)
+const stubFolderPick = (iport, dir) =>
+  mainEval(
+    iport,
+    `(() => {
+      const { app, dialog } = require('electron')
+      const pick = (o) => { const b = (o && o.buttons) || []; const i = b.findIndex((x) => !/restart|cancel/i.test(x)); return i < 0 ? 0 : i }
+      dialog.showOpenDialog = async () => ({ canceled: false, filePaths: [${JSON.stringify(dir)}] })
+      dialog.showOpenDialogSync = () => [${JSON.stringify(dir)}]
+      dialog.showMessageBox = async (...a) => ({ response: pick(a[a.length - 1]), checkboxChecked: false })
+      dialog.showMessageBoxSync = (...a) => pick(a[a.length - 1])
+      globalThis.__scRestart = globalThis.__scRestart || { relaunch: 0, exit: 0 }
+      app.relaunch = () => { globalThis.__scRestart.relaunch++ }
+      app.exit = () => { globalThis.__scRestart.exit++ }
+      app.quit = () => { globalThis.__scRestart.exit++ }
+      return true
+    })()`
+  )
+
+// CONTRACT14 A damaged-data: the start-up check's native box comes up before an inspector could stub it, so the
+// main process loads this module first (NODE_OPTIONS --require). It answers every showMessageBox with the first button
+// matching SC_E2E_DIALOG_PICK (a RegExp source; none matches -> cancelId) and appends each box's options to
+// SC_E2E_DIALOG_LOG (JSON lines). It patches electron's dialog the first time the app loads 'electron'.
+const DIALOG_STUB = `
+const fs = require('fs')
+const Module = require('module')
+const logFile = process.env.SC_E2E_DIALOG_LOG
+const want = new RegExp(process.env.SC_E2E_DIALOG_PICK || '^$', 'i')
+const rec = (o) => { try { fs.appendFileSync(logFile, JSON.stringify({ title: o && o.title, message: o && o.message, detail: o && o.detail, buttons: o && o.buttons, defaultId: o && o.defaultId, cancelId: o && o.cancelId, type: o && o.type }) + '\\n') } catch (e) {} }
+const pick = (o) => { const b = (o && o.buttons) || []; const i = b.findIndex((x) => want.test(String(x))); return i < 0 ? (o && typeof o.cancelId === 'number' ? o.cancelId : 0) : i }
+let patched = false
+const patch = (m) => {
+  if (patched || !m || !m.dialog) return
+  patched = true
+  m.dialog.showMessageBox = async (...a) => { const o = a[a.length - 1]; rec(o); return { response: pick(o), checkboxChecked: false } }
+  m.dialog.showMessageBoxSync = (...a) => { const o = a[a.length - 1]; rec(o); return pick(o) }
+}
+const orig = Module._load
+Module._load = function (req, ...rest) { const m = orig.call(this, req, ...rest); if (req === 'electron') { try { patch(m) } catch (e) {} } return m }
+`
+function dialogStubEnv(dir, pickRe) {
+  const file = path.join(dir, 'dialog-stub.cjs')
+  fs.writeFileSync(file, DIALOG_STUB)
+  const logFile = path.join(dir, 'dialogs.jsonl')
+  return {
+    env: { NODE_OPTIONS: `${process.env.NODE_OPTIONS ?? ''} --require ${JSON.stringify(file)}`.trim(), SC_E2E_DIALOG_LOG: logFile, SC_E2E_DIALOG_PICK: pickRe.source },
+    boxes: () => {
+      try {
+        return fs.readFileSync(logFile, 'utf8').split('\n').filter(Boolean).map((l) => JSON.parse(l))
+      } catch {
+        return []
+      }
+    }
+  }
+}
+// "Moved for Repair\<YYYY-MM-DD HH-MM>[ (n)]" folders under dir
+const REPAIR_DIR = 'Moved for Repair'
+const repairFolders = (dir) => {
+  try {
+    return fs.readdirSync(path.join(dir, REPAIR_DIR)).filter((n) => /^\d{4}-\d\d-\d\d \d\d-\d\d( \(\d+\))?$/.test(n)).map((n) => path.join(dir, REPAIR_DIR, n))
+  } catch {
+    return []
+  }
+}
+const readText = (file) => {
+  try {
+    return fs.readFileSync(file, 'utf8')
+  } catch {
+    return null
+  }
+}
+
+// CONTRACT14 B/C update window. Every page target except the overlay (the window may be a modal in the main window
+// or its own window); text = all of them joined.
+async function pageTargets(port) {
+  try {
+    const list = await (await fetch(`http://127.0.0.1:${port}/json/list`)).json()
+    return list.filter((t) => t.type === 'page' && !/#compact$/.test(t.url) && t.webSocketDebuggerUrl)
+  } catch {
+    return []
+  }
+}
+async function appText(port) {
+  let out = ''
+  for (const t of await pageTargets(port)) out += `${await cdpEvalUrl(t.webSocketDebuggerUrl, 'document.body.innerText').catch(() => '')}\n`
+  return out
+}
+// visible, enabled buttons (and role=button / links) whose own text matches re; prefer one inside a dialog
+// ([role=dialog], [aria-modal], <dialog>, [data-update-window]), else the last in the page (a modal renders last)
+const UI_CLICK = (re, click) => `(() => {
+  const vis = (el) => !!(el.offsetWidth || el.offsetHeight || el.getClientRects().length)
+  const els = [...document.querySelectorAll('button, [role=button], a')].filter((b) => vis(b) && !b.disabled && ${re}.test(b.textContent.trim()))
+  const inDlg = (b) => !!b.closest('[role=dialog], [aria-modal="true"], dialog, [data-update-window], [data-testid*="update"]')
+  const b = els.find(inDlg) ?? els[els.length - 1]
+  if (b && ${click}) b.click()
+  return b ? b.textContent.trim() : null
+})()`
+async function uiClick(port, re) {
+  for (const t of await pageTargets(port)) {
+    const hit = await cdpEvalUrl(t.webSocketDebuggerUrl, UI_CLICK(re, true)).catch(() => null)
+    if (hit) return hit
+  }
+  return null
+}
+async function uiHas(port, re) {
+  for (const t of await pageTargets(port)) if (await cdpEvalUrl(t.webSocketDebuggerUrl, UI_CLICK(re, false)).catch(() => null)) return true
+  return false
+}
+const BTN = {
+  updateNow: /^update now$/i,
+  skip: /^skip this version$/i,
+  later: /^later$/i,
+  install: /^install and restart$/i,
+  tryAgain: /^try again$/i,
+  releasePage: /^open release page$/i,
+  close: /^close$/i,
+  checkUpdates: /^check for updates$/i,
+  whatsNew: /^what['’]s new$/i,
+  checkNow: /^check now$/i
+}
+const APP_VERSION = (() => {
+  try {
+    return JSON.parse(fs.readFileSync(path.join(root, 'package.json'), 'utf8')).version
+  } catch {
+    return '1.0.0'
+  }
+})()
+const bumpMinor = (v, n) => {
+  const [a, b] = String(v).split('-')[0].split('.').map(Number)
+  return `${a}.${b + n}.0`
+}
+const AVAILABLE = (v) => new RegExp(`R1\\s+${reEsc(v)}\\s+is available`, 'i')
+const WHATS_NEW = (v) => new RegExp(`What['’]s new in R1 ${reEsc(v)}`, 'i')
+// record every updater state the renderer receives (the 3 download steps are ~150 ms apart: too quick to poll the text)
+const recordUpdates = (port) =>
+  cdpEval(port, 'main', `(() => { if (!window.__scUpd) { window.__scUpd = []; window.supercargo.onUpdate((s) => window.__scUpd.push(s)) } return true })()`)
+const updStates = (port) => cdpEval(port, 'main', 'window.__scUpd ?? []').catch(() => [])
+const updState = (port) => cdpEval(port, 'main', 'window.supercargo.getUpdateState()').catch(() => null)
+// shell.openExternal recorded, not done (Open Release Page / links)
+const stubExternal = (iport) =>
+  mainEval(iport, `(() => { const { shell } = require('electron'); globalThis.__scOpened = []; shell.openExternal = async (u) => { globalThis.__scOpened.push(String(u)) }; return true })()`)
+// writes an SC_TEST_UPDATE_FEED fixture into the scenario's home
+function updateFeed(e, file, feed) {
+  const f = path.join(e.home, file)
+  fs.writeFileSync(f, JSON.stringify(feed))
+  return f
+}
+// Settings -> GENERAL -> UPDATES "CHECK FOR UPDATES": opens the window and checks by hand
+async function checkByHand(port) {
+  await openSettingsTab(port, 'GENERAL')
+  return !!(await until(() => clickButton(port, 'main', BTN.checkUpdates).then((ok) => ok || null), 8000))
+}
+
+// CONTRACT14 D: a reference data source the app can reach (SC_TEST_REFDATA_BASE = this http base)
+const REF_FILES = [
+  { repo: 'ships.json', key: 'ships', label: 'Ships', cache: 'uex-vehicles.json' },
+  { repo: 'locations.json', key: 'locations', label: 'Locations', cache: 'uex-locations.json' },
+  { repo: 'commodities.json', key: 'commodities', label: 'Commodities', cache: 'uex-commodities.json' },
+  { repo: 'grid-faces.json', key: 'gridFaces', label: 'Cargo grids', cache: 'uex-grid-faces.json' },
+  { repo: 'contract-overrides.json', key: 'contractOverrides', label: 'Contract box sizes', cache: 'uex-contract-overrides.json' }
+]
+const sha256 = (s) => crypto.createHash('sha256').update(s).digest('hex')
+function serveDir(dir) {
+  return new Promise((resolve) => {
+    const srv = http.createServer((req, res) => {
+      const f = path.join(dir, decodeURIComponent(new URL(req.url, 'http://x').pathname).replace(/^\/+/, ''))
+      const body = f.startsWith(dir) ? readText(f) : null
+      res.writeHead(body == null ? 404 : 200, { 'Content-Type': 'application/json' })
+      res.end(body ?? 'not found')
+    })
+    srv.listen(0, '127.0.0.1', () => resolve({ base: `http://127.0.0.1:${srv.address().port}`, close: () => new Promise((r) => srv.close(r)) }))
+  })
+}
+// the text right after a label (a status row: "Ships  Fingerprint didn't match …  14 Oct 2026 21:05")
+const afterLabel = (text, label, n = 160) => {
+  const i = (text ?? '').search(new RegExp(`(^|\\n|\\t)\\s*${reEsc(label)}\\b`, 'i'))
+  return i < 0 ? '' : text.slice(i, i + n)
+}
+const REF_WORDS = { upToDate: /up to date/i, updated: /\bupdated\b/i, hashMismatch: /fingerprint didn['’]t match/i, downloadFailed: /couldn['’]t download/i, badFormat: /format not understood/i }
+const REF_WARN = /reference data:\s*(\d+)\s*files?(\(s\))?\s*couldn['’]t be updated/i
+
+// CONTRACT14 E overlay-header: per stop, the header's height, where the next row starts and the name cell
+const overlayHeader = (port) =>
+  cdpEval(
+    port,
+    'overlay',
+    `(() => {
+      const prev = [...document.querySelectorAll('button')].find((b) => b.textContent.trim() === '\\u2039')
+      const head = document.querySelector('[data-testid="overlay-stop-header"]') ?? prev?.parentElement?.parentElement
+      const row = head?.closest('[data-testid="overlay-stop-header"]')?.parentElement?.parentElement ?? head
+      const name = document.querySelector('[data-testid="overlay-stop-name"]')
+      const r = head?.getBoundingClientRect()
+      const nextRow = row?.nextElementSibling?.getBoundingClientRect()
+      const cs = name ? getComputedStyle(name) : null
+      const stop = (document.body.innerText.match(/STOP\\s*(\\d+)\\s*\\/\\s*(\\d+)/) ?? []).slice(1).map(Number)
+      return {
+        height: r ? Math.round(r.height * 10) / 10 : null,
+        nextTop: nextRow ? Math.round(nextRow.top * 10) / 10 : null,
+        name: name?.textContent ?? null,
+        title: name?.getAttribute('title') ?? null,
+        clipped: name ? name.scrollWidth > name.clientWidth : null,
+        ellipsis: cs ? cs.textOverflow === 'ellipsis' && cs.whiteSpace === 'nowrap' : null,
+        stop
+      }
+    })()`
+  )
 
 const scenarios = {
   // #1 both windows ingest the same accept
@@ -3033,6 +3259,7 @@ const scenarios = {
       ['tab bar: GENERAL and OTHER MODE buttons', ['GENERAL', 'OTHER MODE'].every((t) => r.gen?.tabs?.includes(t)), `tabs=${short(r.gen?.tabs)} page=${r.page} ${err}`],
       ['GENERAL is the first-visit tab: vanilla sections shown', GENERAL_SECTIONS.every((t) => new RegExp(`^${t}$`, 'm').test(r.general)), `missing=${short(GENERAL_SECTIONS.filter((t) => !new RegExp(`^${t}$`, 'm').test(r.general)))}`],
       ['GENERAL has no Other rows', !OTHER_ROWS.test(r.general), `found=${short(lineWith(r.general, OTHER_ROWS))}`],
+      ['GENERAL UPDATES: button CHECK FOR UPDATES (CONTRACT14 C)', /^\s*check for updates\s*$/im.test(r.general), `line=${short(lineWith(r.general, /update/i), 300)}`],
       ['OTHER MODE tab clicked: no vanilla sections, Other rows shown', r.tabClicked && !/^OCR CAPTURE$/m.test(r.other) && /Show reputation/i.test(r.other) && /DATA SOURCES/i.test(r.other) && /Learned places are on the LEARNED DATA tab/i.test(r.other), `clicked=${r.tabClicked} text=${short(r.other.slice(0, 300))}`],
       ['OTHER MODE: the 5 headings are there', hs.length === 5 && hs.every(Boolean), `headings=${short(hs.map((h) => h?.text ?? null))}`],
       ['OTHER MODE: sections jobs, distances, where, places, afk (data-other-section)', short(r.oth?.ids) === short(['jobs', 'distances', 'where', 'places', 'afk']), `ids=${short(r.oth?.ids)}`],
@@ -3197,6 +3424,476 @@ const scenarios = {
       ['Planets: Hurston, Stanton, 1,000 km exact (panel); others estimated', /Stanton/.test(hurston) && /1[,.\s]?000\s*km/.test(hurston) && /exact \(panel\)/i.test(hurston) && planets.some((x) => /estimated/i.test(x)), `hurston=${short(hurston)} planets=${planets.length}`],
       ['MatchFix "Open in Learned Data": tag and link found', r.fixTag && r.open, `tag=${r.fixTag} link=${r.open} key=${r.key}`],
       ['lands on the entry: row in view and lit', !!r.view?.inView && !!r.view.marked, `view=${short(r.view)}`]
+    ]
+  },
+
+  // Batch 12 (CONTRACT13): the data folder. App files land in <HOME>/SuperCargo (settings.json too), never in Electron's
+  // userData; the old %APPDATA% folder is neither read nor written (fresh start). CHANGE… to an empty folder copies the
+  // data (a folder that already holds SuperCargo data is used as is, nothing overwritten), saves settings.dataFolder
+  // in the default folder's settings.json and asks for a restart; after the restart the app uses the new folder. A
+  // chosen folder that can't be used falls back to the default with the reason shown in Settings → GENERAL.
+  'data-folder': async () => {
+    const name = 'data-folder'
+    const e = setup(name)
+    const legacy = legacyDataDir(e.home)
+    const LEGACY_ID = '00000000-0000-4000-8000-1e6ac9000001'
+    fs.mkdirSync(legacy, { recursive: true })
+    const legacyJobs = JSON.stringify({ jobs: [logJob(LEGACY_ID)], history: [] })
+    fs.writeFileSync(path.join(legacy, 'other-jobs.json'), legacyJobs)
+    // CONTRACT14 A: CHANGE… uses the picked folder AS IS (no SuperCargo subfolder is made in it)
+    const pickedMoved = path.join(e.home, 'Moved Data') // a space in the path, as Windows user folders often have
+    fs.mkdirSync(pickedMoved, { recursive: true })
+    const moved = pickedMoved
+    const existing = path.join(e.home, 'Existing')
+    fs.mkdirSync(existing, { recursive: true })
+    const existingJobs = JSON.stringify({ jobs: [], history: [], marker: 'keep-me' })
+    fs.writeFileSync(path.join(existing, 'other-jobs.json'), existingJobs)
+    // a chosen folder that is gone at start-up (drive unplugged, folder deleted): never recreated, default used with the reason
+    const bad = path.join(e.home, 'Unplugged Drive', 'Data')
+    const id1 = mission()
+    const id2 = mission()
+    const r = { ready1: false, ready2: false, ready3: false, ud: null, info1: null, gen1: '', choseExisting: null, chose: null, relaunch: null, info2: null, gen3: '', info3: null }
+    let err = ''
+    // answer the folder picker with `dir`; a confirm box gets its first non-restart, non-cancel button; relaunch/exit
+    // are recorded, not done (the harness restarts the app itself)
+    const stubMain = stubFolderPick
+    const generalText = async (port, re) => {
+      await openSettingsTab(port, 'GENERAL')
+      return (await until(() => windowText(port, 'main').then((t) => (re.test(t) ? t : '')), 10000)) || (await windowText(port, 'main'))
+    }
+    // phase 1: a fresh start on the default folder
+    try {
+      const port = await freePort()
+      const iport = await freePort()
+      const stop = await launch(e, [...cdpArgs(port), ...inspectArgs(iport)])
+      r.ready1 = stop.ready
+      try {
+        r.ud = await mainEval(iport, `require('electron').app.getPath('userData')`)
+        e.append(L.accept(id1, 'Bounty Hunt'), L.objective(id1, 'Go to Port Tressler'))
+        await until(() => findJob(e.jobs(), id1))
+        r.info1 = await cdpEval(port, 'main', 'window.supercargo.getDataFolder()')
+        r.gen1 = await generalText(port, /DATA FOLDER/)
+        await stubMain(iport, existing)
+        r.choseExisting = await cdpEval(port, 'main', 'window.supercargo.chooseDataFolder()', 30000)
+        await stubMain(iport, pickedMoved)
+        r.chose = await cdpEval(port, 'main', 'window.supercargo.chooseDataFolder()', 30000)
+        r.info2 = await cdpEval(port, 'main', 'window.supercargo.getDataFolder()')
+        await cdpEval(port, 'main', 'window.supercargo.restartForDataFolder()').catch(() => null)
+        r.relaunch = await mainEval(iport, 'globalThis.__scRestart')
+      } finally {
+        await stop()
+      }
+    } catch (x) {
+      err += ` phase1: ${String(x?.message ?? x)}`
+    }
+    const set1 = e.settings()
+    const movedJobs1 = readJsonIn(moved, 'other-jobs.json')
+    // phase 2: the restart (done by the harness) runs on the moved folder
+    const e2 = { ...e, data: moved }
+    try {
+      const port = await freePort()
+      const stop = await launch(e2, cdpArgs(port))
+      r.ready2 = stop.ready
+      try {
+        e.append(L.accept(id2, 'Bounty Hunt'), L.objective(id2, 'Go to Ruin Station'))
+        await until(() => findJob(readJsonIn(moved, 'other-jobs.json'), id2))
+        r.info3 = await cdpEval(port, 'main', 'window.supercargo.getDataFolder()')
+      } finally {
+        await stop()
+      }
+    } catch (x) {
+      err += ` phase2: ${String(x?.message ?? x)}`
+    }
+    const movedJobs2 = readJsonIn(moved, 'other-jobs.json')
+    const defaultJobs2 = e.jobs()
+    // phase 3: the chosen folder can't be used -> the default folder, with the reason
+    let info4 = null
+    try {
+      fs.writeFileSync(path.join(e.data, 'settings.json'), JSON.stringify({ ...(e.settings() ?? {}), dataFolder: bad }))
+      fs.rmSync(bad, { recursive: true, force: true })
+      const port = await freePort()
+      const stop = await launch(e, cdpArgs(port))
+      r.ready3 = stop.ready
+      try {
+        info4 = await cdpEval(port, 'main', 'window.supercargo.getDataFolder()')
+        r.gen3 = await generalText(port, /DATA FOLDER/)
+      } finally {
+        await stop()
+      }
+    } catch (x) {
+      err += ` phase3: ${String(x?.message ?? x)}`
+    }
+    const appFiles = ['settings.json', 'other-jobs.json', path.join('logs', 'supercargo.log'), 'window-state.json', 'history.json', 'manifest.json', 'other-matches.json', 'upload-queue.json']
+    const inUd = r.ud ? appFiles.filter((f) => !(f === 'other-jobs.json' && path.resolve(r.ud) === path.resolve(legacy)) && fs.existsSync(path.join(r.ud, f))) : ['(no userData path)']
+    const legacyNow = (() => {
+      try {
+        return fs.readFileSync(path.join(legacy, 'other-jobs.json'), 'utf8')
+      } catch {
+        return null
+      }
+    })()
+    const dataFolderLine = lineWith(r.gen1, /SuperCargo-OtherModes|default/i)
+    const subfolders = ['SuperCargo', DATA_FOLDER_NAME].filter((n) => fs.existsSync(path.join(pickedMoved, n)) || fs.existsSync(path.join(existing, n)))
+    const same = (a, b) => !!a && !!b && path.resolve(a) === path.resolve(b)
+    return [
+      ['app starts on the default folder: its log is in HOME/SuperCargo-OtherModes/logs', r.ready1 && fs.existsSync(path.join(e.data, 'logs', 'supercargo.log')), `ready=${r.ready1} ${err}`],
+      ['jobs saved in HOME/SuperCargo-OtherModes/other-jobs.json', !!findJob(readJsonIn(e.data, 'other-jobs.json'), id1), `jobs=${short(e.jobs()?.jobs?.map((j) => j.missionId))}`],
+      ['settings.json read from HOME/SuperCargo-OtherModes (gameLogPath used, Other mode)', e.settings()?.gameLogPath === e.gameLog && !!findJob(e.jobs(), id1), `settings=${short(e.settings(), 200)}`],
+      ['no app files in Electron userData', !!r.ud && !same(r.ud, e.data) && inUd.length === 0, `userData=${r.ud} found=${short(inUd)}`],
+      ['fresh start: the old folder is not read (its job is not imported) nor written', !findJob(e.jobs(), LEGACY_ID) && legacyNow === legacyJobs, `imported=${!!findJob(e.jobs(), LEGACY_ID)} oldFileSame=${legacyNow === legacyJobs}`],
+      ['getDataFolder: default folder, isDefault, no fallback', same(r.info1?.folder, e.data) && r.info1?.isDefault === true && !r.info1?.fallback && same(r.info1?.defaultFolder, e.data), `info=${short(r.info1)}`],
+      ['Settings GENERAL shows DATA FOLDER with the folder and "default"', /^DATA FOLDER$/m.test(r.gen1) && r.gen1.includes(e.data) && /default/i.test(dataFolderLine), `line=${short(dataFolderLine, 300)}`],
+      ['CHANGE to a folder with SuperCargo data: used as is, nothing overwritten', r.choseExisting?.ok === true && r.choseExisting?.usedExisting === true && (r.choseExisting?.copied ?? 0) === 0 && fs.readFileSync(path.join(existing, 'other-jobs.json'), 'utf8') === existingJobs, `result=${short(r.choseExisting, 300)}`],
+      ['CHANGE to an empty folder copies the data (jobs file with the job)', r.chose?.ok === true && (r.chose?.copied ?? 0) > 0 && !!findJob(movedJobs1, id1), `result=${short(r.chose, 300)} movedJobs=${short(movedJobs1?.jobs?.map((j) => j.missionId))}`],
+      ['CHANGE uses the picked folder as is (no subfolder made in it)', same(r.chose?.info?.pending ?? r.info2?.pending, pickedMoved) && subfolders.length === 0, `pending=${r.chose?.info?.pending ?? r.info2?.pending} subfolders=${short(subfolders)}`],
+      ['settings.dataFolder saved in the default folder settings.json', same(set1?.dataFolder, moved), `dataFolder=${set1?.dataFolder}`],
+      ['the change waits for a restart (pending), RESTART relaunches', same(r.info2?.pending, moved) && same(r.info2?.folder, e.data) && (r.relaunch?.relaunch ?? 0) >= 1, `info=${short(r.info2)} restart=${short(r.relaunch)}`],
+      ['after the restart the app uses the moved folder (log, jobs)', r.ready2 && same(r.info3?.folder, moved) && r.info3?.isDefault === false && !!findJob(movedJobs2, id1) && !!findJob(movedJobs2, id2), `ready=${r.ready2} info=${short(r.info3)} jobs=${short(movedJobs2?.jobs?.map((j) => j.missionId))}`],
+      ['after the restart nothing new is written to the default folder jobs file', !findJob(defaultJobs2, id2), `defaultJobs=${short(defaultJobs2?.jobs?.map((j) => j.missionId))}`],
+      ['missing chosen folder: runs on the default with the reason', r.ready3 && same(info4?.folder, e.data) && info4?.isDefault === true && typeof info4?.fallback === 'string' && info4.fallback.includes(bad), `ready=${r.ready3} info=${short(info4, 400)}`],
+      ['missing chosen folder is not recreated', !fs.existsSync(bad), `exists=${fs.existsSync(bad)}`],
+      ['Settings GENERAL shows the fallback reason', r.gen3.includes(bad) || /could not be used|unavailable|fall(s|ing)? ?back/i.test(lineWith(r.gen3, /folder|default|could/i)), `text=${short(lineWith(r.gen3, /folder|default|could|SuperCargo/i), 400)}`]
+    ]
+  },
+
+  // CONTRACT14 A: damaged SuperCargo data at start-up -> native box -> Reset moves every SuperCargo file into
+  // "Moved for Repair\<date>" (settings.json stays) and the app starts; CHANGE to a folder with damaged data shows the
+  // inline warning: CANCEL keeps the old folder, RESET AND CONTINUE moves its files aside and copies the current data in.
+  'damaged-data': async () => {
+    const name = 'damaged-data'
+    const e = setup(name)
+    const BROKEN = '{ "entries": [ broken'
+    fs.writeFileSync(path.join(e.data, 'history.json'), BROKEN)
+    const OLD_ID = '00000000-0000-4000-8000-da0a9ed00001'
+    fs.writeFileSync(path.join(e.data, 'other-jobs.json'), JSON.stringify({ jobs: [logJob(OLD_ID)], history: [] }))
+    const settingsBefore = readText(path.join(e.data, 'settings.json'))
+    // a picked folder whose SuperCargo data can't be read
+    const target = path.join(e.home, 'Damaged Target')
+    fs.mkdirSync(target, { recursive: true })
+    fs.writeFileSync(path.join(target, 'history.json'), BROKEN)
+    const targetJobs = JSON.stringify({ jobs: [], history: [], marker: 'old-target' })
+    fs.writeFileSync(path.join(target, 'other-jobs.json'), targetJobs)
+    const stub = dialogStubEnv(e.home, /^reset and continue$/)
+    const id = mission()
+    const r = { ready: false, info0: null, warn1: '', cancel: null, warn1Gone: false, info1: null, warn2: '', reset: null, msg: '', info2: null }
+    let err = ''
+    try {
+      const port = await freePort()
+      const iport = await freePort()
+      const stop = await launch(e, [...cdpArgs(port), ...inspectArgs(iport)], stub.env)
+      r.ready = stop.ready
+      try {
+        e.append(L.accept(id, 'Bounty Hunt'), L.objective(id, 'Go to Port Tressler'))
+        await until(() => findJob(e.jobs(), id))
+        r.info0 = await cdpEval(port, 'main', 'window.supercargo.getDataFolder()')
+        const change = async () => {
+          await stubFolderPick(iport, target)
+          await openSettingsTab(port, 'GENERAL')
+          await until(() => clickButton(port, 'main', /^CHANGE(…|\.\.\.)?$/i).then((ok) => ok || null), 8000)
+          return (await until(() => windowText(port, 'main').then((t) => (/RESET AND CONTINUE/i.test(t) ? t : '')), 15000)) || (await windowText(port, 'main'))
+        }
+        r.warn1 = await change()
+        r.cancel = await clickButton(port, 'main', /^CANCEL$/i)
+        r.warn1Gone = !!(await until(() => windowText(port, 'main').then((t) => !/RESET AND CONTINUE/i.test(t)), 8000))
+        r.info1 = await cdpEval(port, 'main', 'window.supercargo.getDataFolder()')
+        r.targetAfterCancel = readText(path.join(target, 'history.json'))
+        r.dfAfterCancel = e.settings()?.dataFolder ?? null
+        r.movedAfterCancel = repairFolders(target).length
+        r.warn2 = await change()
+        r.reset = await clickButton(port, 'main', /^RESET AND CONTINUE$/i)
+        r.msg = (await until(() => windowText(port, 'main').then((t) => (/Moved the old files to/i.test(t) ? t : '')), 15000)) || (await windowText(port, 'main'))
+        r.info2 = await cdpEval(port, 'main', 'window.supercargo.getDataFolder()')
+      } finally {
+        await stop()
+      }
+    } catch (x) {
+      err += ` ${String(x?.message ?? x)}`
+    }
+    const boxes = stub.boxes()
+    const box = boxes.find((b) => /can.t be read/i.test(String(b.title))) ?? boxes[0]
+    const moved0 = repairFolders(e.data)
+    const m0 = moved0[0]
+    const movedT = repairFolders(target)
+    const mT = movedT[0]
+    const set = e.settings()
+    const same = (a, b) => !!a && !!b && path.resolve(a) === path.resolve(b)
+    const warnLine = lineWith(r.warn1, /history\.json|RESET AND CONTINUE|can.t be read|damaged/i)
+    return [
+      ['start-up box: title "SuperCargo data can\'t be read", lists history.json, buttons Reset and continue / Quit', !!box && /SuperCargo data can.t be read/i.test(String(box.title)) && /history\.json/.test(`${box.message} ${box.detail}`) && /^reset and continue$/i.test(String(box.buttons?.[0] ?? '')) && (box.buttons ?? []).some((b) => /^quit$/i.test(b)), `boxes=${short(boxes, 600)} ${err}`],
+      ['start-up box: default and cancel are Quit', !!box && /^quit$/i.test(String(box.buttons?.[box.defaultId] ?? '')) && /^quit$/i.test(String(box.buttons?.[box.cancelId] ?? '')), `defaultId=${box?.defaultId} cancelId=${box?.cancelId}`],
+      ['start-up box detail names the folder and "Moved for Repair"', !!box && String(box.detail).includes(e.data) && /Moved for Repair/.test(String(box.detail)) && /settings are kept/i.test(String(box.detail)), `detail=${short(box?.detail, 300)}`],
+      ['Reset: one "Moved for Repair\\<YYYY-MM-DD HH-MM>" folder with the damaged history.json', moved0.length === 1 && readText(path.join(m0 ?? '', 'history.json')) === BROKEN, `folders=${short(moved0.map((f) => path.basename(f)))}`],
+      ['Reset moves ALL SuperCargo files (the good jobs file too), keeps settings.json', !!m0 && !!findJob(readJsonIn(m0, 'other-jobs.json'), OLD_ID) && !fs.existsSync(path.join(m0, 'settings.json')) && readText(path.join(e.data, 'settings.json')) !== null && !findJob(e.jobs(), OLD_ID), `moved=${short(m0 ? fs.readdirSync(m0) : null)} defaultJobs=${short(e.jobs()?.jobs?.map((j) => j.missionId))}`],
+      ['settings kept as they were (gameLogPath, workMode)', set?.gameLogPath === e.gameLog && set?.workMode === 'other' && !!settingsBefore, `settings=${short(set, 200)}`],
+      ['app starts after Reset with empty data and keeps working (new job saved)', r.ready && !!findJob(e.jobs(), id), `ready=${r.ready} jobs=${short(e.jobs()?.jobs?.map((j) => j.missionId))}`],
+      ['CHANGE to a folder with damaged data: inline warning lists history.json with RESET AND CONTINUE / CANCEL', /history\.json/.test(r.warn1) && /RESET AND CONTINUE/i.test(r.warn1) && /^CANCEL$/im.test(r.warn1), `line=${short(warnLine, 400)}`],
+      ['CANCEL: warning gone, old folder kept, nothing saved or pending, target untouched', !!r.cancel && r.warn1Gone && same(r.info1?.folder, e.data) && !r.info1?.pending && !r.dfAfterCancel && r.targetAfterCancel === BROKEN && r.movedAfterCancel === 0, `cancel=${r.cancel} gone=${r.warn1Gone} info=${short(r.info1)} dataFolder=${r.dfAfterCancel} moved=${r.movedAfterCancel}`],
+      ['RESET AND CONTINUE: target files moved into its "Moved for Repair\\<date>" (history.json, jobs)', /RESET AND CONTINUE/i.test(r.warn2) && r.reset && movedT.length === 1 && readText(path.join(mT ?? '', 'history.json')) === BROKEN && readText(path.join(mT ?? '', 'other-jobs.json')) === targetJobs, `folders=${short(movedT.map((f) => path.basename(f)))}`],
+      ['RESET AND CONTINUE: current data copied in, folder saved, restart pending', !!findJob(readJsonIn(target, 'other-jobs.json'), id) && same(e.settings()?.dataFolder, target) && same(r.info2?.pending, target), `targetJobs=${short(readJsonIn(target, 'other-jobs.json')?.jobs?.map((j) => j.missionId))} dataFolder=${e.settings()?.dataFolder} info=${short(r.info2)}`],
+      ['message "Moved the old files to <movedTo>. Copied N files."', /Moved the old files to .+\. Copied \d+ files?\./.test(r.msg) && (!mT || r.msg.includes(mT)), `line=${short(lineWith(r.msg, /Moved the old files/), 400)}`]
+    ]
+  },
+
+  // CONTRACT14 B/C: the Check for Updates window with SC_TEST_UPDATE_FEED (no network): opens by itself at start-up
+  // with What's new of 2 versions, Skip This Version keeps the next start quiet, Check for Updates by hand shows it
+  // again, Update Now -> progress -> ready -> Install and Restart; failed download, no notes, zip copy, up to date,
+  // Updated notice.
+  'update-window': async () => {
+    const V1 = bumpMinor(APP_VERSION, 1)
+    const V2 = bumpMinor(APP_VERSION, 2)
+    const NOTES = [
+      { version: V2, markdown: '### New\n- Second release **bold feature**\n- Another new line' },
+      { version: V1, markdown: '### Fixed\n- First release fix' }
+    ]
+    const OLD = '0.9.0'
+    const e = setup('update-window', { autoCheckUpdates: true, lastRunVersion: OLD })
+    const feed = updateFeed(e, 'feed-available.json', { version: V2, notes: NOTES })
+    const env = { SC_TEST_UPDATE_FEED: feed }
+    const r = { p1: '', notice: '', whats: false, states: [], ready: '', install: null, p2: '', skip: null, skipped: null, p3: '', p3state: null, noticeAgain: '', byHand: '', clickedCheck: false }
+    let err = ''
+    // phase 1: start-up check -> window opens by itself; Updated notice (lastRunVersion older); Update Now -> Install
+    try {
+      const port = await freePort()
+      const stop = await launch(e, cdpArgs(port), env)
+      try {
+        await recordUpdates(port)
+        r.p1 = (await until(() => appText(port).then((t) => (AVAILABLE(V2).test(t) && WHATS_NEW(V1).test(t) ? t : '')), 20000)) || (await appText(port))
+        r.notice = r.p1
+        r.whats = await uiHas(port, BTN.whatsNew)
+        r.clicked = await uiClick(port, BTN.updateNow)
+        await until(() => updStates(port).then((s) => s.some((x) => x.kind === 'ready')), 15000)
+        r.states = await updStates(port)
+        r.ready = (await until(() => appText(port).then((t) => (/Downloaded and checked/i.test(t) ? t : '')), 8000)) || (await appText(port))
+        r.readyBtns = { install: await uiHas(port, BTN.install), later: await uiHas(port, BTN.later) }
+        r.install = await uiClick(port, BTN.install)
+        await until(() => /update install \(test\)/.test(e.log()), 8000)
+      } finally {
+        await stop()
+      }
+    } catch (x) {
+      err += ` phase1: ${String(x?.message ?? x)}`
+    }
+    const set1 = e.settings()
+    // phase 2: next start offers it again -> Skip This Version
+    try {
+      const port = await freePort()
+      const stop = await launch(e, cdpArgs(port), env)
+      try {
+        r.p2 = (await until(() => appText(port).then((t) => (AVAILABLE(V2).test(t) ? t : '')), 20000)) || (await appText(port))
+        r.noticeAgain = r.p2
+        r.skip = await uiClick(port, BTN.skip)
+        r.skipped = (await until(() => (e.settings()?.skippedUpdateVersion === V2 ? e.settings() : null), 8000))?.skippedUpdateVersion ?? e.settings()?.skippedUpdateVersion ?? null
+      } finally {
+        await stop()
+      }
+    } catch (x) {
+      err += ` phase2: ${String(x?.message ?? x)}`
+    }
+    // phase 3: start-up stays quiet for the skipped version; Check for Updates by hand shows it
+    try {
+      const port = await freePort()
+      const stop = await launch(e, cdpArgs(port), env)
+      try {
+        r.p3state = await until(() => updState(port).then((s) => (s && s.kind !== 'checking' ? s : null)), 15000)
+        await sleep(1500)
+        r.p3 = await appText(port)
+        r.p3UpdateNow = await uiHas(port, BTN.updateNow)
+        r.clickedCheck = await checkByHand(port)
+        r.byHand = (await until(() => appText(port).then((t) => (AVAILABLE(V2).test(t) ? t : '')), 15000)) || (await appText(port))
+      } finally {
+        await stop()
+      }
+    } catch (x) {
+      err += ` phase3: ${String(x?.message ?? x)}`
+    }
+    // variants, each on its own data folder, checked by hand (start-up check off)
+    const variant = async (tag, feedDoc, act) => {
+      const ev = setup(`update-window-${tag}`, { autoCheckUpdates: false })
+      const f = updateFeed(ev, `feed-${tag}.json`, feedDoc)
+      const port = await freePort()
+      const iport = await freePort()
+      const out = { err: '' }
+      try {
+        const stop = await launch(ev, [...cdpArgs(port), ...inspectArgs(iport)], { SC_TEST_UPDATE_FEED: f })
+        try {
+          await recordUpdates(port)
+          await stubExternal(iport)
+          out.clicked = await checkByHand(port)
+          await act(port, iport, out, ev)
+        } finally {
+          await stop()
+        }
+      } catch (x) {
+        out.err = String(x?.message ?? x)
+      }
+      return out
+    }
+    const [fail, nonotes, portable, upToDate] = await Promise.all([
+      variant('fail', { version: V2, notes: NOTES, failDownload: 'size check failed (test)' }, async (port, iport, o) => {
+        await until(() => appText(port).then((t) => AVAILABLE(V2).test(t)), 15000)
+        o.update = await uiClick(port, BTN.updateNow)
+        o.text = (await until(() => appText(port).then((t) => (/The download failed:/i.test(t) ? t : '')), 15000)) || (await appText(port))
+        o.btns = { tryAgain: await uiHas(port, BTN.tryAgain), page: await uiHas(port, BTN.releasePage), close: await uiHas(port, BTN.close) }
+        const n = (await updStates(port)).length
+        o.retry = await uiClick(port, BTN.tryAgain)
+        o.after = await until(() => updStates(port).then((s) => (s.slice(n).some((x) => x.kind === 'failed') ? s.slice(n) : null)), 15000)
+      }),
+      variant('nonotes', { version: V2, notes: null }, async (port, iport, o) => {
+        o.text = (await until(() => appText(port).then((t) => (AVAILABLE(V2).test(t) ? t : '')), 15000)) || (await appText(port))
+        o.update = await uiHas(port, BTN.updateNow)
+      }),
+      variant('portable', { version: V2, notes: NOTES, portable: true }, async (port, iport, o) => {
+        o.text = (await until(() => appText(port).then((t) => (AVAILABLE(V2).test(t) ? t : '')), 15000)) || (await appText(port))
+        o.btns = { page: await uiHas(port, BTN.releasePage), skip: await uiHas(port, BTN.skip), later: await uiHas(port, BTN.later), updateNow: await uiHas(port, BTN.updateNow) }
+        o.page = await uiClick(port, BTN.releasePage)
+        o.opened = await until(() => mainEval(iport, 'globalThis.__scOpened').then((a) => (a?.length ? a : null)), 5000)
+      }),
+      variant('uptodate', { version: APP_VERSION, upToDate: true }, async (port, iport, o) => {
+        o.text = (await until(() => appText(port).then((t) => (/is up to date/i.test(t) ? t : '')), 15000)) || (await appText(port))
+      })
+    ])
+    const kinds = r.states.map((s) => s.kind)
+    const dl = r.states.filter((s) => s.kind === 'downloading')
+    const readyState = r.states.find((s) => s.kind === 'ready')
+    const i2 = r.p1.search(WHATS_NEW(V2))
+    const i1 = r.p1.search(WHATS_NEW(V1))
+    const UPDATED = new RegExp(`Updated\\s*[—–-]+\\s*now R1 ${reEsc(APP_VERSION)}`, 'i')
+    return [
+      ['start-up check: the window opens by itself ("R1 <new> is available. You have R1 <current>.")', AVAILABLE(V2).test(r.p1) && new RegExp(`You have R1 ${reEsc(APP_VERSION)}`, 'i').test(r.p1) && /Check for Updates/i.test(r.p1), `line=${short(lineWith(r.p1, /available|You have/i), 300)} ${err}`],
+      ['What\'s new of both versions, newest first, markdown rendered', i2 >= 0 && i1 > i2 && /Second release bold feature/.test(r.p1) && /First release fix/.test(r.p1) && !/\*\*|^###/m.test(r.p1), `newest=${i2} older=${i1}`],
+      ['link "Full release notes on GitHub" shown', /Full release notes on GitHub/i.test(r.p1), `found=${/Full release notes/i.test(r.p1)}`],
+      ['installed copy: Update Now / Skip This Version / Later', !!r.clicked, `clicked=${r.clicked}`],
+      ['Updated notice banner "Updated — now R1 <current>" with WHAT\'S NEW', UPDATED.test(r.notice) && r.whats, `line=${short(lineWith(r.notice, /Updated/i), 200)} whatsNew=${r.whats}`],
+      ['lastRunVersion saved as the running version', set1?.lastRunVersion === APP_VERSION, `lastRunVersion=${set1?.lastRunVersion}`],
+      ['Update Now: downloading with progress, then ready (checked)', dl.length >= 1 && dl.every((s, i) => i === 0 || s.percent >= dl[i - 1].percent) && readyState?.verified === true && kinds.indexOf('ready') > kinds.indexOf('downloading'), `kinds=${short(kinds)} percents=${short(dl.map((s) => s.percent))}`],
+      ['ready: "Downloaded and checked." with Install and Restart / Later', /Downloaded and checked/i.test(r.ready) && r.readyBtns?.install && r.readyBtns?.later, `btns=${short(r.readyBtns)}`],
+      ['Install and Restart runs the install (test log "update install (test)")', !!r.install && /update install \(test\)/.test(e.log()), `clicked=${r.install}`],
+      ['Updated notice only once (not on the next start)', !!r.p2 && !UPDATED.test(r.noticeAgain), `line=${short(lineWith(r.noticeAgain, /Updated/i), 200)}`],
+      ['Skip This Version saves skippedUpdateVersion', !!r.skip && r.skipped === V2, `clicked=${r.skip} saved=${r.skipped}`],
+      ['skipped version: start-up stays quiet (no window)', r.p3state?.kind === 'available' && r.p3state?.skipped === true && !AVAILABLE(V2).test(r.p3) && !r.p3UpdateNow, `state=${short(r.p3state, 200)} text=${short(lineWith(r.p3, /available/i), 200)}`],
+      ['Check for Updates by hand (Settings → UPDATES "CHECK FOR UPDATES") shows the skipped version', r.clickedCheck && AVAILABLE(V2).test(r.byHand), `clicked=${r.clickedCheck}`],
+      ['failed download: "The download failed: <msg>" with Try Again / Open Release Page / Close', /The download failed:.*size check failed \(test\)/i.test(fail.text ?? '') && fail.btns?.tryAgain && fail.btns?.page && fail.btns?.close, `line=${short(lineWith(fail.text, /download failed/i), 200)} btns=${short(fail.btns)} ${fail.err}`],
+      ['Try Again downloads again', !!fail.retry && !!fail.after, `after=${short(fail.after?.map((s) => s.kind))}`],
+      ['notes null: "Release notes unavailable." with the link, Update Now still there', /Release notes unavailable\./i.test(nonotes.text ?? '') && /Full release notes on GitHub/i.test(nonotes.text ?? '') && nonotes.update, `update=${nonotes.update} ${nonotes.err}`],
+      ['zip copy: Open Release Page / Skip This Version / Later, no Update Now', portable.btns?.page && portable.btns?.skip && portable.btns?.later && !portable.btns?.updateNow, `btns=${short(portable.btns)} ${portable.err}`],
+      ['zip copy: Open Release Page opens the release url', !!portable.page && (portable.opened?.length ?? 0) > 0, `opened=${short(portable.opened)}`],
+      ['up to date by hand: "SuperCargo-OtherModes R1 <v> is up to date."', new RegExp(`R1 ${reEsc(APP_VERSION)} is up to date`, 'i').test(upToDate.text ?? ''), `line=${short(lineWith(upToDate.text, /up to date/i), 200)} ${upToDate.err}`]
+    ]
+  },
+
+  // CONTRACT14 D: reference data from a test source (SC_TEST_REFDATA_BASE): one file with a wrong fingerprint ->
+  // the update window's panel says so, Settings shows the ⚠ line; fixed at the source -> CHECK NOW -> Updated.
+  'refdata-status': async () => {
+    const e = setup('refdata-status', { autoCheckUpdates: false })
+    const src = path.join(e.home, 'refdata-source')
+    fs.mkdirSync(src, { recursive: true })
+    const seed = path.join(root, 'data', 'uex')
+    const hashes = {}
+    for (const f of REF_FILES) {
+      const body = readText(path.join(seed, f.repo)) ?? JSON.stringify({ [f.key]: [] })
+      fs.writeFileSync(path.join(src, f.repo), body)
+      hashes[f.key] = sha256(body)
+    }
+    // Ships: the list names a newer copy, but the file served doesn't match it
+    const shipsDoc = JSON.parse(readText(path.join(src, 'ships.json')))
+    const NEW_SHIPS = JSON.stringify({ ...shipsDoc, e2eMarker: 'newer copy' }, null, 2)
+    hashes.ships = sha256(NEW_SHIPS)
+    fs.writeFileSync(path.join(src, 'ships.json'), `${NEW_SHIPS}\n `)
+    fs.writeFileSync(path.join(src, 'hashes.json'), JSON.stringify(hashes))
+    const server = await serveDir(src)
+    const feed = updateFeed(e, 'feed-uptodate.json', { version: APP_VERSION, upToDate: true })
+    const r = { first: null, settings: '', clicked: false, panel: '', after: null, panel2: '', settings2: '' }
+    let err = ''
+    try {
+      const port = await freePort()
+      const stop = await launch(e, cdpArgs(port), { SC_TEST_REFDATA_BASE: server.base, SC_TEST_UPDATE_FEED: feed })
+      try {
+        const get = () => cdpEval(port, 'main', 'window.supercargo.getRefDataStatus()')
+        r.first = await until(() => get().then((s) => (s?.checkedAt ? s : null)), 25000)
+        if (!r.first) {
+          // the start-up refresh didn't run (or hasn't finished): check by hand so the rest can still be judged
+          r.startupMissing = true
+          await checkByHand(port)
+          await uiClick(port, BTN.checkNow)
+          r.first = await until(() => get().then((s) => (s?.checkedAt ? s : null)), 20000)
+        }
+        await openSettingsTab(port, 'GENERAL')
+        r.settings = (await until(() => windowText(port, 'main').then((t) => (REF_WARN.test(t) ? t : '')), 10000)) || (await windowText(port, 'main'))
+        r.clicked = await checkByHand(port)
+        r.panel = (await until(() => appText(port).then((t) => (/Reference data \(ships, places, cargo grids\)/i.test(t) && REF_WORDS.hashMismatch.test(t) ? t : '')), 15000)) || (await appText(port))
+        // the source is fixed: the served Ships file now matches its fingerprint
+        fs.writeFileSync(path.join(src, 'ships.json'), NEW_SHIPS)
+        r.checkNow = await uiClick(port, BTN.checkNow)
+        r.after = await until(() => get().then((s) => (s?.files?.find((f) => f.key === 'ships')?.state === 'updated' ? s : null)), 20000)
+        r.panel2 = (await until(() => appText(port).then((t) => (REF_WORDS.updated.test(afterLabel(t, 'Ships')) ? t : '')), 10000)) || (await appText(port))
+        r.settings2 = await windowText(port, 'main')
+      } finally {
+        await stop()
+      }
+    } catch (x) {
+      err = String(x?.message ?? x)
+    }
+    await server.close()
+    const st = (s, key) => s?.files?.find((f) => f.key === key)?.state
+    const saved = readJsonIn(e.data, 'reference-data-status.json')
+    const others = REF_FILES.filter((f) => f.key !== 'ships')
+    return [
+      ['start-up check: Ships fingerprint mismatch, the others up to date', st(r.first, 'ships') === 'hashMismatch' && others.every((f) => st(r.first, f.key) === 'upToDate') && r.first?.reached === true, `startupRan=${!r.startupMissing} files=${short(r.first?.files?.map((f) => `${f.key}:${f.state}`))} ${err}`],
+      ['the old Ships copy is kept', readText(path.join(e.data, 'uex-vehicles.json')) !== `${NEW_SHIPS}\n ` , `same=${readText(path.join(e.data, 'uex-vehicles.json')) === `${NEW_SHIPS}\n `}`],
+      ['status saved to reference-data-status.json', !!saved && Array.isArray(saved.files) && saved.files.length === REF_FILES.length, `saved=${short(saved, 200)}`],
+      ['Settings UPDATES: "⚠ Reference data: 1 file(s) couldn\'t be updated — see Check for Updates"', (r.settings.match(REF_WARN) ?? [])[1] === '1' && /see Check for Updates/i.test(lineWith(r.settings, REF_WARN)), `line=${short(lineWith(r.settings, /reference data/i), 300)}`],
+      ['update window panel: heading, Ships "Fingerprint didn\'t match", others "Up to date", source line', r.clicked && /Reference data \(ships, places, cargo grids\)/i.test(r.panel) && REF_WORDS.hashMismatch.test(afterLabel(r.panel, 'Ships')) && others.every((f) => REF_WORDS.upToDate.test(afterLabel(r.panel, f.label))) && /original SuperCargo author/i.test(r.panel) && /Last checked/i.test(r.panel), `ships=${short(afterLabel(r.panel, 'Ships'))} locations=${short(afterLabel(r.panel, 'Locations'))}`],
+      ['CHECK NOW after the source is fixed: Ships Updated, new copy written', !!r.checkNow && st(r.after, 'ships') === 'updated' && readText(path.join(e.data, 'uex-vehicles.json')) === NEW_SHIPS, `clicked=${r.checkNow} files=${short(r.after?.files?.map((f) => `${f.key}:${f.state}`))}`],
+      ['panel shows Ships Updated; Settings ⚠ line gone', REF_WORDS.updated.test(afterLabel(r.panel2, 'Ships')) && !REF_WARN.test(r.settings2), `ships=${short(afterLabel(r.panel2, 'Ships'))} warn=${short(lineWith(r.settings2, REF_WARN))}`]
+    ]
+  },
+
+  // CONTRACT14 E: the overlay stop card keeps its height while stepping ‹ › between long/short names, with and
+  // without tags; a rep range shows "+100–500 REP" (O2)
+  'overlay-header': async () => {
+    const LONG = 'Shubin Mining Facility SAL-2'
+    const { e, port, stop } = await memLaunch('overlay-header', {
+      jobs: [
+        { title: 'Scrap Haul', rep: 100, repMax: 500, steps: [goStep('s1', LONG)] },
+        { title: 'Scrap Haul', steps: [goStep('s2', 'Port Tressler')] },
+        { title: 'Scrap Haul', steps: [goStep('s3', 'Qqzzx Unheard Of Outpost With A Very Long Made Up Name')] },
+        { title: 'Scrap Haul', steps: [goStep('s4', 'Everus Harbor')] }
+      ]
+    })
+    const views = []
+    let main = ''
+    let err = ''
+    try {
+      await until(() => overlayHeader(port).then((v) => (v?.height && v.stop?.[1] >= 2 ? v : null)), 15000)
+      // back to the first stop, then step through every stop
+      for (let i = 0; i < 6; i++) await cdpEval(port, 'overlay', `(() => { const b = [...document.querySelectorAll('button')].find((x) => x.textContent.trim() === '\\u2039'); if (b && !b.disabled) b.click(); return true })()`)
+      await sleep(400)
+      for (let i = 0; i < 6; i++) {
+        const v = await overlayHeader(port)
+        v.text = await windowText(port, 'overlay')
+        views.push(v)
+        const moved = await cdpEval(port, 'overlay', `(() => { const b = [...document.querySelectorAll('button')].find((x) => x.textContent.trim() === '\\u203a'); if (!b || b.disabled) return false; b.click(); return true })()`)
+        if (!moved) break
+        await sleep(400)
+      }
+      main = (await until(() => windowText(port, 'main').then((t) => (/REP/.test(t) ? t : '')), 10000)) || (await windowText(port, 'main'))
+    } catch (x) {
+      err = String(x?.message ?? x)
+    }
+    await stop()
+    const hs = views.map((v) => v.height)
+    const tops = views.map((v) => v.nextTop)
+    const names = new Set(views.map((v) => v.name))
+    const longView = views.find((v) => new RegExp(reEsc(LONG), 'i').test(v.title ?? v.name ?? ''))
+    const RANGE = /\+100\s*–\s*500 REP/
+    const repShown = views.filter((v) => /REP\b/.test(v.text))
+    return [
+      ['overlay stepped through all stops (different names)', views.length >= 4 && names.size >= 4, `stops=${short(views.map((v) => v.stop))} names=${short([...names])} ${err}`],
+      ['stop header height is the same on every stop', hs.length >= 4 && hs.every((h) => h != null && Math.abs(h - hs[0]) <= 0.5), `heights=${short(hs)}`],
+      ['the row below the header starts at the same place on every stop', tops.every((t) => t != null && Math.abs(t - tops[0]) <= 0.5), `tops=${short(tops)}`],
+      ['place name on one line with an ellipsis; full name in the title tooltip', views.every((v) => v.ellipsis === true) && views.filter((v) => v.clipped).every((v) => !!v.title) && !!longView, `views=${short(views.map((v) => ({ n: v.name, t: v.title, c: v.clipped })), 600)}`],
+      ['rep range in the jobs list: "+100–500 REP"', RANGE.test(main), `line=${short(lineWith(main, /REP/), 300)}`],
+      ['overlay rep, where shown, uses the range form', repShown.every((v) => !/\+100 REP/.test(v.text) || RANGE.test(v.text)) && repShown.filter((v) => /\+100/.test(v.text)).every((v) => RANGE.test(v.text)), `lines=${short(repShown.map((v) => lineWith(v.text, /REP/)), 300)}`]
     ]
   }
 }

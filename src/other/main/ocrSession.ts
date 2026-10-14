@@ -3,6 +3,7 @@
  * Folder is wiped on startup (registerOther) and on app quit.
  */
 import { app } from 'electron'
+import { dataPath } from '../../main/paths'
 import fs from 'node:fs'
 import path from 'node:path'
 import { logger } from '../../main/logger'
@@ -10,7 +11,7 @@ import { logger } from '../../main/logger'
 const DIR = 'other-ocr-session'
 
 function dir(): string {
-  return path.join(app.getPath('userData'), DIR)
+  return dataPath(DIR)
 }
 
 function fileFor(jobId: string): string {

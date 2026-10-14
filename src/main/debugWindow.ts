@@ -9,6 +9,7 @@ import { formatEntry, type DebugInfo, type LogEntry } from '@shared/debugLog'
 import type { AppSettings } from '@shared/types'
 import { getProblems, getRecent, logger, onEntry } from './logger'
 import { loadManifest } from './store'
+import { dataPath } from './paths'
 import { watchWindow } from './crash'
 import { learnIdentity, makeSanitizer, sanitizeDeep } from './sanitize'
 import appIcon from '../../resources/icon.png?asset'
@@ -113,7 +114,7 @@ interface JobLite {
 
 function otherSummary(): string {
   try {
-    const raw = fs.readFileSync(path.join(app.getPath('userData'), 'other-jobs.json'), 'utf8')
+    const raw = fs.readFileSync(dataPath('other-jobs.json'), 'utf8')
     const doc = JSON.parse(raw) as { jobs?: JobLite[]; history?: unknown[] }
     const jobs = Array.isArray(doc.jobs) ? doc.jobs : []
     const lines = [`- jobs: ${jobs.length}, history: ${Array.isArray(doc.history) ? doc.history.length : 0}`]

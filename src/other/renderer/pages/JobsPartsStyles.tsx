@@ -47,14 +47,21 @@ export function otherView(settings: AppSettings | undefined): OtherView {
   }
 }
 
+/** "+313 REP", or "+100–500 REP" (en dash) when the contract gives a range (repMax set and above rep) */
+export function repText(rep: number, repMax?: number): string {
+  const sign = rep > 0 ? '+' : ''
+  const high = repMax != null && repMax > rep ? `\u2013${repMax.toLocaleString()}` : ''
+  return `${sign}${rep.toLocaleString()}${high} REP`
+}
+
 /** rep / shared tags for a job or history entry */
-export function JobTags({ rep, sharedBy, view }: { rep?: number; sharedBy?: string; view: OtherView }): React.ReactElement | null {
+export function JobTags({ rep, repMax, sharedBy, view }: { rep?: number; repMax?: number; sharedBy?: string; view: OtherView }): React.ReactElement | null {
   const showRep = view.showRep && !!rep
   const showShared = view.sharedBadge && !!sharedBy
   if (!showRep && !showShared) return null
   return (
     <span style={{ display: 'inline-flex', gap: 6, alignItems: 'center' }}>
-      {showRep && <span style={smallTag}>{`${rep! > 0 ? '+' : ''}${rep!.toLocaleString()} REP`}</span>}
+      {showRep && <span style={smallTag}>{repText(rep!, repMax)}</span>}
       {showShared && <span style={{ ...smallTag, color: C.dim, borderColor: C.lineStrong }}>SHARED</span>}
     </span>
   )

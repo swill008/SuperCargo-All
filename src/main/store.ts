@@ -1,6 +1,6 @@
 import * as fs from 'node:fs'
 import * as path from 'node:path'
-import { app } from 'electron'
+import { dataPath, settingsFile } from './paths'
 import type { AppSettings, ManifestDoc, HistoryDoc } from '@shared/types'
 import { DEFAULT_SHIP } from '@shared/ships'
 import { newRunId, migrateRunId } from '@shared/run'
@@ -40,14 +40,15 @@ export const DEFAULT_SETTINGS: AppSettings = {
   overlayReturnSeconds: 8,
   overlayShowAllObjectives: false,
   overlayHideCompletedObjectives: true,
-  // fork still publishes against AquatikJustice/SuperCargo; keep off until retargeted
-  autoCheckUpdates: false,
+  // one check at start-up, like Gremlin (Settings → GENERAL → UPDATES turns it off)
+  autoCheckUpdates: true,
   onboarded: false,
   workMode: 'haul'
 }
 
+// settings.json always sits in the default folder; everything else in the data folder
 function userDataPath(file: string): string {
-  return path.join(app.getPath('userData'), file)
+  return file === SETTINGS_FILE ? settingsFile() : dataPath(file)
 }
 
 function readJson<T>(file: string, fallback: T): T {
@@ -61,21 +62,16 @@ function readJson<T>(file: string, fallback: T): T {
 
 function writeJson(file: string, value: unknown): void {
   try {
-    fs.mkdirSync(app.getPath('userData'), { recursive: true })
-    fs.writeFileSync(userDataPath(file), JSON.stringify(value, null, 2), 'utf8')
+    const p = userDataPath(file)
+    fs.mkdirSync(path.dirname(p), { recursive: true })
+    fs.writeFileSync(p, JSON.stringify(value, null, 2), 'utf8')
   } catch (e) {
     console.error(`[store] failed to write ${file}:`, e)
   }
 }
 
 export function loadSettings(): AppSettings {
-  const loaded = readJson<AppSettings>(SETTINGS_FILE, DEFAULT_SETTINGS)
-  // saved true would still hit AquatikJustice releases. Keep auto-check off.
-  if (loaded.autoCheckUpdates) {
-    loaded.autoCheckUpdates = false
-    saveSettings(loaded)
-  }
-  return loaded
+  return readJson<AppSettings>(SETTINGS_FILE, DEFAULT_SETTINGS)
 }
 
 export function saveSettings(settings: AppSettings): void {

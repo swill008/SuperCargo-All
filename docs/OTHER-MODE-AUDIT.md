@@ -48,7 +48,7 @@ shared domain: otherJob (model, J-refs) · otherLog (objective text → steps) �
 - **Data model.**
   - `OtherJob` = {id, ref, title, kind, reward, status `active|complete|abandoned`, steps, source `log|manual`, filledBy, objectivesLocked, …}.
   - `OtherStep` = {kind `go|pickup|turnin`, location (raw or snapped), item, have/need, done}.
-  - Stored in `userData/other-jobs.json` as {jobs, history, startLocation, listOrder, jobOrder}.
+  - Stored in `<data folder>/other-jobs.json` as {jobs, history, startLocation, listOrder, jobOrder}.
 
 ## Findings
 
@@ -471,7 +471,7 @@ taken on the contract's word alone, and the bundled game data could not be refre
 | W3 | Security Compound with the contract parent Covalex S1DC06 | evidence "game data: Covalex … has a Security Compound ✓" (+2); a parent without one −2 | `resolve_checks.mjs` |
 | W4 | "Security Compound [DC_Stan_Covalex_S1_S1DC06_FOB]" | parent from the code exactly, "game code … ✓", confidence 10 | `resolve_checks.mjs` |
 | W5 | Game data switch off | no game-data evidence (the case table runs with an empty site table), no starmap places or coordinates | `resolve_checks.mjs`, `sources_checks.mjs`, `sources-starmap-off` |
-| W6 | UPDATE | downloads both files (timeout, 10 MB cap, shape check) into `userData/game-data/`; DATA SOURCES shows "downloaded" and the date; `## GAME DATA` in the export; on failure the error shows and the old copy stays | manual (network) |
+| W6 | UPDATE | downloads both files (timeout, 10 MB cap, shape check) into `<data folder>/game-data/`; DATA SOURCES shows "downloaded" and the date; `## GAME DATA` in the export; on failure the error shows and the old copy stays | manual (network) |
 
 Pure checks: `node test/replay/sitecodes_checks.mjs`, `node test/replay/resolve_checks.mjs`.
 
@@ -590,6 +590,72 @@ Run (after `npm run build`): `node test/replay/replay.mjs learned-data-tab memor
 - The scenario seeds `other-bodies.json` directly; a panel radius recorded by a live WHERE AM I read reaching the
   Planets table is not covered end to end here.
 - Unsure is the only Needs-your-eye status the scenario drives; guess / mismatch / none use the same list filter.
+
+## Data folder and releases (batch 12)
+
+Rules 81-96 in [STANDALONE.md](../src/other/STANDALONE.md#data-folder-and-releases-batch-12-user-2026-10-14).
+
+**Why.** App files were in Electron's hidden userData (`%APPDATA%\SuperCargo`), hard to find, back up or move; releases
+were a Setup exe, a single portable exe and a zip from the upstream repo.
+
+Updates checked hourly and downloaded without asking, with no notes shown; reference data failures were silent; the
+overlay card changed height between stops; rep ranges were not read; a garbled screen altitude gave a wrong start label;
+release notes could ship empty.
+
+**The change.** One data folder `%USERPROFILE%\SuperCargo-OtherModes` (`src/main/paths.ts`), movable from Settings →
+GENERAL → DATA FOLDER (the picked folder used as is), with `settings.json` always in the default folder; big caches stay
+in userData. Fresh start: no migration from the old folder. Damaged data is caught at start-up and on CHANGE…, and
+moved to `Moved for Repair\<date>` only after asking. Releases: `SuperCargo-OtherModes-R1-<ver>-Setup.exe` +
+`-Portable.zip` from `swill008/SuperCargo-All`. Updates like Gremlin: start-up check (on by default) and by hand, a Check
+for Updates window with What's new for every version since yours, Skip This Version, checked download with progress,
+Updated notice. Reference data still from the original author, with per-file status in that window. Overlay O1-O3 and
+release notes rules N1-N5.
+
+| # | Case | Expected | Test |
+|---|---|---|---|
+| D1 | Fresh start | logs, jobs and the other app files in `HOME/SuperCargo-OtherModes`; none in Electron userData | `data-folder` |
+| D2 | `settings.json` | read from and written to the default folder, also after a move | `data-folder` |
+| D3 | Old `%APPDATA%` folder with a jobs file | not imported, not changed | `data-folder` |
+| D4 | CHANGE… to a folder that already holds SuperCargo data | used as is, nothing copied or overwritten | `data-folder` |
+| D5 | CHANGE… to an empty folder | used as is (no subfolder), data copied, `settings.dataFolder` saved, change pending until restart; RESTART NOW relaunches | `data-folder` |
+| D6 | Start after a change | app runs on the new folder (log, jobs); the default folder's jobs file is not written | `data-folder` |
+| D7 | Chosen folder unusable (a file in the way) | runs on the default folder; DATA FOLDER shows the reason | `data-folder` |
+| D8 | Release config | file names, targets, publish owner/repo, release notes heading | `release_checks.mjs` |
+| D9 | Damaged `history.json` at start-up | warning dialog; Reset moves all SuperCargo files to `Moved for Repair\<date>` (structure kept, `settings.json` stays), app starts empty; Quit changes nothing | `damaged-data`, `paths_checks.mjs` |
+| D10 | CHANGE… to a folder with damaged data | inline warning, nothing saved; CANCEL keeps the old folder; RESET AND CONTINUE moves + copies, "Moved the old files to …" | `damaged-data`, `paths_checks.mjs` |
+| D11 | `Moved for Repair` name clash | " (2)", " (3)"… | `paths_checks.mjs` |
+| U1 | Start-up check finds a new version (2 versions of notes) | window opens by itself; both "What's new in R1 …" lines, newest first; GitHub link | `update-window` |
+| U2 | Skip This Version, restart | quiet at start-up; CHECK FOR UPDATES by hand shows it again; a newer version is offered | `update-window`, `update_checks.mjs` |
+| U3 | Update Now | progress, ready (checked), Install and Restart (test feed logs "update install (test)") | `update-window` |
+| U4 | Download fails | "The download failed: …" with Try Again / Open Release Page / Close | `update-window` |
+| U5 | No notes | "Release notes unavailable."; link and updating still work | `update-window` |
+| U6 | Portable copy | Open Release Page, no download | `update-window` |
+| U7 | Up to date by hand | "… is up to date." | `update-window` |
+| U8 | `lastRunVersion` older | "Updated — now R1 <ver>" once | `update-window`, `update_checks.mjs` |
+| U9 | whatsNew / fetchNotes | heading forms, next heading stops, missing -> null; version filter and order | `update_checks.mjs` |
+| R1 | Reference data: good, changed, wrong hash, bad shape, missing file, unreachable list | states saved and reloaded; old copy kept on failure; warn per file | `refresh_checks.mjs` |
+| R2 | Reference data panel | states listed in the update window; ⚠ line in Settings; CHECK NOW after a fix -> Updated | `refdata-status` |
+| O1 | Overlay stop header | same card height across long/short names, with/without tags; "…" cut, full name on hover | `overlay-header` |
+| O2 | "[100–500 Rep]" and variants | `rep` 100, `repMax` 500; shown "+100–500 REP"; "[313 Rep]" unchanged | `where_checks.mjs` (parse), `overlay-header` |
+| O3 | Garbled screen altitude | start label uses the altitude computed from position and body radius | `where_checks.mjs` |
+| N1 | Release notes rules | missing section/bullet, placeholders, copy of the previous version refused | `release_checks.mjs` |
+| N3-N5 | Release run | `run_all.mjs` runs `release_checks.mjs`; workflow stops on an existing tag; body in the job summary | `release_checks.mjs` |
+
+Run (after `npm run build`): `node test/replay/replay.mjs data-folder damaged-data update-window refdata-status overlay-header settings-tabs`;
+pure: `node test/replay/paths_checks.mjs`, `npm run test:update`, `node test/replay/refresh_checks.mjs`,
+`node test/replay/where_checks.mjs`, `node test/replay/release_checks.mjs`.
+
+**Known limits.**
+- The scenario fakes the folder picker and restart (main's `dialog.showOpenDialog`, `app.relaunch`, `app.quit` are
+  stubbed); the harness restarts the app itself.
+- OPEN FOLDER (`shell.openPath`) and RESET TO DEFAULT are not driven by a scenario.
+- The unusable-folder case uses a path under a file; a missing drive letter or a read-only folder are the same code path
+  but not driven.
+- The installer (shortcut checkbox, silent update keeping it, uninstall leaving data) is checked by hand on Windows.
+- The real download path (electron-updater, `latest.yml` size + sha512 check, `quitAndInstall`) and the GitHub releases
+  call are not driven by a scenario; the scenarios use `SC_TEST_UPDATE_FEED`.
+- The start-up damaged-data dialog is native; the scenario stubs `dialog.showMessageBox`.
+- `overlay-header` runs only where the harness can show the overlay with jobs.
 
 ## Suggested order
 

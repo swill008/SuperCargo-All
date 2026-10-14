@@ -1,17 +1,17 @@
 # electron-builder configuration.
 #
-# Windows is built and published LOCALLY (no Actions minutes):
+# Releases are built by .github/workflows/release-win.yml (Windows: Setup.exe +
+# Portable.zip) and release-linux.yml (AppImage). electron-builder never publishes
+# (--publish never); the workflow uploads the files to the GitHub release tagged
+# SuperCargo-OtherModes-R1-<version> in swill008/SuperCargo-All.
 #
-#     set GH_TOKEN=<personal access token with repo scope>   (PowerShell: $env:GH_TOKEN="...")
-#     npm run publish     # installer + portable + zip, uploaded to a draft release
-#     npm run dist        # same, without uploading
+# Local build without uploading:  npm run dist   (Windows)   npm run dist:linux
 #
-# Linux (AppImage) is built in CI on a version tag and uploaded to the same
-# draft release (.github/workflows/release-linux.yml). electron-updater reads
-# latest.yml / latest-linux.yml from the release assets to update both.
+# package.json "version" is plain semver (electron-updater compares it); "R1" is
+# the release line and goes in the file names, the tag and the release title.
 #
-appId: space.supercargo.app
-productName: SuperCargo
+appId: space.supercargo.othermodes
+productName: SuperCargo-OtherModes
 copyright: Copyright © 2026 Travis
 
 directories:
@@ -43,22 +43,26 @@ asarUnpack:
   # onnxruntime-node ships native .node/.dll binaries that can't run from inside asar
   - node_modules/onnxruntime-node/**
 
-# --- Auto-update / publish target -------------------------------------------
-# Update owner/repo before the first publish. electron-updater uses this to
-# find latest.yml in the GitHub Release assets.
+# --- Auto-update -----------------------------------------------------------
+# electron-updater reads this (app-update.yml in the installed copy) and asks
+# github.com/<owner>/<repo>/releases/latest for the newest release's tag, then
+# downloads latest.yml from that tag. Any tag name works there (it is not parsed
+# as a version), so the tag SuperCargo-OtherModes-R1-<version> is fine; the
+# version compared is the one inside latest.yml. The release must be published
+# (not a draft or prerelease) and the repo public.
 publish:
   provider: github
-  owner: AquatikJustice
-  repo: SuperCargo
-  releaseType: draft
+  owner: swill008
+  repo: SuperCargo-All
 
 win:
+  # Applies to the zip (electron-builder has no top-level "zip:" section);
+  # nsis.artifactName below overrides it for the Setup.exe.
+  artifactName: SuperCargo-OtherModes-R1-${version}-Portable.${ext}
   target:
+    # nsis: Setup.exe, per-user installer that updates itself.
+    # zip: the unpacked folder, run from anywhere; tells you about new versions only.
     - target: nsis
-      arch:
-        - x64
-    # portable: single self-contained exe, no install. zip: unpacked folder.
-    - target: portable
       arch:
         - x64
     - target: zip
@@ -69,16 +73,17 @@ nsis:
   oneClick: false
   perMachine: false
   allowToChangeInstallationDirectory: true
+  # user data lives in %USERPROFILE%\SuperCargo (src/main/paths.ts) and is never
+  # removed; this also keeps Electron's own cache folder.
   deleteAppDataOnUninstall: false
-  shortcutName: SuperCargo
-  # 'always' recreates the desktop shortcut on every install AND update. Without
-  # it (default true), a silent auto-update's uninstall step removes the shortcut
-  # and the reinstall declines to recreate it, so the icon vanishes after updating.
-  createDesktopShortcut: always
-  artifactName: ${productName}-Setup-${version}.${ext}
-
-portable:
-  artifactName: ${productName}-Portable-${version}.${ext}
+  shortcutName: SuperCargo-OtherModes
+  # The desktop shortcut is optional and unticked: build/installer.nsh adds the
+  # checkbox page, makes the shortcut and remembers the choice, so a silent
+  # update keeps an existing shortcut. electron-builder's own desktop shortcut
+  # handling is off so it neither creates nor deletes it.
+  createDesktopShortcut: false
+  include: build/installer.nsh
+  artifactName: SuperCargo-OtherModes-R1-${version}-Setup.${ext}
 
 linux:
   target:
@@ -87,4 +92,4 @@ linux:
         - x64
   category: Game
   synopsis: Star Citizen cargo hauling companion
-  artifactName: ${productName}-${version}.${ext}
+  artifactName: SuperCargo-OtherModes-R1-${version}.${ext}

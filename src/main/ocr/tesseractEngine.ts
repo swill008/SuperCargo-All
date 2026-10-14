@@ -2,10 +2,10 @@
 
 import * as fs from 'node:fs'
 import * as path from 'node:path'
-import { app } from 'electron'
 import type { OcrWord } from '@shared/types'
 import type { OcrEngine, OcrRecognition } from './engine'
 import { logger } from '../logger'
+import { cachePath } from '../paths'
 
 // keep types local so the dep stays optional
 type TessWord = { text: string; bbox: { x0: number; y0: number; x1: number; y1: number } }
@@ -32,7 +32,7 @@ export class TesseractEngine implements OcrEngine {
   private loadFailed = false
 
   private tessdataDir(): string {
-    return path.join(app.getPath('userData'), 'tessdata')
+    return cachePath('tessdata')
   }
 
   async isAvailable(): Promise<boolean> {

@@ -1,11 +1,11 @@
 /**
- * Planet table + learned generic places, saved under userData (other-bodies.json).
+ * Planet table + learned generic places, saved in the data folder (other-bodies.json).
  * The table is rebuilt from the current roster on every get; the file carries the panel radii,
  * seen counts and learned places across restarts.
  */
 import * as fs from 'node:fs'
-import * as path from 'node:path'
-import { app, BrowserWindow, ipcMain } from 'electron'
+import { BrowserWindow, ipcMain } from 'electron'
+import { dataPath } from '../../main/paths'
 import { IPC } from '@shared/channels'
 import type { WhereRunResult } from '@other/otherWhere'
 import {
@@ -27,7 +27,7 @@ const FILE = 'other-bodies.json'
 let saved: BodiesDoc | null = null
 
 function filePath(): string {
-  return path.join(app.getPath('userData'), FILE)
+  return dataPath(FILE)
 }
 
 function load(): BodiesDoc {

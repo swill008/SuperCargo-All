@@ -60,8 +60,21 @@ export const IPC = {
 
   updaterCheck: 'updater:check',
   updaterQuitAndInstall: 'updater:quitAndInstall',
+  updaterDownload: 'updater:download', // Update Now (installed copy) / Try Again after a failed download
+  updaterSkip: 'updater:skip', // Skip This Version (version) -> saves settings.skippedUpdateVersion
+  updaterState: 'updater:state', // -> UpdateState | null (last state, for a window opened later)
+  updaterUpdatedNotice: 'updater:updatedNotice', // -> UpdatedNotice | null (once per update)
+  refDataGet: 'refData:get', // -> RefDataStatus
+  refDataCheck: 'refData:check', // check the author's reference data now -> RefDataStatus
 
   appVersion: 'app:version',
+
+  dataFolderGet: 'dataFolder:get', // -> DataFolderInfo
+  dataFolderChoose: 'dataFolder:choose', // folder picker, copy data if the new folder has none, save -> DataFolderChangeResult
+  dataFolderReset: 'dataFolder:reset', // back to the default folder -> DataFolderChangeResult
+  dataFolderOpen: 'dataFolder:open', // open the folder this run uses
+  dataFolderRestart: 'dataFolder:restart', // relaunch so the new folder takes effect
+  dataFolderRepair: 'dataFolder:repair', // (target) move damaged SuperCargo files to "Moved for Repair\<date>", then use the folder -> DataFolderChangeResult
 
   evtWatcherStatus: 'evt:watcher:status',
   evtContractAccepted: 'evt:contract:accepted',
@@ -100,6 +113,7 @@ export const IPC = {
   evtContractPaid: 'evt:contract:paid',
   evtContractShare: 'evt:contract:share',
   evtUpdate: 'evt:update',
+  evtRefData: 'evt:refData', // main -> windows, RefDataStatus after every check
   evtOpenCapture: 'evt:openCapture',
   evtShips: 'evt:ships',
   evtLocations: 'evt:locations',

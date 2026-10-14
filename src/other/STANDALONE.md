@@ -104,7 +104,7 @@ Why: a stop's place used to be found by a chain of rules (exact, contains, O/0 f
 
 ## Match memory (batch 8, user 2026-10-14)
 
-Why: the resolver (rules 34-41) decides each stop's place from the text alone, every time. A stop it gets wrong or can't decide ("? not sure") stays wrong until the text changes. The app now remembers what it saw, what the game proved and what you set, in `userData/other-matches.json` (`src/other/otherMemory.ts`, pure; main owns the file: `src/other/main/matchMemory.ts`).
+Why: the resolver (rules 34-41) decides each stop's place from the text alone, every time. A stop it gets wrong or can't decide ("? not sure") stays wrong until the text changes. The app now remembers what it saw, what the game proved and what you set, in `<data folder>/other-matches.json` (`src/other/otherMemory.ts`, pure; main owns the file: `src/other/main/matchMemory.ts`).
 
 42. **Match log.** Every open stop that isn't an exact match is remembered locally: text, chosen place, status, confidence, last evidence (max 8 lines); seeing it again bumps `seen`. Only the main window reports (debounced 5 s); the overlay never does. Generic sites are keyed with the place the contract names (`memoryKey(text, context)`). At most 500 entries: the oldest `lastAt` goes first, a `user` entry is never dropped. Seeing a stop again never changes a place you set.
 43. **Proof from the game.** When the log's Objective Complete ticks a step, and the latest position read (`where.source` `displayinfo`, `map` or `inventory`, accuracy 7 or more, within 10 minutes of the line's time) shows where you were: the chosen place within 1.5 km of that point (or the inventory clue names the chosen place) counts `confirmed` +1; otherwise `wrong` +1, keeping where you were (nearest roster place and metres; last 3). No read near the line's time: no proof either way. The read is taken before the completion moves `where` to the step's place.
@@ -132,7 +132,7 @@ Why: the place roster mixes two sources, UEX (the haul roster and UEX cities, st
 The bundled starmap file was already generated from the Star Citizen Wiki's scunpacked-data (`starmap_positions.json`, `scripts/gen-other-positions.mjs`). Addendum 3 adds the same project's `trade_locations.json`, which maps the game's internal codes to display names (`DC_Stan_Covalex_S1_S1DC06` -> "Covalex Distribution Center S1DC06", `DC_Stan_Covalex_S1_S1DC06_FOB` -> "Security Compound"), so the app knows which place has which generic site. Game data is CIG's; fan use, credited, not for resale.
 
 57. **Site codes.** `scripts/gen-site-codes.mjs` builds the bundled `data/uex/site-codes.json` (`{ generatedAt, sites: [{ code, name, parentCode?, parentName? }] }`) from every entry with a display name; the parent is the longest code prefix (split on `_`) whose display name is a real place (not a generic site, "Lobby", "Exterior Zone N" or hangar-like). Generic children (FOB = Security Compound, Storehouse, …) are kept with their parent. `src/other/otherSiteCodes.ts` (pure) looks them up: `siteByCode()`, `sitesNamed()` (parents that have a site by that name), `parentForCode()`, `codeFromText()` (finds "[DC_…]" and the panel style "Stanton1_DistributionCentre_Covalex_S1DC06", mapped to the trade style when possible), `stripCode()`, and the builders shared by the script and the updater.
-58. **UPDATE game data.** `src/other/main/gameData.ts` loads the bundled site codes, or the updated copy in `userData/game-data/` when present. UPDATE (DATA SOURCES row) downloads `starmap_positions.json` and `trade_locations.json` from `https://raw.githubusercontent.com/StarCitizenWiki/scunpacked-data/master/` (timeout, 10 MB cap, shape checked), rebuilds the site codes and positions into `userData/game-data/`, and `main/uex.ts` then prefers that positions copy over the bundled one. IPC `otherGameData:get` / `:update` returns counts, source (`bundled` / `downloaded`), date and `error?`; `evt:other:gameData` tells every window. `src/other/renderer/state/otherGameDataStore.ts` keeps the renderer copy; it is imported from `otherJobs.ts` so the main window and the overlay both have it. Diagnostics export `## GAME DATA` (source, counts, date, last error).
+58. **UPDATE game data.** `src/other/main/gameData.ts` loads the bundled site codes, or the updated copy in `<data folder>/game-data/` when present. UPDATE (DATA SOURCES row) downloads `starmap_positions.json` and `trade_locations.json` from `https://raw.githubusercontent.com/StarCitizenWiki/scunpacked-data/master/` (timeout, 10 MB cap, shape checked), rebuilds the site codes and positions into `<data folder>/game-data/`, and `main/uex.ts` then prefers that positions copy over the bundled one. IPC `otherGameData:get` / `:update` returns counts, source (`bundled` / `downloaded`), date and `error?`; `evt:other:gameData` tells every window. `src/other/renderer/state/otherGameDataStore.ts` keeps the renderer copy; it is imported from `otherJobs.ts` so the main window and the overlay both have it. Diagnostics export `## GAME DATA` (source, counts, date, last error).
 59. **Game data in the resolver.** For a generic site with a contract parent: the game data lists that site at the parent -> +2 "game data: <parent> has a <site> ✓"; the game data knows the parent and it has no such site -> −2 "game data: <parent> has no <site>"; the game data doesn't know the site name -> nothing. A text carrying a code ("Security Compound [DC_Stan_Covalex_S1_S1DC06_FOB]") -> the site's parent from the code exactly ("game code <code> ✓", confidence 10); the "[CODE]" part is not part of the name. With the switch off none of this is used (the table is empty).
 60. **A place without a body takes its twin's.** In `mergeLocations` a place with coordinates but no body (UEX lists "Covalex Distribution Center S4DC05" without one) takes the body and system of the same place (same name, or the Center/Centre spelling) within 1 km, so "on <Body>" in a contract can be checked against it.
 
@@ -153,7 +153,7 @@ Why (user): "I asked you to streamline the process... that means the entire name
 
 Tests: `resolver-scan-fix`, `resolver-log-no-rename`, `resolver-typed-start`, `resolver-memory-everywhere` in `test/replay/replay.mjs`; `resolve_checks.mjs` (the case table, now with the log lines) and the guard.
 
-Known limits: a body's radius is estimated from its places, so a body with few or no roster places can't be matched (the local planet table, userData/other-bodies.json, uses the panel's exact `Radius:` once WHERE AM I has read it near that body). A marker on a body with no place within 10 km of it stays uncalibrated, and its step still shows "Not found in UEX".
+Known limits: a body's radius is estimated from its places, so a body with few or no roster places can't be matched (the local planet table, <data folder>/other-bodies.json, uses the panel's exact `Radius:` once WHERE AM I has read it near that body). A marker on a body with no place within 10 km of it stays uncalibrated, and its step still shows "Not found in UEX".
 
 ## OTHER MODE settings tab (batch 10, user 2026-10-14)
 
@@ -220,6 +220,108 @@ Tests: `learned-data-tab` in `test/replay/replay.mjs` (menu in Other mode only; 
 counts against `other-matches.json`; the open "? not sure" stop in Needs your eye, fixed there; KEEP MINE and USE WHERE I
 WAS; sort by TIMES SEEN both ways; Sites and Planets from a seeded `other-bodies.json`; MatchFix "Open in Learned Data"
 lands on the entry); `test/replay/memory_checks.mjs` (the `reset` set and its undo).
+
+## Data folder and releases (batch 12, user 2026-10-14)
+
+Why: the app's files sat in Electron's hidden `%APPDATA%\SuperCargo`, hard to find, back up or move. They now live in one
+visible folder in the user folder, like Gremlin's `%USERPROFILE%\Gremlin Platforms`, and releases ship as an installer
+plus a portable zip from `swill008/SuperCargo-All`. Updates work like Gremlin's (a Check for Updates window that asks
+first). Final scope (contract 14, user-approved 2026-10-14): folder name `SuperCargo-OtherModes`, CHANGE… used as is,
+the damaged-data check, the update window, reference data status, overlay fixes O1-O3, release notes rules N1-N5.
+
+81. **Where files live.** `src/main/paths.ts` owns every path. The data folder is `<HOME>/SuperCargo-OtherModes`
+    (`DATA_FOLDER_NAME`; `%USERPROFILE%\SuperCargo-OtherModes`), or `settings.dataFolder` when that folder exists or can be made and is writable.
+    In it: `manifest.json`, `history.json`, `window-state.json`, `other-jobs.json`, `other-matches.json`,
+    `other-bodies.json`, `other-uex-places.json`, the `uex-*.json` caches, `game-data/`, `logs/` (`supercargo.log`,
+    `trace*.jsonl`), `ocr-samples/`, `other-ocr-session/`, `outbox/` + `upload-queue.json`, `reference-data-status.json`,
+    and `exports/` (default folder of the diagnostics and run-export save dialogs). These known names are the
+    "SuperCargo files"; `holdsData(dir)` is true when any of them exists in that folder's root. `settings.json` is never
+    one of them (never moved, never copied). `settings.json` is always in the default folder
+    (`settingsFile()`), so a moved folder can be found. Large re-downloadable caches (`tessdata/`, `ocr-model/`) and
+    Chromium's own files stay in Electron's userData (`cachePath()`).
+82. **Fresh start.** Nothing is read from, moved out of or deleted in the old `%APPDATA%\SuperCargo` folder.
+83. **Moving it.** Settings → GENERAL → DATA FOLDER (`DataFolderRow.tsx`) shows the folder ("default", or the fallback
+    reason) with CHANGE…, OPEN FOLDER and RESET TO DEFAULT. CHANGE… uses the picked folder AS IS (no subfolder is made).
+    No SuperCargo files there: the current data is copied in first (never overwriting a file). SuperCargo files there:
+    `checkDataFolder()`; fine: used as is; damaged: nothing is saved and the row shows an inline warning listing the
+    files and reasons with RESET AND CONTINUE / CANCEL. RESET AND CONTINUE (`dataFolder:repair`) runs
+    `moveForRepair(target)`, then copies the current data in ("Moved the old files to <folder>. Copied N files.").
+    CANCEL keeps the old folder. On success `settings.dataFolder` is saved and the app asks for a restart (RESTART NOW);
+    the change takes effect on the next start. IPC `dataFolder:get / :choose / :reset / :open / :restart / :repair`
+    (`src/main/dataFolderIpc.ts`).
+84. **Fallback.** A chosen folder that can't be used at start (missing drive, no write access) is not used: the app runs
+    on the default folder and DATA FOLDER shows why (`dataFolderStatus().fallback`).
+85. **Releases.** Version line R1, app semver `1.0.0`. Windows: `SuperCargo-OtherModes-R1-<ver>-Setup.exe` (per-user
+    NSIS, no admin, install folder can be changed, desktop shortcut optional and unticked, the choice kept on silent
+    updates, uninstall never touches user data; updates itself after asking) and
+    `SuperCargo-OtherModes-R1-<ver>-Portable.zip` (never downloads; the update window offers Open Release Page). Built
+    by `.github/workflows/release-win.yml`, notes in `release-notes/<ver>.md`.
+86. **Damaged data at start-up.** After app ready and before any window opens, `startupDataCheck()`
+    (`src/main/dataCheck.ts`) runs `checkDataFolder(dataFolder())`: each existing SuperCargo JSON file must parse and
+    have the shape its loader expects (for example `history.json` `{ entries: [] }`). Any problem shows a native
+    warning "SuperCargo data can't be read" listing the files and reasons, with "Reset and continue" / "Quit" (Quit is
+    the default and the cancel button). Reset: `moveForRepair()` moves ALL SuperCargo files and folders (not only the
+    damaged ones; not `settings.json`, not `Moved for Repair`) into `<folder>\Moved for Repair\<YYYY-MM-DD HH-MM>\`
+    keeping the folder structure (" (2)", " (3)"… on a clash), logs what moved, and the app starts with empty data.
+    Quit: the app quits and changes nothing. A chosen folder that is missing at start still falls back (rule 84).
+87. **Updates like Gremlin.** `src/main/updater.ts` checks once at start-up when `autoCheckUpdates` (default ON, label
+    "Check for updates at start-up") and whenever Settings → GENERAL → UPDATES → CHECK FOR UPDATES is pressed. No
+    hourly recheck; no automatic download (`autoDownload` and `autoInstallOnAppQuit` off). Prerelease versions skip
+    checks. States (`UpdateState`): checking, upToDate, available, downloading, ready, error, failed.
+88. **The Check for Updates window** (`UpdateWindow.tsx`, modal). Opens by itself when the start-up check finds a
+    version that isn't skipped; stays quiet at start-up for skipped / up to date / error. Available: "R1 <new> is
+    available. You have R1 <cur>." with the notes and Update Now / Skip This Version / Later (portable: Open Release
+    Page / Skip This Version / Later). Update Now: progress bar ("Downloading… 12.3 / 85.0 MB"), then electron-updater
+    checks size and sha512 from `latest.yml`; ready: "Downloaded and checked. Install and Restart to finish." (Install
+    and Restart / Later; Later leaves a small "Update ready — INSTALL AND RESTART" bar). A failed check of the download
+    is "The download failed: <msg>" with Try Again / Open Release Page / Close; a failed check for updates is
+    "Couldn't check for updates: <msg>" with Try Again / Close.
+89. **What's new.** `src/main/releaseNotes.ts` reads the GitHub releases of `swill008/SuperCargo-All` (10 s timeout)
+    and keeps every version newer than the running one up to the offered one, newest first; from each body only the
+    text under "## What's new in R1 <ver>" (or "## What's new in <ver>") up to the next heading. Fetched before
+    "available" is sent and kept for the session. Several versions: each starts with a small muted "What's new in R1
+    <v>" line. Markdown is rendered as React elements (headings, bullets, bold), never as raw HTML. No notes: "Release
+    notes unavailable."; the "Full release notes on GitHub ↗" link and updating still work.
+90. **Skip This Version** saves `settings.skippedUpdateVersion`. The start-up check stays quiet for that version;
+    CHECK FOR UPDATES by hand still shows it; a newer version is offered as normal.
+91. **Updated notice.** At start-up, when `settings.lastRunVersion` is set and older than the running version, the app
+    shows once "Updated — now R1 <ver>" with WHAT'S NEW (release page) and a close X; then `lastRunVersion` is saved.
+92. **Reference data status.** The ships, locations, commodities, cargo grids and contract box sizes still come from
+    the original SuperCargo author's repo (`AquatikJustice/SuperCargo` main `data/uex`, checked by `hashes.json`).
+    Every check records per file: up to date / updated / couldn't download / fingerprint didn't match (kept the old
+    copy) / format not understood (kept the old copy), with the time and a detail, in
+    `reference-data-status.json`; an unreachable list marks every file "couldn't download". Failures log a warning per
+    file. The update window's bottom panel (`RefDataStatus.tsx`) lists the files, "Last checked …", the source line
+    and CHECK NOW; Settings → UPDATES shows "⚠ Reference data: <n> file(s) couldn't be updated — see Check for
+    Updates" when any file failed. Diagnostics export a `REFERENCE DATA` section. Test seam: `SC_TEST_REFDATA_BASE`.
+93. **Overlay stop header (O1).** The stop card header has a fixed height: line 1 is the place name on one line, cut
+    with "…" (full name in a hover tooltip); line 2 is the tags and Body · System. Stepping ‹ › between stops never
+    changes the card height.
+94. **Reputation ranges (O2).** A log reward like "[100–500 Rep]" / "[100-500 Rep]" / "[1,000 – 2,500 Rep]" gives `rep`
+    = low and `repMax` = high (only when high > low), carried from the event to the job and the saved job. Every place
+    Other mode shows rep reads "+<rep>–<repMax> REP" (en dash) when `repMax` is set, else "+<rep> REP" as before.
+95. **Altitude from position (O3).** When the altitude read from the screen is garbled, missing or implausible, the
+    start label ("Hurston · 436 km up") uses |position − body centre| − body radius (exact radius when known, estimated
+    otherwise). A sane screen altitude that agrees with the computed one within the documented tolerance is kept.
+96. **Release notes are written as we go (N1-N5).** Every batch commit adds its lines to `release-notes/<next
+    version>.md`. `scripts/release-body.mjs` refuses notes without a "### New", "### Changed" or "### Fixed" section
+    with at least one bullet, with placeholders (TODO, TBD, FIXME, "…"/"..." bullets, "<", lorem), or identical to the
+    previous version's. `test/replay/run_all.mjs` runs `release_checks.mjs`, so a missing or empty file for
+    `package.json`'s version fails the run. The release workflow stops before building when the tag
+    `SuperCargo-OtherModes-R1-<ver>` already exists, and writes the final release body to the job summary.
+
+Update test hook: `SC_TEST_UPDATE_FEED=<json>` (`{version, notes?, portable?, failCheck?, failDownload?, upToDate?}`)
+runs check and download on timers with no network; Install and Restart only logs "update install (test)".
+
+Tests: `data-folder` in `test/replay/replay.mjs` (files land in `HOME/SuperCargo-OtherModes`, none in Electron userData; settings.json
+read from the default folder; the old folder neither read nor written; CHANGE… to a folder that holds data uses it as is,
+to an empty folder copies the data; `settings.dataFolder` saved; RESTART relaunches; after the restart the app runs on the
+moved folder; an unusable folder falls back to the default with the reason in Settings); `damaged-data`, `update-window`,
+`refdata-status`, `overlay-header` in the same harness; `test/replay/paths_checks.mjs` (holdsData, checkDataFolder,
+moveForRepair, switchTo / repair), `test/replay/update_checks.mjs` (whatsNew, fetchNotes order, skip, updated notice),
+`test/replay/refresh_checks.mjs` (each reference data state), `test/replay/where_checks.mjs` (rep ranges, computed
+altitude), `test/replay/release_checks.mjs` (N1 rules, README rule, workflow summary + tag check).
+Every replay scenario seeds and reads its files in `<HOME>/SuperCargo-OtherModes` (`dataDir()` in the harness).
 
 ## Diagnostics footprint in upstream files
 

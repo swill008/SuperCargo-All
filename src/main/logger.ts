@@ -3,6 +3,7 @@
 import { app } from 'electron'
 import * as fs from 'node:fs'
 import * as path from 'node:path'
+import { dataPath } from './paths'
 import { formatEntry, type LogCategory, type LogEntry, type LogLevel, type LogSource } from '@shared/debugLog'
 
 type Fields = Record<string, unknown>
@@ -19,6 +20,7 @@ const PROBLEMS_MAX = 1000
 let pending: string[] = []
 let flushTimer: ReturnType<typeof setTimeout> | null = null
 let fileBytes = -1 // -1 = not stat'd yet
+let fileFor = '' // log file fileBytes belongs to; data folder can move at boot
 let verbose = false // never persisted, off at each start
 let quitHooked = false
 
@@ -31,7 +33,7 @@ export function setVerbose(on: boolean): void {
 }
 
 export function logDir(): string {
-  return path.join(app.getPath('userData'), 'logs')
+  return dataPath('logs')
 }
 
 function logFile(): string {
@@ -74,6 +76,10 @@ export function flush(): void {
   pending = []
   try {
     fs.mkdirSync(logDir(), { recursive: true })
+    if (fileFor !== logFile()) {
+      fileFor = logFile()
+      fileBytes = -1
+    }
     if (fileBytes < 0) {
       try {
         fileBytes = fs.statSync(logFile()).size

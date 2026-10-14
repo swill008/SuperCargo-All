@@ -1,8 +1,9 @@
 /**
  * Other-mode place book: UEX cities, stations, outposts.
- * Cached under userData. Does not change haul terminalsToLocations.
+ * Cached in the data folder. Does not change haul terminalsToLocations.
  */
 import { app } from 'electron'
+import { dataPath } from '../../main/paths'
 import fs from 'node:fs'
 import path from 'node:path'
 import type { Location } from '@shared/types'
@@ -34,7 +35,7 @@ type UexRow = {
 }
 
 function cacheFile(): string {
-  return path.join(app.getPath('userData'), FILE)
+  return dataPath(FILE)
 }
 
 function asLoc(row: UexRow): Location | null {
@@ -86,7 +87,7 @@ type Pos = { name: string; aliases?: string[]; system: string; body?: string; x:
 
 const norm = (s: string): string => s.toLowerCase().replace(/[^a-z0-9]+/g, '')
 
-// starmap positions: the "Update game data" copy (userData/game-data, main/gameData.ts) when there is one,
+// starmap positions: the "Update game data" copy (<data folder>/game-data, main/gameData.ts) when there is one,
 // else the bundled data/uex/other-positions.json (scripts/gen-other-positions.mjs)
 let positions: Map<string, Pos[]> | null = null
 onGameDataUpdated(() => {
@@ -188,7 +189,21 @@ export function loadOtherPlaces(): Location[] {
   }
 }
 
-export async function refreshOtherPlaces(haul: Location[]): Promise<Location[]> {
+// one download at a time: the start-up refresh and the window's own refresh often overlap and would pull the same lists twice
+let inFlight: Promise<Location[]> | null = null
+
+export function refreshOtherPlaces(haul: Location[]): Promise<Location[]> {
+  if (inFlight) {
+    logger.debug('other', 'places refresh joined the one already running')
+    return inFlight
+  }
+  inFlight = pullOtherPlaces(haul).finally(() => {
+    inFlight = null
+  })
+  return inFlight
+}
+
+async function pullOtherPlaces(haul: Location[]): Promise<Location[]> {
   try {
     const [cities, stations, outposts] = await Promise.all([
       pull('cities'),

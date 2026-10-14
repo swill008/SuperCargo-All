@@ -54,7 +54,8 @@ const RE_OBJECTIVE_ID = /ObjectiveId: \[([^\]]*)\]/
 const RE_BUILD = /BackupNameAttachment=".*?Build\((\d+)\)/
 const RE_SHARED = /ownerId\[([^\]]+)\].*?missionId\[([^\]]+)\]/
 const RE_END = /MissionId\[([^\]]+)\].*?CompletionType\[(\w+)\](?:.*?Reason\[([^\]]*)\])?/
-const RE_REP = /\[\s*([\d,]+)\s*Rep\b/i
+// "[313 Rep]" or a range "[100–500 Rep]" / "[100-500 Rep]" / "[1,000 – 2,500 Rep]" (en/em dash or hyphen)
+const RE_REP = /\[\s*([\d,]+)(?:\s*[-–—]\s*([\d,]+))?\s*Rep\b/i
 
 // "<EM4>[313 Rep]</EM4>" and "<EM4>[BP]</EM4>" go whole; other EM tags keep their text
 export function cleanAcceptTitle(raw: string): string {
@@ -111,7 +112,11 @@ export function createOtherLineParser(opts: OtherLineParserOptions = {}): OtherL
         title,
         isHauling: isHaulingContract(marker?.generator ?? '', marker?.contractName ?? '', title)
       }
-      if (repM) ev.rep = parseInt(repM[1].replace(/,/g, ''), 10)
+      if (repM) {
+        ev.rep = parseInt(repM[1].replace(/,/g, ''), 10)
+        const high = repM[2] ? parseInt(repM[2].replace(/,/g, ''), 10) : NaN
+        if (high > ev.rep) ev.repMax = high
+      }
       if (marker?.generator) ev.generator = marker.generator
       if (marker?.contractName) ev.contractName = marker.contractName
       const owner = sharedBy.get(missionId)

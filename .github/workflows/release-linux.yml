@@ -1,12 +1,10 @@
 name: Build Linux release
 
-# Builds the AppImage and uploads it to the draft release for the pushed tag.
-# Windows is published locally; this fills in Linux so electron-updater serves
-# both from one release. Trigger by pushing a v* tag, or run it by hand.
+# Builds SuperCargo-OtherModes-R1-<version>.AppImage and uploads it with
+# latest-linux.yml to the release tagged SuperCargo-OtherModes-R1-<version> in
+# swill008/SuperCargo-All, so electron-updater serves both platforms from one
+# release. Run it by hand after release-win.yml has published that version.
 on:
-  push:
-    tags:
-      - 'v*'
   workflow_dispatch:
 
 permissions:
@@ -16,12 +14,26 @@ jobs:
   appimage:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
         with:
           node-version: 20
           cache: npm
+      - name: Read version
+        id: version
+        run: |
+          v=$(node -p "require('./package.json').version")
+          echo "version=$v" >> "$GITHUB_OUTPUT"
+          echo "base=SuperCargo-OtherModes-R1-$v" >> "$GITHUB_OUTPUT"
       - run: npm ci
-      - run: npm run publish:linux
-        env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      - run: npm run dist:linux
+      - name: Upload to the release
+        uses: softprops/action-gh-release@v3
+        with:
+          repository: swill008/SuperCargo-All
+          tag_name: ${{ steps.version.outputs.base }}
+          files: |
+            release/${{ steps.version.outputs.base }}.AppImage
+            release/latest-linux.yml
+          overwrite_files: true
+          token: ${{ secrets.GITHUB_TOKEN }}

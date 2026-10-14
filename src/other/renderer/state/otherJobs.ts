@@ -248,6 +248,7 @@ function fromHistory(h: OtherHistoryEntry): OtherJob {
     contractName: h.contractName,
     source: h.source,
     rep: h.rep,
+    repMax: h.repMax,
     sharedBy: h.sharedBy,
     sessionAt: h.sessionAt,
     acceptedAt: h.acceptedAt,
@@ -648,6 +649,7 @@ function reduce(d: Draft, e: OtherLogEvent, ctx: Ctx): void {
           objectivesLocked: undefined,
           steps: base.status === 'complete' ? undone(base.steps) : base.steps,
           rep: e.rep ?? base.rep,
+          repMax: e.rep != null ? e.repMax : base.repMax,
           sharedBy: e.sharedBy ?? base.sharedBy,
           acceptedAt: e.at,
           endedAt: undefined
@@ -689,6 +691,7 @@ function reduce(d: Draft, e: OtherLogEvent, ctx: Ctx): void {
         contractName: e.contractName || undefined,
         source: 'log',
         rep: e.rep,
+        repMax: e.repMax,
         sharedBy: e.sharedBy,
         sessionAt: d.sessionAt,
         acceptedAt: e.at

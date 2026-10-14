@@ -4,12 +4,23 @@ import * as fs from 'node:fs'
 import * as os from 'node:os'
 import { IPC } from '@shared/channels'
 import type { AppSettings, DetectedInstalls, ManifestDoc, HistoryDoc, OcrEditTally, OcrResult, OcrWaitState, BoxSizeReport, CrewSnapshot, CrewMember, CrewMirror } from '@shared/types'
+import { setDataFolderOverride, dataPath } from './paths'
+import { startupDataCheck } from './dataCheck'
 import { loadSettings, saveSettings, loadManifest, saveManifest, loadHistory, saveHistory, loadWindowState, saveWindowState } from './store'
 import { detectInstalls, orderChannels, channelFromPath } from './installDetect'
 import { LogWatcher } from './logWatcher'
-import { initUpdater, checkForUpdates, quitAndInstall } from './updater'
+import {
+  initUpdater,
+  checkForUpdates,
+  downloadUpdate,
+  skipVersion,
+  lastUpdateState,
+  takeUpdatedNotice,
+  quitAndInstall
+} from './updater'
 import { loadCachedRoster, loadCachedLocations, loadCachedCommodities, loadCachedGridFaces, loadCachedContractOverrides, workingTreeData } from './uex'
-import { seedCacheIfNeeded, refreshFromRepo } from './dataSync'
+import { seedCacheIfNeeded, refreshFromRepo, refDataStatus, checkRefDataNow, setRefDataBroadcast } from './dataSync'
+import { registerDataFolderIpc } from './dataFolderIpc'
 import { scanSessionLog } from './scanLog'
 import { randomUUID } from 'node:crypto'
 import { listDisplays } from './capture'
@@ -40,7 +51,10 @@ let compactWindow: BrowserWindow | null = null
 let watcher: LogWatcher | null = null
 // stable relay: watchers get replaced, Other keeps one subscription + parser
 const otherLines = new EventEmitter()
+// boot order: settings.json (always in the default folder) first, then the data folder override,
+// then everything that reads or writes data files
 let settings: AppSettings = loadSettings()
+setDataFolderOverride(settings.dataFolder ?? null)
 
 function isExternalUrl(url: string): boolean {
   const dev = process.env['ELECTRON_RENDERER_URL']
@@ -708,6 +722,16 @@ function scheduleCliDiagnostics(): void {
 }
 
 function registerIpc(): void {
+  // Settings → GENERAL → DATA FOLDER; saved through this file's in-memory settings so a later save keeps it
+  registerDataFolderIpc({
+    getSettings: () => settings,
+    updateSettings: (patch) => {
+      settings = { ...settings, ...patch }
+      saveSettings(settings)
+      broadcast(IPC.evtSettings, settings)
+    },
+    getMainWindow: () => mainWindow
+  })
   ipcMain.on(IPC.traceRecords, (_e, recs: unknown) => {
     if (!Array.isArray(recs) || !isTraceOn()) return
     for (const raw of recs.slice(0, 500)) {
@@ -812,7 +836,7 @@ function registerIpc(): void {
     if (!mainWindow) return null
     const picked = await dialog.showSaveDialog(mainWindow, {
       title: 'Export run',
-      defaultPath: payload.defaultName,
+      defaultPath: dataPath('exports', path.basename(payload.defaultName)),
       filters: [{ name: 'JSON', extensions: ['json'] }]
     })
     if (picked.canceled || !picked.filePath) return null
@@ -889,6 +913,14 @@ function registerIpc(): void {
     contractData.setOverrides(loadCachedContractOverrides())
     pushRosters()
     return res
+  })
+
+  ipcMain.handle(IPC.refDataGet, () => refDataStatus())
+  ipcMain.handle(IPC.refDataCheck, async () => {
+    const s = await checkRefDataNow()
+    contractData.setOverrides(loadCachedContractOverrides())
+    pushRosters()
+    return s
   })
 
   ipcMain.handle(IPC.telemetryStatus, () => telemetry.status())
@@ -989,9 +1021,20 @@ function registerIpc(): void {
     logger.info('app', 'verbose logging', { on: !!on })
   })
   ipcMain.handle(IPC.updaterCheck, async () => {
-    await checkForUpdates()
+    await checkForUpdates(true)
     return true
   })
+  ipcMain.handle(IPC.updaterDownload, async () => {
+    await downloadUpdate()
+    return true
+  })
+  ipcMain.handle(IPC.updaterSkip, (_e, version: unknown) => {
+    if (typeof version !== 'string') return false
+    skipVersion(version)
+    return true
+  })
+  ipcMain.handle(IPC.updaterState, () => lastUpdateState())
+  ipcMain.handle(IPC.updaterUpdatedNotice, () => takeUpdatedNotice())
   ipcMain.handle(IPC.updaterQuitAndInstall, () => {
     quitAndInstall()
     return true
@@ -1009,7 +1052,13 @@ if (!gotLock) {
     }
   })
 
-  app.whenReady().then(() => {
+  app.whenReady().then(async () => {
+    // damaged SuperCargo data: Reset and continue (moved to "Moved for Repair") or Quit, before anything reads it
+    const dc = await startupDataCheck()
+    if (dc === 'quit') {
+      app.quit()
+      return
+    }
     registerIpc()
     registerOther({ watcher: otherLines, getSettings: () => settings, getMainWindow: () => mainWindow, reregisterHotkeys: registerHotkey })
     autoDetectLogPath()
@@ -1057,7 +1106,8 @@ if (!gotLock) {
       console.warn('[contractData] index build failed:', e)
     }
 
-    // seed bundled, refresh in background
+    // seed bundled, refresh in background (status saved + sent to the windows after every check)
+    setRefDataBroadcast((s) => broadcast(IPC.evtRefData, s))
     seedCacheIfNeeded()
     contractData.setOverrides(loadCachedContractOverrides())
     pushRosters()
@@ -1069,15 +1119,17 @@ if (!gotLock) {
       }
     })
 
-    initUpdater(() => mainWindow)
-    if (app.isPackaged) {
-      // recheck hourly during long sessions
-      const RECHECK_MS = 1000 * 60 * 60
-      if (settings.autoCheckUpdates) setTimeout(() => void checkForUpdates(), 4000)
-      setInterval(() => {
-        if (settings.autoCheckUpdates) void checkForUpdates()
-      }, RECHECK_MS)
-    }
+    initUpdater({
+      getWindow: () => mainWindow,
+      getSettings: () => settings,
+      updateSettings: (patch) => {
+        settings = { ...settings, ...patch }
+        saveSettings(settings)
+        broadcast(IPC.evtSettings, settings)
+      }
+    })
+    // one check at start-up, like Gremlin (no hourly recheck); checkForUpdates skips unpackaged/prerelease builds
+    if (settings.autoCheckUpdates) setTimeout(() => void checkForUpdates(false), 4000)
 
     app.on('activate', () => {
       if (BrowserWindow.getAllWindows().length === 0) createWindow()

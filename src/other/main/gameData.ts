@@ -2,12 +2,13 @@
  * Star Citizen Wiki game data (scunpacked-data): site codes (trade_locations.json) and starmap
  * positions (starmap_positions.json). The app ships both (data/uex/site-codes.json,
  * data/uex/other-positions.json); "Update game data" downloads fresh copies into
- * userData/game-data/, which then win over the bundled ones (main/uex.ts reads
+ * <data folder>/game-data/, which then win over the bundled ones (main/uex.ts reads
  * gameDataPositionsFile()).
  */
 import * as fs from 'node:fs'
 import * as path from 'node:path'
 import { app, BrowserWindow, ipcMain } from 'electron'
+import { dataPath } from '../../main/paths'
 import { IPC } from '@shared/channels'
 import {
   buildSiteCodes,
@@ -39,7 +40,7 @@ let updating: Promise<GameDataStatus> | null = null
 const listeners = new Set<() => void>()
 
 function userDir(): string {
-  return path.join(app.getPath('userData'), 'game-data')
+  return dataPath('game-data')
 }
 
 function bundledFile(name: string): string | null {
@@ -190,7 +191,7 @@ async function runUpdate(): Promise<GameDataStatus> {
   return getGameDataStatus()
 }
 
-/** "Update game data": download both files, rebuild, save under userData/game-data (one at a time) */
+/** "Update game data": download both files, rebuild, save under <data folder>/game-data (one at a time) */
 export function updateGameData(): Promise<GameDataStatus> {
   if (!updating) updating = runUpdate().finally(() => (updating = null))
   return updating

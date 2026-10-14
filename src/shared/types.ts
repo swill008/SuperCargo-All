@@ -195,6 +195,13 @@ export interface AppSettings {
 
   autoCheckUpdates: boolean
 
+  /** user-chosen data folder; absent = %USERPROFILE%\\SuperCargo (settings.json always stays in the default folder) */
+  dataFolder?: string
+  /** Skip This Version in the update window */
+  skippedUpdateVersion?: string
+  /** version that ran last time, for the "Updated — now R1 x.y.z" notice */
+  lastRunVersion?: string
+
   onboarded: boolean
   /** write the diagnostics trace (what was read and decided, performance) for EXPORT DIAGNOSTICS; default on */
   traceInterpretation?: boolean
@@ -690,15 +697,76 @@ export interface DataSyncResult {
   reached: boolean
   changed: boolean
   updated: string[]
+  /** per-file result of this check (also saved, see RefDataStatus) */
+  status?: RefDataStatus
 }
 
+/** one reference data file (ships, locations, ...) from the original author's repo */
+export type RefDataFileState =
+  | 'upToDate' // matches the published fingerprint
+  | 'updated' // newer copy downloaded and checked
+  | 'downloadFailed' // couldn't download (no connection, bad status)
+  | 'hashMismatch' // downloaded but the fingerprint didn't match; kept the old copy
+  | 'badFormat' // downloaded but not in the expected shape; kept the old copy
+  | 'notChecked' // never checked yet
+
+export interface RefDataFileStatus {
+  /** hashes.json key: ships, locations, commodities, gridFaces, contractOverrides */
+  key: string
+  /** plain name for the user, e.g. "Ships" */
+  label: string
+  state: RefDataFileState
+  /** when this state was reached (ms since epoch) */
+  at: number
+  detail?: string
+}
+
+export interface RefDataStatus {
+  /** last check (ms), null = never */
+  checkedAt: number | null
+  /** the list of fingerprints (hashes.json) could be read */
+  reached: boolean
+  /** where the files come from, for display */
+  source: string
+  files: RefDataFileStatus[]
+}
+
+/** the What's new part of one release's notes ("## What's new in R1 <version>" up to the next "## ") */
+export interface ReleaseNote {
+  version: string
+  /** markdown: "### New|Changed|Fixed" headings and "- " bullets, **bold** allowed */
+  markdown: string
+}
+
+// Update window states (like Gremlin's DialogUpdate: checking, upToDate, available, downloading, ready, error, failed)
 export type UpdateState =
   | { kind: 'checking' }
-  | { kind: 'available'; version: string }
-  | { kind: 'none'; version: string }
-  | { kind: 'downloading'; percent: number }
-  | { kind: 'downloaded'; version: string }
+  | { kind: 'upToDate'; version: string }
+  | {
+      kind: 'available'
+      version: string
+      /** What's new of the offered version and every version between, newest first; null = unavailable */
+      notes: ReleaseNote[] | null
+      /** release page of the offered version ("Full release notes on GitHub", and the zip copy's download) */
+      url: string
+      /** zip copy: no self-update, Open Release Page instead of Update Now */
+      portable: boolean
+      /** the user skipped this version (Skip This Version); the start-up check stays quiet */
+      skipped?: boolean
+      sizeBytes?: number
+    }
+  | { kind: 'downloading'; version: string; percent: number; transferred?: number; total?: number }
+  | { kind: 'ready'; version: string; /** download size and fingerprint checked */ verified: boolean }
+  /** the check itself failed (no connection, GitHub down) */
   | { kind: 'error'; message: string }
+  /** the download or its check failed */
+  | { kind: 'failed'; version: string; message: string }
+
+/** shown once after the app started on a newer version than last time */
+export interface UpdatedNotice {
+  from: string
+  to: string
+}
 
 export interface CrewMirror {
   doc: ManifestDoc
@@ -740,4 +808,46 @@ export interface CrewState {
   lastAt: number
   members: CrewMember[]
   error?: string
+}
+
+/** Settings > GENERAL > DATA FOLDER */
+export interface DataFolderInfo {
+  /** folder this run uses */
+  folder: string
+  isDefault: boolean
+  defaultFolder: string
+  /** why the chosen folder wasn't used (this run is on the default) */
+  fallback?: string
+  /** folder chosen this session that takes effect after a restart */
+  pending?: string
+}
+
+/** a SuperCargo file in a data folder that can't be read */
+export interface DataFolderProblem {
+  /** path relative to the data folder, e.g. "history.json" */
+  file: string
+  /** plain reason, e.g. "not valid JSON" */
+  reason: string
+}
+
+export interface DataFolderCheck {
+  folder: string
+  /** the folder holds SuperCargo files */
+  hasData: boolean
+  problems: DataFolderProblem[]
+}
+
+export interface DataFolderChangeResult {
+  ok: boolean
+  canceled?: boolean
+  error?: string
+  /** files copied into the new folder (0 when it already held SuperCargo data) */
+  copied?: number
+  /** the new folder already held SuperCargo data that reads fine, so it is used as is */
+  usedExisting?: boolean
+  /** the picked folder holds damaged SuperCargo data: ask Reset and continue / Cancel, then call repairDataFolder(target) */
+  needsRepair?: DataFolderCheck
+  /** Reset moved the damaged files here (inside the data folder) */
+  movedTo?: string
+  info: DataFolderInfo
 }

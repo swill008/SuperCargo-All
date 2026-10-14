@@ -5,7 +5,8 @@
  */
 import { promises as fsp } from 'node:fs'
 import * as path from 'node:path'
-import { app, ipcMain } from 'electron'
+import { ipcMain } from 'electron'
+import { dataFolder } from '../../main/paths'
 import { IPC } from '@shared/channels'
 import type { AppSettings } from '@shared/types'
 import type { OtherJobsDoc } from '@other/otherJob'
@@ -19,7 +20,7 @@ import { logger } from '../../main/logger'
 const FILE = 'other-jobs.json'
 
 function dir(): string {
-  return app.getPath('userData')
+  return dataFolder()
 }
 function filePath(): string {
   return path.join(dir(), FILE)

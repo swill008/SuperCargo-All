@@ -71,6 +71,11 @@ export interface DisplayInfo {
   radiusM?: number;
   /** "Altitude" metres above the body surface */
   altitudeM?: number;
+  /** set by resolveDisplayInfo (O3): 'screen' = altitudeM kept; 'computed' = altitudeM was garbled/missing/implausible
+   *  and |position| − body radius was used instead (altitudeComputedM) */
+  altitudeSource?: "screen" | "computed";
+  /** |position − body centre| − body radius, metres (resolveDisplayInfo, when a body position and a radius are known) */
+  altitudeComputedM?: number;
   /** every "Zone: <name> Pos: x y z" line, metres (top 4: ship, planet zone, SolarSystem, Root) */
   zones?: { name: string; pos: { x: number; y: number; z: number } }[];
   /** ship zone ("MISC_Hull_B …") local position, metres */
@@ -573,6 +578,17 @@ const STANTON_INDEX: Record<number, string> = {
 
 const NEAR_M = 100_000;
 const STALE_MS = 2 * 60_000;
+/**
+ * O3 tolerance: the screen's Altitude is height above the ground, |position| − radius is height above the body's
+ * radius, so they differ by the ground height (a few km at most). The screen value is kept when it is within 5 km of
+ * the computed one with an exact radius (the panel's "Radius:" or the planet table, same 5 km as the
+ * "|pos| ≈ radius + altitude" check), or within 20 km with the roster's estimated radius.
+ */
+export const ALT_TOL_EXACT_M = 5_000;
+export const ALT_TOL_ESTIMATE_M = 20_000;
+/** a screen Altitude outside this range is never plausible (metres) */
+const ALT_MIN_M = -1_000;
+const ALT_MAX_M = 1e13;
 
 function formatUp(m: number): string {
   return m < 1000
@@ -626,13 +642,95 @@ export function resolveDisplayInfo(
     ? oocParts(info.planetZone)?.body
     : undefined;
   const bodyLabel = zoneBody || info.body;
-  const alt = info.altitudeM;
   const radius = info.radiusM;
+  // the near body, looked up once: the read system first, then every system (a misread system name)
+  let bodyHit: { loc: Placed; system: string | null } | null | undefined;
+  const nearBody = (): { loc: Placed; system: string | null } | null => {
+    if (bodyHit !== undefined) return bodyHit;
+    bodyHit = null;
+    if (!bodyLabel) return bodyHit;
+    const own = bodyOrPlace(bodyLabel, system);
+    if (own) bodyHit = { loc: own, system };
+    else if (system) {
+      const any = bodyOrPlace(bodyLabel, null);
+      if (any) bodyHit = { loc: any, system: knownSystem(any.system) || null };
+    }
+    return bodyHit;
+  };
+
+  // O3: the screen's Altitude is kept only when it is plausible and agrees with |position| − radius;
+  // otherwise it counts as missing and the computed height is used (the "N km up" label, the near test)
+  let alt: number | undefined = info.altitudeM;
+  let computedUp: number | undefined;
+  const rel = cam ?? zonePos;
+  if (rel) {
+    let r: number | undefined;
+    let exact = false;
+    if (typeof radius === "number" && radius > 0) {
+      r = radius;
+      exact = true;
+    } else {
+      const b = nearBody()?.loc.name;
+      const t = b ? opts?.bodyRadius?.(b) : undefined;
+      if (typeof t === "number" && Number.isFinite(t) && t > 0) {
+        r = t;
+        exact = true;
+      } else if (b) r = bodyRadius(b, locations, opts?.bodyRadius) ?? undefined;
+    }
+    if (typeof r === "number" && Number.isFinite(r)) {
+      const up = (v: Pt): number => Math.hypot(v.x, v.y, v.z) - r!;
+      const tol = exact ? ALT_TOL_EXACT_M : ALT_TOL_ESTIMATE_M;
+      const c = up(rel);
+      info.altitudeComputedM = c;
+      // well inside the body: the position line is the garbled one, so it can't fix the altitude
+      if (c >= -tol) computedUp = c;
+      else
+        checks.push({
+          item: "altitude from position",
+          ok: false,
+          why: `${km(c)} from position is inside the body: not used`,
+        });
+      // computedUp undefined: nothing to compare with; the screen altitude is judged on its own below
+      if (computedUp !== undefined && typeof alt === "number") {
+        const a = alt;
+        const sane = Number.isFinite(a) && a >= ALT_MIN_M && a <= ALT_MAX_M;
+        const agrees =
+          sane && [cam, zonePos].some((v) => v && Math.abs(up(v) - a) <= tol);
+        if (!agrees) {
+          checks.push({
+            item: "altitude from position",
+            ok: true,
+            why: `screen ${sane ? km(a) : "unreadable"} vs ${km(computedUp)} from position (${exact ? "exact" : "estimated"} radius, tolerance ${km(tol)}): using ${km(computedUp)}`,
+          });
+          alt = undefined;
+        }
+      } else if (computedUp !== undefined) {
+        checks.push({
+          item: "altitude from position",
+          ok: true,
+          why: `no screen altitude: ${km(computedUp)} from position (${exact ? "exact" : "estimated"} radius)`,
+        });
+      }
+    }
+  }
+  if (
+    typeof alt === "number" &&
+    !(Number.isFinite(alt) && alt >= ALT_MIN_M && alt <= ALT_MAX_M)
+  ) {
+    checks.push({
+      item: "screen altitude",
+      ok: false,
+      why: "implausible: not used",
+    });
+    alt = undefined;
+  }
+  if (typeof alt === "number") info.altitudeSource = "screen";
+  else if (computedUp !== undefined) info.altitudeSource = "computed";
+
   let near = !!zonePos;
   if (!near && cam) {
     if (typeof alt === "number") near = alt < NEAR_M;
-    else if (typeof radius === "number")
-      near = Math.hypot(cam.x, cam.y, cam.z) - radius < NEAR_M;
+    else if (computedUp !== undefined) near = computedUp < NEAR_M;
   }
   if (typeof alt === "number" && alt > NEAR_M && (zonePos || cam)) {
     checks.push({
@@ -643,15 +741,12 @@ export function resolveDisplayInfo(
     near = false;
   }
   if (near) {
-    nearLoc = bodyLabel ? bodyOrPlace(bodyLabel, system) : null;
-    if (!nearLoc && bodyLabel && system) {
-      // system read wrong: the body may be in another system's pool
-      const any = bodyOrPlace(bodyLabel, null);
-      if (any) {
-        nearLoc = any;
-        system = knownSystem(any.system) || null;
-        pool = placed(locations, system);
-      }
+    const hit = nearBody();
+    nearLoc = hit?.loc ?? null;
+    if (hit && hit.system !== system) {
+      // system read wrong: the body was in another system's pool
+      system = hit.system;
+      pool = placed(locations, system);
     }
     let ok = !!nearLoc;
     if (!nearLoc)

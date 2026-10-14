@@ -2,11 +2,11 @@
 
 import * as fs from 'node:fs'
 import * as path from 'node:path'
-import { app } from 'electron'
 import { logger } from '../logger'
+import { dataPath } from '../paths'
 
 function root(): string {
-  return path.join(app.getPath('userData'), 'ocr-samples')
+  return dataPath('ocr-samples')
 }
 function pendingDir(): string {
   return path.join(root(), 'pending')

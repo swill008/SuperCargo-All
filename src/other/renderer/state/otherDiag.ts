@@ -122,6 +122,7 @@ function compactJob(j: OtherJob | OtherHistoryEntry, status: string): Record<str
     source: j.source,
     reward: j.reward,
     rep: j.rep,
+    repMax: j.repMax,
     sharedBy: j.sharedBy,
     sessionAt: j.sessionAt,
     acceptedAt: j.acceptedAt,

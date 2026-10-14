@@ -1,6 +1,6 @@
 {
   "name": "supercargo",
-  "version": "0.9.1",
+  "version": "1.0.0",
   "description": "Star Citizen hauling manifest & cargo planning desktop app",
   "main": "./out/main/index.js",
   "author": "Travis",
@@ -8,7 +8,7 @@
   "private": true,
   "repository": {
     "type": "git",
-    "url": "https://github.com/AquatikJustice/SuperCargo.git"
+    "url": "https://github.com/swill008/SuperCargo-All.git"
   },
   "scripts": {
     "dev": "electron-vite dev",
@@ -23,6 +23,8 @@
     "test:sanitize": "node test/replay/sanitize_checks.mjs",
     "test:where": "node test/replay/where_checks.mjs",
     "test:bodies": "node test/replay/bodies_checks.mjs",
+    "test:logparse": "node test/replay/logparse_checks.mjs",
+    "test:places": "node test/replay/places_checks.mjs",
     "typecheck:node": "tsc --noEmit -p tsconfig.node.json --composite false",
     "typecheck:web": "tsc --noEmit -p tsconfig.web.json --composite false",
     "typecheck": "npm run typecheck:node && npm run typecheck:web",
@@ -36,8 +38,8 @@
     "dist": "electron-vite build && electron-builder --win --publish never",
     "dist:dir": "electron-vite build && electron-builder --win --dir",
     "dist:linux": "electron-vite build && electron-builder --linux --publish never",
-    "publish": "electron-vite build && electron-builder --win --publish always",
-    "publish:linux": "electron-vite build && electron-builder --linux --publish always"
+    "test:release": "node test/replay/release_checks.mjs",
+    "test:update": "node test/replay/update_checks.mjs"
   },
   "dependencies": {
     "@supabase/supabase-js": "^2.115.0",

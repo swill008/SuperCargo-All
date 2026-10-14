@@ -2,9 +2,10 @@
 
 import * as fs from 'node:fs'
 import * as path from 'node:path'
-import { app, nativeImage } from 'electron'
+import { nativeImage } from 'electron'
 import type { OcrEngine, OcrRecognition } from './engine'
 import { logger } from '../logger'
+import { cachePath } from '../paths'
 
 const IMG_H = 32
 
@@ -36,7 +37,7 @@ export class OnnxEngine implements OcrEngine {
   private loadFailed = false
 
   private modelDir(): string {
-    return path.join(app.getPath('userData'), 'ocr-model')
+    return cachePath('ocr-model')
   }
   private modelPath(): string {
     return path.join(this.modelDir(), 'model.onnx')
