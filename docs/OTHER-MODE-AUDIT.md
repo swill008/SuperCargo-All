@@ -358,6 +358,49 @@ behaviour); `diag-copy-buttons` and `diag-copy-none` fail (no `combinedImage`, n
   close; the start is kept and the read's checks say why.
 - The replay seam captures nothing, so the replay's `<base>-all.png` holds only the overlay picture.
 
+## One stop-place resolver (batch 7)
+
+Added 2026-10-14, user-approved ("choice 2", CONTRACT8 and its addendum). Rules 34-41 in
+[STANDALONE.md](../src/other/STANDALONE.md#one-stop-place-resolver-batch-7-user-2026-10-14); files and data flow in
+[SYSTEM-MAP.md](SYSTEM-MAP.md#other-mode-one-stop-place-resolver-batch-7-2026-10-14).
+
+**Why.** A stop's place was found by a chain of rules (exact, contains, address, O/0 fold, doubled-zero fold, marker
+fallback, nearest place for `near`, the pickup exception). Each fix added a link and the links interacted: J82's
+pickup took the drop-off marker's 4 km (batch 6 patched that with one more link). The chain also gave no way to say
+"not sure": a weak contains-match was used as if it were certain, and a look-alike name on another body could be
+measured as the real one.
+
+**The fix.** One pure resolver (`src/other/otherResolve.ts`) weighs the evidence (name, body and system hints, the
+game's marker, "you are here" from a read start) for every roster candidate and returns one `StopPlace` per stop:
+status, confidence 0-10, the evidence in order and the top candidates. A candidate wins only when it clearly beats the
+runner-up; otherwise the marker decides, or the stop is "not sure" / "not found" with no distance. Every screen shows
+the result as a tag ("✓ exact", "≈ corrected", "📍 game marker", "? guess", "⚠ mismatch", "? not sure", "✗ not
+found") and the export lists every non-exact stop under `## MATCHES`.
+
+**Addendum (user, mid-build): generic sites.** "Security Compound" and the like are not UEX places; the user: the
+contract says Security Compound, but the actual location is Covalex Distribution Center S1DC06 on Hurston. A stop with
+no name candidate now belongs to the place the contract names (within 25 km of the marker), else to the nearest place
+to the marker, shown "Security Compound · at <place>"; the marker still gives the position.
+
+| # | Case | Expected | Test |
+|---|---|---|---|
+| R1 | J82 pickup "Covalex Distribution Center S1DCO06 on Hurston", standing there | ≈ corrected to Covalex S1DC06, ~0.3 km, "you are here" in the evidence | `match-j82-corrected`; resolve_checks table |
+| R2 | J82 drop-off "Security Compound" after the pickup | 📍 game marker, "at Covalex Distribution Centre S1DC06" (from the contract), ~4 km | `match-j82-dropoff-site` |
+| R3 | J74 drop-off "Security Compound" (contract names HDPC-Farnesway, > 25 km from the marker) | 📍 game marker, "at HDPC-Cassillo" (from the marker), confidence 8 | `match-j74-marker`; the J74 / REFRESH scenarios now accept "at HDPC-Cassillo" |
+| R4 | Look-alike "Covalex Distribution Center S1DC06 on microTech" (the real one is on Hurston) | ✗ not found, no distance (never the Hurston place's) | `match-lookalike-other-body` |
+| R5 | "Shubin Mining Facility on Lyria" (SAL-2 and SAL-5 score the same), no marker | ? not sure, "not sure: A or B?", no distance | `match-two-equal` |
+| R6 | Only exact names | `## MATCHES` says "(all exact)", no warning tag | `match-all-exact` |
+| R7 | Every distinct stop text from the user's six exports | as decided per row in `fixtures/stop_cases.json` | `resolve_checks.mjs` |
+
+Run only these app scenarios (after `npm run build`): `node test/replay/replay.mjs match-j82-corrected
+match-j82-dropoff-site match-j74-marker match-lookalike-other-body match-two-equal match-all-exact`.
+
+**Known limits.**
+- Two equal candidates with no marker stay "not sure" until the game gives a marker for the stop.
+- A generic site with no marker and no place named in the contract has no distance.
+- Address hints come only from "... on <body>" style text.
+- Rows marked `expect: null` in the case table (answers that the exports can't decide) are reported, not tested.
+
 ## Suggested order
 
 1. **Make it green:**

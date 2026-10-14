@@ -7,6 +7,7 @@ import type { Location } from '@shared/types'
 import type { ListOrder, OtherHistoryEntry, OtherJob, OtherStep } from '@other/otherJob'
 import { explainPlaceLookup, findRosterLocation, listOpenStops, locationPoint, resolveOrigin, stepActivePlace, stepIsPickup } from '@other/otherNext'
 import { explainTravel, systemKey, type GeoPoint } from '@other/otherGeo'
+import type { StopPlace } from '@other/otherResolve'
 import { accuracyWord, whereAccuracy, type DisplayInfo, type Where } from '@other/otherWhere'
 import { isRootFrame, isSmallZone, type MarkerPos } from '@other/otherMarkers'
 import { OTHER_SETTING_DEFAULTS, otherSetting, resolveWorkMode } from '@other/workMode'
@@ -131,13 +132,13 @@ function compactJob(j: OtherJob | OtherHistoryEntry, status: string): Record<str
   }
 }
 
-/** why a stop has no distance, in the order listOpenStops checks */
+/** why a stop has no distance: start first, then the resolver's answer (match), then the marker chain */
 function noDistanceWhy(
   step: OtherStep,
+  match: StopPlace,
   missionId: string | undefined,
   start: Location | undefined,
   startPoint: GeoPoint | undefined,
-  locations: Location[],
   useMarker: boolean,
   zones: Record<string, { bad?: boolean }>
 ): string {
@@ -145,13 +146,15 @@ function noDistanceWhy(
     if (!start) return 'no start'
     if (!hasCoords(start)) return 'start not in UEX (no coords)'
   }
-  const place = stepActivePlace(step)
-  const named = findRosterLocation(place, locations)
-  if (named && !hasCoords(named)) return 'place in UEX without coords'
-  const why = named ? '' : 'place not in UEX'
-  // a combined step's marker is the drop-off's: never used before the pickup (otherNext stepPointWithSource)
-  if (!named && stepIsPickup(step)) return 'pickup place not found (drop-off marker not used before pickup)'
-  if (!useMarker) return `${why || 'no coords'}; marker distance off`
+  if (match.point) return `${match.status}: point found; no travel from start`
+  const top = match.candidates[0]
+  let why: string
+  if (match.status === 'unsure') why = `not sure: ${match.candidates.slice(0, 2).map((c) => c.name).join(' or ')}`
+  else if (top && !top.hasCoords && top.score >= 5) why = 'place in UEX without coords'
+  else why = 'place not in UEX'
+  // the marker belongs to the step's own objective place: none for a pickup not yet collected
+  if (stepIsPickup(step)) return `${why}; pickup (drop-off marker not used before pickup)`
+  if (!useMarker) return `${why}; marker distance off`
   const raw = missionId && step.objectiveId ? otherMissionMarkers().get(missionId)?.get(step.objectiveId) : undefined
   if (!raw) return `${why}; no marker for objective${step.objectiveId ? '' : ' (no objectiveId)'}`
   if (isSmallZone(raw)) return `${why}; marker in small zone`
@@ -159,6 +162,23 @@ function noDistanceWhy(
   if (!zc) return `${why}; marker zone not calibrated`
   if (zc.bad) return `${why}; marker zone conflicting (bad)`
   return `${why}; marker not placed on step`
+}
+
+/** a StopPlace for diagnostics: the chosen roster place as name + coords only (no Location bulk) */
+function compactMatch(m: StopPlace): Record<string, unknown> {
+  return {
+    text: m.text,
+    label: m.label,
+    status: m.status,
+    confidence: m.confidence,
+    source: m.source,
+    match: m.match ? { name: m.match.name, x: round(m.match.x), y: round(m.match.y), z: round(m.match.z) } : null,
+    point: roundPoint(m.point),
+    near: m.near ? { name: m.near.name, meters: round(m.near.meters) } : undefined,
+    site: m.site ? { name: m.site.name, meters: m.site.meters == null ? null : round(m.site.meters), from: m.site.from } : undefined,
+    evidence: m.evidence,
+    candidates: m.candidates
+  }
 }
 
 function markerInfo(missionId: string | undefined, step: OtherStep): Record<string, unknown> | undefined {
@@ -225,6 +245,8 @@ export function otherDiagSnapshot(): Record<string, unknown> {
 
     const orders: ListOrder[] = ['distance', 'route', 'manual']
     const distanceTable: Record<string, unknown> = {}
+    // every open stop whose place isn't an exact name match (## MATCHES in the export)
+    const matches: Record<string, unknown>[] = []
     for (const order of orders) {
       const rows = listOpenStops(live, start, locations, {
         showAll,
@@ -233,16 +255,30 @@ export function otherDiagSnapshot(): Record<string, unknown> {
         jobOrder: s.jobOrder,
         markerDistance: useMarker,
         withdrawnSteps: withdrawn,
-        origin: origin.point
+        origin: origin.point,
+        originIsRead: origin.kind != null && origin.kind !== 'typed'
       })
+      if (order === 'distance') {
+        for (const r of rows) {
+          if (r.match.status === 'exact') continue
+          matches.push({
+            ref: r.job.ref,
+            step: r.step.label,
+            text: r.match.text,
+            status: r.match.status,
+            confidence: r.match.confidence,
+            evidence: r.match.evidence,
+            candidates: r.match.candidates
+          })
+        }
+      }
       distanceTable[order] = rows.map((r) => {
         const place = stepActivePlace(r.step)
-        const uex = findRosterLocation(place, locations)
         return {
           ref: r.job.ref,
           step: r.step.label,
           place,
-          uex: uex ? { name: uex.name, x: round(uex.x), y: round(uex.y), z: round(uex.z) } : null,
+          match: compactMatch(r.match),
           marker: markerInfo(r.job.missionId, r.step),
           position: r.step.position,
           distance: round(r.distance),
@@ -253,7 +289,7 @@ export function otherDiagSnapshot(): Record<string, unknown> {
           legSurface: r.legSurface,
           distanceSource: r.distanceSource,
           noDistance: r.noDistance,
-          why: r.distance == null ? noDistanceWhy(r.step, r.job.missionId, startLoc, origin.point, locations, useMarker, zones) : undefined,
+          why: r.distance == null ? noDistanceWhy(r.step, r.match, r.job.missionId, startLoc, origin.point, useMarker, zones) : undefined,
           lookup: explainPlaceLookup(place, locations),
           travel: (() => {
             const t = explainTravel(fromPoint, r.point, locations)
@@ -342,7 +378,8 @@ export function otherDiagSnapshot(): Record<string, unknown> {
       locations: { count: locations.length, withCoords: locations.filter(hasCoords).length },
       places: placesSummary(locations, useStore.getState().locations?.length ?? 0),
       locationHistory: whereHistory(),
-      distanceTable
+      distanceTable,
+      matches
     }
   } catch (err) {
     return { error: (err as Error)?.message ?? String(err) }

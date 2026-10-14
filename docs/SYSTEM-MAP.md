@@ -359,3 +359,42 @@ before an export: "no export yet"). The where reads have their ServerTime line s
   star-frame line would have been close.
 - The test seam captures nothing, so in replay `<base>-all.png` holds only the overlay picture; stitching several
   pictures is checked in `diag_checks.mjs`.
+
+## Other mode: one stop-place resolver (batch 7, 2026-10-14)
+
+Rules 34-41 in [STANDALONE.md](../src/other/STANDALONE.md#one-stop-place-resolver-batch-7-user-2026-10-14); audit in
+[OTHER-MODE-AUDIT.md](OTHER-MODE-AUDIT.md#one-stop-place-resolver-batch-7). Replaces the batch 4/6 lookup chain above
+(`stepPointWithSource`, `withNearBody`, the folded / doubled-zero tiers): every screen, the route sort and diagnostics
+read one `StopPlace` per stop.
+
+| File | Owns (batch 7) | Entry points |
+|---|---|---|
+| `src/other/otherResolve.ts` (new, pure) | The one normaliser and the evidence-weighing resolver; generic sites and their parent place | `placeKey()`, `resolveStopPlace(step, ctx)`, `resolvePlaceText(text, ctx, marker?)`, `matchWord(status)`, `NEAR_MAX_M`; types `MatchStatus`, `Evidence`, `Candidate`, `StopPlace` (`site?` for generic sites), `ResolveCtx` |
+| `src/other/otherNext.ts` | Stop rows, distances and route order read the resolver (one call per step per `listOpenStops` run); `findRosterLocation` (typed starts) uses `placeKey`; re-exports `NEAR_MAX_M` | `listOpenStops()` (`originIsRead?` opt; rows and groups carry `match`), `explainPlaceLookup()` (wrapper over `resolvePlaceText`) |
+| `src/other/renderer/state/otherJobs.ts`, `src/other/otherJob.ts` | Markers stored for every step whose objective has one (evidence); "learned" only for status `marker` | `placeSteps()` |
+| `src/other/renderer/state/otherDiag.ts`, `src/main/diagnostics.ts` (upstream) | SNAPSHOT row `match`; `other.matches`; `## MATCHES` after `## SNAPSHOT` ("(all exact)" when none) | `matchesText()` |
+| `src/other/renderer/components/MatchTag.tsx` (new), `OtherOverlay.tsx`, `pages/NextPage.tsx`, `pages/JobsParts.tsx` | The match tag (word + confidence colour, evidence tooltip); "<site> · at <place>" labels; "not sure: A or B?" line | `MatchTag` |
+| `test/replay/resolve_checks.mjs`, `test/replay/fixtures/stop_cases.json` (new) | The real-case table and a check per scoring / decision rule | `node test/replay/resolve_checks.mjs` |
+| `test/replay/replay.mjs` | Scenarios `match-j82-corrected`, `match-j82-dropoff-site`, `match-j74-marker`, `match-lookalike-other-body`, `match-two-equal`, `match-all-exact`; helper `matchRun()`; `MATCHES` added to the required export sections; the J74 / REFRESH checks accept "at HDPC-Cassillo" | see the command below |
+
+**Data flow.**
+
+```
+listOpenStops(origin) ─► per open step resolveStopPlace(step, { locations, useMarker, here: origin if read })
+   active text (pickup place while stepIsPickup, else step.location) ─► placeKey + address hints (body / system)
+   marker = step.position, except while the pickup is open (it belongs to the drop-off)
+   roster candidates ─► name / body / system / marker / here evidence ─► scores
+      clear winner (>= 5, +3 over runner-up) ─► exact / corrected / guess   (> 10 km from marker ─► mismatch, marker point)
+      no name candidate (generic site) ─► site: contract-named place within 25 km of marker, else nearest place to marker
+      no winner + marker ─► marker (conf 8)   no marker: tie ─► unsure   else ─► none (no distance)
+   ─► StopPlace { label, point, source, status, confidence, evidence, candidates, near, site }
+   ─► rows / groups / route sort ─► overlay header + Next + Jobs (MatchTag) ─► SNAPSHOT match + ## MATCHES
+```
+
+Run only the batch 7 app scenarios (after `npm run build`):
+`node test/replay/replay.mjs match-j82-corrected match-j82-dropoff-site match-j74-marker match-lookalike-other-body match-two-equal match-all-exact`
+
+**Known limits.**
+- A generic site with no marker and no place named in the contract shows no distance ('none').
+- Two equal candidates with no marker stay 'unsure' until the game gives a marker.
+- Address hints only come from "... on <body>" style text; a body named elsewhere in the text isn't used.

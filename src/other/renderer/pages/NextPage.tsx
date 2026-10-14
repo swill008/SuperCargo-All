@@ -16,6 +16,8 @@ import type { WhereSource } from '@other/otherWhere'
 import { useMergedLocations } from '../state/otherPlaces'
 import { otherView, withoutWithdrawn, JobTags } from './JobsPartsStyles'
 import { AccSlider, TrackedTag } from '../components/AccuracyMeter'
+import { MatchTag, candidatesLine, stopPlaceText } from '../components/MatchTag'
+import type { StopPlace } from '@other/otherResolve'
 
 type OpenStop = OpenStopRow
 
@@ -81,13 +83,20 @@ interface Group {
   surface?: boolean
   legJumps?: number
   legSurface?: boolean
+  /** location grouping only: the stop's resolved place (first row's) */
+  match?: StopPlace
 }
 
-/** "<pickup> (pickup) → <dest>" or "→ N destinations" */
-function pickupHeading(place: string, rows: OpenStopRow[], fmt: (p: string) => string): string {
+/** withdrawn rows are listed, never resolved */
+const noMatch = (text: string): StopPlace => ({
+  text, label: text, source: null, status: 'none', confidence: 0, evidence: [], candidates: []
+})
+
+/** "<pickup> (pickup) → <dest>" or "→ N destinations"; `shown` is the pickup as displayed */
+function pickupHeading(shown: string, rows: OpenStopRow[], fmt: (p: string) => string): string {
   const dests = [...new Set(rows.map((r) => placeKey(r.dest)).filter(Boolean))]
   const to = dests.length > 1 ? `${dests.length} destinations` : fmt(rows[0]?.dest ?? '')
-  return `${fmt(place)} (pickup) \u2192 ${to}`
+  return `${shown} (pickup) \u2192 ${to}`
 }
 
 export default function NextPage(): React.ReactElement {
@@ -139,15 +148,17 @@ export default function NextPage(): React.ReactElement {
   // name kept for fallbacks (roster lookup when there is no point)
   const startLocation = origin.name ?? ''
   const originPoint = origin.point
+  // a read start (not typed) counts as "you are here" evidence for the resolver
+  const originIsRead = origin.kind != null && origin.kind !== 'typed'
   const originAt = origin.kind === 'typed' ? startTypedAt : origin.kind ? where?.at : undefined
   const view = otherView(settings)
   // withdrawn steps are never next; 'grey' lists them dimmed under their group when showing all
   const liveJobs = useMemo(() => jobs.map(withoutWithdrawn), [jobs])
   const open = useMemo(
     () => listOpenStops(liveJobs, startLocation, locations, {
-      showAll, hideCompleted, listOrder, jobOrder, markerDistance, origin: originPoint
+      showAll, hideCompleted, listOrder, jobOrder, markerDistance, origin: originPoint, originIsRead
     }),
-    [liveJobs, startLocation, originPoint, locations, showAll, hideCompleted, listOrder, jobOrder, markerDistance]
+    [liveJobs, startLocation, originPoint, originIsRead, locations, showAll, hideCompleted, listOrder, jobOrder, markerDistance]
   )
 
   const groups = useMemo(() => {
@@ -174,7 +185,8 @@ export default function NextPage(): React.ReactElement {
         heading: g.place.trim() || 'Unspecified location',
         rows: g.rows, withdrawn: [], place: true,
         distance: g.distance, leg: g.leg, distanceSource: g.distanceSource, noDistanceWhy: g.noDistanceWhy,
-        jumps: g.jumps, surface: g.surface, legJumps: g.legJumps, legSurface: g.legSurface
+        jumps: g.jumps, surface: g.surface, legJumps: g.legJumps, legSurface: g.legSurface,
+        match: g.match
       }))
     }
     if (showAll && view.withdrawn === 'grey') {
@@ -188,7 +200,8 @@ export default function NextPage(): React.ReactElement {
           if (!g) continue
           g.withdrawn.push({
             job, step, distance: null, leg: null, distanceSource: null, noDistance: false,
-            place: stepActivePlace(step), pickup: false, dest: step.location, noDistanceWhy: null
+            place: stepActivePlace(step), pickup: false, dest: step.location, noDistanceWhy: null,
+            match: noMatch(stepActivePlace(step))
           })
         }
       }
@@ -215,9 +228,11 @@ export default function NextPage(): React.ReactElement {
   const renderGroup = (g: Group, gi: number): React.ReactElement => {
     const { rows, withdrawn } = g
     const pickup = g.place && rows.some((r) => r.pickup)
-    // a marker-placed stop shows "near <place>" instead of "Not found in UEX"
-    const near = rows.find((r) => r.near)?.near
-    const title = !g.place ? g.heading : pickup ? pickupHeading(g.heading, rows, fmtPlace) : formatPlaceNear(g.heading, near, locations)
+    // a marker-placed stop says where it is ("· at <place>") instead of "Not found in UEX"
+    const near = g.match ? g.match.near : rows.find((r) => r.near)?.near
+    const shown = g.match ? stopPlaceText(g.match, g.heading, locations) : formatPlaceNear(g.heading, near, locations)
+    const title = !g.place ? g.heading : pickup ? pickupHeading(shown, rows, fmtPlace) : shown
+    const unsure = g.place ? candidatesLine(g.match) : null
     const snapped = g.place
       ? rows.some((r) => (r.pickup ? r.step.pickupLocationSnapped : r.step.locationSnapped))
       : rows.some((r) => r.step.locationSnapped)
@@ -267,8 +282,10 @@ export default function NextPage(): React.ReactElement {
               width: 22, height: 22, borderRadius: '50%', border: `1px solid ${C.acc}`, color: C.acc,
               fontFamily: F.display, fontSize: 12, display: 'inline-flex', alignItems: 'center', justifyContent: 'center', flex: 'none'
             }}>{gi + 1}</span>
-            <div style={{ fontFamily: F.display, fontSize: 16, color: snapped ? C.acc : C.text, flex: 1 }}>
+            <div style={{ fontFamily: F.display, fontSize: 16, color: snapped ? C.acc : C.text, flex: 1, minWidth: 0 }}>
               {title}
+              {g.place && g.match ? <span style={{ marginLeft: 8 }}><MatchTag match={g.match} /></span> : null}
+              {unsure ? <div style={{ fontFamily: F.body, fontSize: 12, color: C.amber, marginTop: 2 }}>{unsure}</div> : null}
             </div>
             {groupBy === 'job' && trackedMissionId && rows[0]?.job.missionId === trackedMissionId ? <TrackedTag /> : null}
             {groupBy === 'job' && rows[0] ? <JobTags rep={rows[0].job.rep} sharedBy={rows[0].job.sharedBy} view={view} /> : null}
@@ -299,7 +316,7 @@ export default function NextPage(): React.ReactElement {
               </span>
             ) : null}
           </div>
-          {rows.map(({ job, step, distance, distanceSource, jumps, surface, near, pickup }) => (
+          {rows.map(({ job, step, distance, distanceSource, jumps, surface, near, pickup, match }) => (
             <div key={step.id} style={{ display: 'grid', gridTemplateColumns: '1fr auto', gap: 12, alignItems: 'center', padding: '6px 0 2px 32px' }}>
               <div>
                 <div style={{ fontFamily: F.body, fontSize: 14, color: C.textBody }}>{step.label}</div>
@@ -312,7 +329,7 @@ export default function NextPage(): React.ReactElement {
                       color: step.locationSnapped ? C.acc : C.dim,
                       marginTop: 2
                     }}
-                  >{formatPlaceNear(step.location, near && !pickup ? near : undefined, locations)}</div>
+                  >{!pickup && match ? stopPlaceText(match, step.location, locations) : formatPlaceNear(step.location, near && !pickup ? near : undefined, locations)}</div>
                 ) : null}
                 <div style={{ fontFamily: F.mono, fontSize: 12, color: C.dim, marginTop: 2 }}>
                   {job.ref}
@@ -320,8 +337,13 @@ export default function NextPage(): React.ReactElement {
                   {distance != null ? (
                     <span title={distTip(distance, distanceSource)}>{` \u00b7 ${distText(distance, distanceSource, jumps, surface)}`}</span>
                   ) : ''}
+                  {groupBy === 'job' && match ? <span style={{ marginLeft: 8 }}><MatchTag match={match} /></span> : null}
                   {groupBy === 'location' ? <span style={{ marginLeft: 8 }}><JobTags rep={job.rep} sharedBy={job.sharedBy} view={view} /></span> : null}
                 </div>
+                {/* location grouping says this once on the stop's heading */}
+                {groupBy === 'job' && candidatesLine(match) ? (
+                  <div style={{ fontFamily: F.body, fontSize: 12, color: C.amber, marginTop: 2 }}>{candidatesLine(match)}</div>
+                ) : null}
               </div>
               <Btn onClick={() => toggleStep(job.id, step.id)} style={{
                 border: 0, background: C.acc, color: '#111',

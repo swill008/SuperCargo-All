@@ -11,7 +11,7 @@ import type { AppSettings } from '@shared/types'
 import { stitchBitmaps, type Bitmap, type DiagCopyImagesResult, type DiagCopyTextResult, type DiagExportOptions, type DiagExportResult, type TraceArea, type TraceRecord } from '@shared/trace'
 import { getProblems, getRecent, logger } from './logger'
 import { flushTrace, getTraceRing, isTraceOn, traceFiles } from './trace'
-import { learnIdentity, makeSanitizer, sanitizeDeep } from './sanitize'
+import { learnIdentity, makeSanitizer, sanitizeDeep, type Clean } from './sanitize'
 
 const SNAPSHOT_WAIT_MS = 3000
 const DEFAULT_HOURS = 3
@@ -136,6 +136,15 @@ function otherSections(): [string, unknown][] {
   } catch (e) {
     return [['OTHER DIAG ERROR', { error: (e as Error).message }]]
   }
+}
+
+/** ## MATCHES: snapshot.other.matches (stops whose place isn't an exact name match), "(all exact)" when none */
+function matchesText(snapshot: unknown, clean: Clean): string {
+  const other = (snapshot as { other?: { matches?: unknown } } | null)?.other
+  const matches = other?.matches
+  if (matches === undefined) return '(no other snapshot)'
+  if (Array.isArray(matches) && matches.length === 0) return '(all exact)'
+  return JSON.stringify(sanitizeDeep(matches, clean), null, 2) ?? 'null'
 }
 
 // filled first, in this order; any other key follows
@@ -421,6 +430,9 @@ export async function buildDiagnostics(opts: DiagExportOptions = {}, savePath?: 
       '',
       '## SNAPSHOT',
       JSON.stringify(sanitizeDeep(snapshot, clean), null, 2),
+      '',
+      '## MATCHES',
+      matchesText(snapshot, clean),
       '',
       '## OVERLAY',
       JSON.stringify(sanitizeDeep(overlaySnap, clean), null, 2),

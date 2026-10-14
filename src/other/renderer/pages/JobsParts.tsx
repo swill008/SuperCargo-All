@@ -5,7 +5,10 @@ import { Btn } from '@renderer/components/ui'
 import { useStore } from '@renderer/state/store'
 import { type OtherJobEdit } from '../state/otherJobs'
 import { useMergedLocations } from '../state/otherPlaces'
-import { formatPlaceWithBodySystem } from '@other/otherNext'
+import { formatPlaceWithBodySystem, stepIsPickup } from '@other/otherNext'
+import { resolveStopPlace, type StopPlace } from '@other/otherResolve'
+import { otherSetting } from '@other/workMode'
+import { MatchTag, stopPlaceText } from '../components/MatchTag'
 import { OTHER_KIND_LABEL, type OtherJob } from '@other/otherJob'
 import { EditForm } from './JobsPartsUi'
 import { miniBtn, tagStyle, otherView, shownSteps, JobTags } from './JobsPartsStyles'
@@ -26,13 +29,20 @@ export function JobRow({ job, uex, expanded, editing, onToggle, onEdit, onCancel
   onImportOcr: () => void
   onStep: (id: string) => void
 }): React.ReactElement {
-  const view = otherView(useStore((s) => s.settings))
+  const settings = useStore((s) => s.settings)
+  const view = otherView(settings)
+  const useMarker = otherSetting(settings, 'otherMarkerDistance')
   // withdrawn steps don't count toward progress
   const live = job.steps.filter((s) => !s.withdrawn)
   const done = live.filter((s) => s.done).length
   const total = live.length
   const steps = shownSteps(job.steps, view)
   const roster = useMergedLocations()
+  // how sure each open step's next place is (same resolver as the Next tab and overlay)
+  const matchOf = (step: OtherJob['steps'][number]): StopPlace | null =>
+    job.status === 'active' && !step.done && !step.withdrawn && expanded && !editing
+      ? resolveStopPlace(step, { locations: roster, useMarker }, job)
+      : null
   const statusColor = job.status === 'active' ? C.green : job.status === 'complete' ? C.dim : C.amber
   return (
     <div style={{ borderBottom: `1px solid ${C.lineSoft}` }}>
@@ -68,7 +78,10 @@ export function JobRow({ job, uex, expanded, editing, onToggle, onEdit, onCancel
               No objectives yet. Use EDIT or IMPORT FROM OCR.
             </div>
           )}
-          {steps.map((step) => (
+          {steps.map((step) => {
+            const match = matchOf(step)
+            const pickupActive = stepIsPickup(step)
+            return (
             <div key={step.id} style={{ display: 'flex', alignItems: 'center', gap: 12, padding: '7px 0', borderBottom: `1px dotted ${C.lineFaint}`, opacity: step.withdrawn ? 0.5 : 1 }}>
               <span style={{ color: step.withdrawn ? C.ghost : step.done ? C.green : C.acc }}>{step.done ? '\u25c6' : '\u25c7'}</span>
               <span style={{ flex: 1, minWidth: 0 }}>
@@ -83,7 +96,7 @@ export function JobRow({ job, uex, expanded, editing, onToggle, onEdit, onCancel
                       color: step.pickupLocationSnapped ? C.acc : C.dim,
                       marginTop: 2
                     }}
-                  >Collect: {formatPlaceWithBodySystem(step.pickupLocation, roster)}</span>
+                  >Collect: {pickupActive && match ? stopPlaceText(match, step.pickupLocation, roster) : formatPlaceWithBodySystem(step.pickupLocation, roster)}{pickupActive && match ? <span style={{ marginLeft: 8 }}><MatchTag match={match} /></span> : null}</span>
                 ) : null}
                 {step.location ? (
                   <span
@@ -95,7 +108,7 @@ export function JobRow({ job, uex, expanded, editing, onToggle, onEdit, onCancel
                       color: step.locationSnapped ? C.acc : C.dim,
                       marginTop: 2
                     }}
-                  >{step.pickupLocation ? `Deliver: ${formatPlaceWithBodySystem(step.location, roster)}` : formatPlaceWithBodySystem(step.location, roster)}</span>
+                  >{(() => { const shown = !pickupActive && match ? stopPlaceText(match, step.location, roster) : formatPlaceWithBodySystem(step.location, roster); return step.pickupLocation ? `Deliver: ${shown}` : shown })()}{!pickupActive && match ? <span style={{ marginLeft: 8 }}><MatchTag match={match} /></span> : null}</span>
                 ) : null}
               </span>
               {step.withdrawn && (
@@ -105,7 +118,8 @@ export function JobRow({ job, uex, expanded, editing, onToggle, onEdit, onCancel
                 <Btn onClick={() => onStep(step.id)} style={miniBtn}>{step.done ? 'UNDO' : step.pickupLocation && !step.pickedUp ? 'GO HERE' : step.kind === 'turnin' ? 'TURN IN' : 'DONE'}</Btn>
               )}
             </div>
-          ))}
+            )
+          })}
           <div style={{ display: 'flex', gap: 8, marginTop: 12, flexWrap: 'wrap' }}>
             {job.status === 'active' && (
               <>

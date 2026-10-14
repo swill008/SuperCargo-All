@@ -8,6 +8,7 @@ import { resolveLogLocation, splitLogAddress } from '@shared/logLocation'
 import type { ListOrder, OtherJob, OtherStep } from '@other/otherJob'
 import { compareTravel, formatShortDistance, travel, type GeoPoint, type Travel } from './otherGeo'
 import { whereAccuracy, type Where, type WhereSource } from './otherWhere'
+import { NEAR_MAX_M, placeKey, resolveStopPlace, type ResolveCtx, type StopPlace } from './otherResolve'
 
 export type { ListOrder }
 
@@ -49,51 +50,39 @@ export function findNextTravelStop<T extends { step: OtherStep }>(open: T[], fro
   return undefined
 }
 
-/**
- * OCR-tolerant name key: lower case, words only, and inside words that carry a digit O -> 0 and
- * I/L -> 1 ("S1DCO6" = "S1DC06"). Applied to both sides, so only a fallback after plain matching.
- */
+/** the shared place key (placeKey in otherResolve); kept for callers of the old name */
 export function foldPlaceName(s: string): string {
-  return s
-    .toLowerCase()
-    .replace(/\s*\([^)]*\)\s*$/, '')
-    .split(/[^a-z0-9]+/)
-    .filter(Boolean)
-    .map((w) => (/\d/.test(w) ? w.replace(/o/g, '0').replace(/[il]/g, '1') : w === 'centre' ? 'center' : w))
-    .join(' ')
+  return placeKey(s)
 }
 
-/** fallback match on folded names (exact, then one contains the other, then doubled zeros); prefers the address's system */
+/** fallback match on placeKey (equal, then one contains the other); prefers the address's system, then a place with coords */
 function findFolded(raw: string, locations: Location[]): Location | undefined {
-  const { name, systemHint } = splitLogAddress(raw)
-  const key = foldPlaceName(name)
-  if (key.length < 4 || !/\d/.test(key)) return undefined
+  const pool = foldedPool(raw, locations)
+  return pool[0]
+}
+
+/** roster places matching raw by placeKey, best first (equal before contains; address system, then coords, first) */
+function foldedPool(raw: string, locations: Location[]): Location[] {
+  const { systemHint } = splitLogAddress(raw)
+  const key = placeKey(raw)
+  if (key.length < 4 || !/\d/.test(key)) return []
   // same place under two spellings (UEX "Center" without coords, starmap "Centre" with): take the one with coords
-  const pick = (hits: Location[]): Location | undefined => {
-    const inSystem = systemHint ? hits.filter((l) => l.system === systemHint) : []
-    const pool = inSystem.length ? inSystem : hits
-    return pool.find((l) => l.x != null && l.y != null && l.z != null) ?? pool[0]
-  }
-  const exact = locations.filter((l) => foldPlaceName(l.name) === key)
-  if (exact.length) return pick(exact)
-  const contains = locations.filter((l) => {
-    const n = foldPlaceName(l.name)
-    return n.length >= 4 && /\d/.test(n) && (n.includes(key) || key.includes(n))
-  })
-  if (contains.length) return pick(contains)
-  // last: OCR doubled zeros ("S1DCO06" = "S1DC06"), exact match only
-  const zk = foldZeros(key)
-  return pick(locations.filter((l) => foldZeros(foldPlaceName(l.name)) === zk))
+  const rank = (hits: Location[]): Location[] =>
+    hits
+      .map((l, i) => ({ l, i, s: (systemHint && l.system === systemHint ? 2 : 0) + (hasCoords(l) ? 1 : 0) }))
+      .sort((a, b) => b.s - a.s || a.i - b.i)
+      .map((x) => x.l)
+  const exact = locations.filter((l) => placeKey(l.name) === key)
+  if (exact.length) return rank(exact)
+  return rank(
+    locations.filter((l) => {
+      const n = placeKey(l.name)
+      return n.length >= 4 && /\d/.test(n) && (n.includes(key) || key.includes(n))
+    })
+  )
 }
 
-/** folded key with runs of zeros collapsed to one inside words that carry a digit ("s1dc006" -> "s1dc06") */
-function foldZeros(key: string): string {
-  return key
-    .split(' ')
-    .map((w) => (/\d/.test(w) ? w.replace(/0{2,}/g, '0') : w))
-    .join(' ')
-}
-
+/** a typed / named place (starts, other callers); open stops use resolveStopPlace */
 export function findRosterLocation(raw: string, locations: Location[]): Location | undefined {
   const trimmed = raw.trim()
   if (!trimmed || locations.length === 0) return undefined
@@ -147,19 +136,12 @@ export function explainPlaceLookup(raw: string, locations: Location[]): PlaceLoo
     return n.includes(key) || key.includes(n)
   })
   if (containsHits.length) return out('contains', resolved, containsHits[0], containsHits)
-  const folded = findFolded(trimmed, locations)
-  if (folded) {
-    const fk = foldPlaceName(splitLogAddress(trimmed).name)
-    const pool = locations.filter((l) => {
-      const n = foldPlaceName(l.name)
-      return n === fk || (n.length >= 4 && /\d/.test(n) && (n.includes(fk) || fk.includes(n))) || foldZeros(n) === foldZeros(fk)
-    })
-    // the chosen one first
-    return out('folded', resolved, folded, [folded, ...pool.filter((l) => l !== folded)])
-  }
+  // placeKey match (O/0, I/1, doubled zeros, Centre/Center); the chosen one first
+  const pool = foldedPool(trimmed, locations)
+  if (pool.length) return out('folded', resolved, pool[0], pool)
   // nothing matched: roster names sharing a word (4+ letters) with the text, as a hint
-  const words = foldPlaceName(trimmed).split(' ').filter((w) => w.length >= 4)
-  const near = words.length ? locations.filter((l) => foldPlaceName(l.name).split(' ').some((w) => words.includes(w))) : []
+  const words = placeKey(trimmed).split(' ').filter((w) => w.length >= 4)
+  const near = words.length ? locations.filter((l) => placeKey(l.name).split(' ').some((w) => words.includes(w))) : []
   return out('none', resolved, undefined, near)
 }
 
@@ -196,22 +178,38 @@ type Pos = { x?: number; y?: number; z?: number }
 
 const hasCoords = (p?: Pos): boolean => !!p && p.x != null && p.y != null && p.z != null
 
-/** marker positions are in the zone frame: treated as same system, unknown body (today's handling) */
-const markerPoint = (p: Pos): GeoPoint => ({ x: p.x!, y: p.y!, z: p.z!, system: null, body: null })
+/** resolves a step's active place; listOpenStops passes a cached one (one resolveStopPlace per step per run) */
+type StepResolver = (step: OtherStep, job: OtherJob) => StopPlace
 
-/** where a step is: its active place's UEX coords, else (markers on) its marker position */
-function stepPoint(step: OtherStep, locations: Location[], useMarker: boolean): GeoPoint | undefined {
-  return stepPointWithSource(step, locations, useMarker)?.point
+const resolverFor = (ctx: ResolveCtx): StepResolver => {
+  const cache = new Map<OtherStep, StopPlace>()
+  return (step, job) => {
+    let m = cache.get(step)
+    if (!m) {
+      m = resolveStopPlace(step, ctx, job)
+      cache.set(step, m)
+    }
+    return m
+  }
 }
 
-/** travel from start to a step's place (marker fallback when markers are on) */
+/** where a step is: the resolver's point (roster coords, or the game marker); `job` lets a generic site find the contract's place */
+function stepPoint(step: OtherStep, locations: Location[], useMarker: boolean, job?: OtherJob): GeoPoint | undefined {
+  return resolveStopPlace(step, { locations, useMarker }, job).point
+}
+
+/** StopPlace.source as the row's distanceSource */
+const sourceOf = (m: StopPlace): 'uex' | 'marker' | null => (m.source === 'roster' ? 'uex' : m.source)
+
+/** travel from start to a step's place (resolveStopPlace; pass the step's job so a generic site finds its place) */
 export function stepTravelFromStart(
   startName: string,
   step: OtherStep,
   locations: Location[],
-  useMarker = true
+  useMarker = true,
+  job?: OtherJob
 ): Travel | null {
-  return travel(locationPoint(findRosterLocation(startName, locations)), stepPoint(step, locations, useMarker), locations)
+  return travel(locationPoint(findRosterLocation(startName, locations)), stepPoint(step, locations, useMarker, job), locations)
 }
 
 /** distanceFromStart for a step: falls back to its marker position when the place has no UEX coords */
@@ -219,15 +217,18 @@ export function stepDistanceFromStart(
   startName: string,
   step: OtherStep,
   locations: Location[],
-  useMarker = true
+  useMarker = true,
+  job?: OtherJob
 ): number | null {
-  return stepTravelFromStart(startName, step, locations, useMarker)?.meters ?? null
+  return stepTravelFromStart(startName, step, locations, useMarker, job)?.meters ?? null
 }
 
-function compareStepsFrom(start: GeoPoint | undefined, locations: Location[], a: OtherStep | undefined, b: OtherStep | undefined, useMarker: boolean): number {
+type JobStep = { job: OtherJob; step: OtherStep | undefined }
+
+function compareStepsFrom(start: GeoPoint | undefined, locations: Location[], a: JobStep, b: JobStep, resolve: StepResolver): number {
   if (!start) return 0
-  const ta = a ? travel(start, stepPoint(a, locations, useMarker), locations) : null
-  const tb = b ? travel(start, stepPoint(b, locations, useMarker), locations) : null
+  const ta = a.step ? travel(start, resolve(a.step, a.job).point, locations) : null
+  const tb = b.step ? travel(start, resolve(b.step, b.job).point, locations) : null
   return compareTravel(ta, tb)
 }
 
@@ -313,8 +314,10 @@ export interface OpenStopRow {
   noDistanceWhy: 'not-in-uex' | 'no-start' | 'no-gateway' | null
   /** place position used for distance/leg (UEX coords or marker); absent when unknown */
   point?: GeoPoint
-  /** marker-based point only: nearest roster place within 25 km of it */
+  /** marker-based point only: nearest roster place within 25 km of it (match.near) */
   near?: PlaceNear
+  /** the stop place resolver's answer for this row's active place (status, confidence, evidence) */
+  match: StopPlace
 }
 
 export interface PlaceNear {
@@ -322,8 +325,8 @@ export interface PlaceNear {
   meters: number
 }
 
-/** how far a marker point may be from a roster place to be called "near" it */
-export const NEAR_MAX_M = 25_000
+/** how far a marker point may be from a roster place to be called "near" it (defined in otherResolve) */
+export { NEAR_MAX_M }
 
 /** nearest roster place (with coords) within 25 km of a point; undefined when none */
 export function nearestRosterPlace(p: GeoPoint | undefined, locations: Location[]): PlaceNear | undefined {
@@ -428,9 +431,11 @@ export interface StopGroup {
   noDistanceWhy: OpenStopRow['noDistanceWhy']
   /** the first row's near place (marker-based points only) */
   near?: PlaceNear
+  /** the first row's resolved place */
+  match: StopPlace
 }
 
-const placeKey = (p: string): string => p.toLowerCase().replace(/\s+/g, ' ').trim()
+const groupKey = (p: string): string => p.toLowerCase().replace(/\s+/g, ' ').trim()
 
 /**
  * Rows with the same place become one stop at the position of their first row; legs recomputed between stops.
@@ -441,7 +446,7 @@ export function groupByPlace(rows: OpenStopRow[], locations: Location[] = []): S
   const byKey = new Map<string, StopGroup>()
   const groupOfRow: StopGroup[] = []
   for (const r of rows) {
-    const key = placeKey(r.place)
+    const key = groupKey(r.place)
     let g = key ? byKey.get(key) : undefined
     if (!g) {
       g = {
@@ -454,7 +459,8 @@ export function groupByPlace(rows: OpenStopRow[], locations: Location[] = []): S
         leg: null,
         distanceSource: r.distanceSource,
         noDistanceWhy: r.noDistanceWhy,
-        ...(r.near ? { near: r.near } : {})
+        ...(r.near ? { near: r.near } : {}),
+        match: r.match
       }
       groups.push(g)
       if (key) byKey.set(key, g)
@@ -544,6 +550,8 @@ export type ListOpenStopsOpts = {
   markerDistance?: boolean
   /** measure from this point (resolveOrigin().point) instead of looking up startLocation */
   origin?: GeoPoint
+  /** origin came from a read (resolveOrigin kind not 'typed'): it counts as "you are here" evidence for stop places */
+  originIsRead?: boolean
 }
 
 const itemKey = (s: OtherStep): string => (s.item ?? '').trim().toLowerCase()
@@ -605,50 +613,26 @@ function sortJobsByFirstStep(
   locations: Location[],
   hideCompleted: boolean,
   hideWithdrawn: boolean,
-  useMarker: boolean
+  resolve: StepResolver
 ): OtherJob[] {
   if (!start) return jobs
   return [...jobs].sort((a, b) =>
-    compareStepsFrom(start, locations, sortStep(a, hideCompleted, hideWithdrawn), sortStep(b, hideCompleted, hideWithdrawn), useMarker)
+    compareStepsFrom(
+      start,
+      locations,
+      { job: a, step: sortStep(a, hideCompleted, hideWithdrawn) },
+      { job: b, step: sortStep(b, hideCompleted, hideWithdrawn) },
+      resolve
+    )
   )
 }
 
 type BaseRow = { job: OtherJob; step: OtherStep }
 
-/**
- * step position plus where it came from. Before pickup the marker is not used: on a combined
- * step it sits on the delivery place, not the pickup.
- */
-function stepPointWithSource(
-  step: OtherStep,
-  locations: Location[],
-  useMarker: boolean
-): { point: GeoPoint; source: 'uex' | 'marker' } | undefined {
-  const named = locationPoint(findRosterLocation(stepActivePlace(step), locations))
-  if (named) return { point: named, source: 'uex' }
-  if (useMarker && !stepIsPickup(step) && hasCoords(step.position)) return { point: withNearBody(markerPoint(step.position!), locations), source: 'marker' }
-  return undefined
-}
-
-/** a marker point carries no body: take it from the nearest place within NEAR_MAX_M, so same-body legs go over the surface */
-function withNearBody(p: GeoPoint, locations: Location[]): GeoPoint {
-  if (p.body) return p
-  let best: Location | undefined
-  let bestD = NEAR_MAX_M
-  for (const l of locations) {
-    if (l.x == null || l.y == null || l.z == null || !l.body) continue
-    const d = Math.hypot(l.x - p.x, l.y - p.y, l.z - p.z)
-    if (d <= bestD) {
-      best = l
-      bestD = d
-    }
-  }
-  return best ? { ...p, body: best.body ?? null, system: p.system ?? best.system ?? null } : p
-}
-
 type Placed = BaseRow & {
+  match: StopPlace
   point?: GeoPoint
-  source?: 'uex' | 'marker'
+  source: 'uex' | 'marker' | null
   travel: Travel | null
   distance: number | null
   distanceSource: 'uex' | 'marker' | null
@@ -697,18 +681,23 @@ export function listOpenStops(
   const start: GeoPoint | undefined =
     origin ?? (startLocation.trim() ? locationPoint(findRosterLocation(startLocation, locations)) : undefined)
 
+  // one resolve per step for this run; a read origin is "you are here" evidence
+  const resolve = resolverFor({ locations, useMarker, ...(origin && opts?.originIsRead ? { here: origin } : {}) })
   // route chains from the log order, not the distance sort
-  const base = baseOpenStops(jobs, start, locations, opts, listOrder === 'route' ? 'manual-free' : listOrder)
+  const base = baseOpenStops(jobs, start, locations, opts, listOrder === 'route' ? 'manual-free' : listOrder, resolve)
   const placed: Placed[] = base.map((r) => {
-    const hit = stepPointWithSource(r.step, locations, useMarker)
-    const t = hit && start ? travel(start, hit.point, locations) : null
+    const match = resolve(r.step, r.job)
+    const point = match.point
+    const source = point ? sourceOf(match) : null
+    const t = point && start ? travel(start, point, locations) : null
     return {
       ...r,
-      point: hit?.point,
-      source: hit?.source,
+      match,
+      point,
+      source,
       travel: t,
       distance: t?.meters ?? null,
-      distanceSource: t ? hit!.source : null
+      distanceSource: t ? source : null
     }
   })
 
@@ -726,7 +715,7 @@ export function listOpenStops(
     const hadPrev = !!prev
     prev = r.point
     const leg = legT?.meters ?? null
-    const near = r.source === 'marker' ? nearestRosterPlace(r.point, locations) : undefined
+    const near = r.match.near
     const noDistanceWhy: OpenStopRow['noDistanceWhy'] = !r.point
       ? 'not-in-uex'
       : start && !r.travel
@@ -750,7 +739,8 @@ export function listOpenStops(
       dest: stepDest(r.step),
       noDistanceWhy,
       ...(r.point ? { point: r.point } : {}),
-      ...(near ? { near } : {})
+      ...(near ? { near } : {}),
+      match: r.match
     }
   })
 }
@@ -778,14 +768,14 @@ function baseOpenStops(
   start: GeoPoint | undefined,
   locations: Location[],
   opts: ListOpenStopsOpts | undefined,
-  mode: 'distance' | 'manual' | 'manual-free'
+  mode: 'distance' | 'manual' | 'manual-free',
+  resolve: StepResolver
 ): BaseRow[] {
   const showAll = !!opts?.showAll
   const hideCompleted = opts?.hideCompleted !== false
   const manual = mode === 'manual'
   const unsorted = mode === 'manual-free'
   const hideWithdrawn = opts?.withdrawnSteps === 'hide'
-  const useMarker = opts?.markerDistance !== false
   const active = jobs.filter((j) => j.status === 'active')
 
   if (!showAll) {
@@ -796,7 +786,7 @@ function baseOpenStops(
       if (step) rows.push({ job, step })
     }
     if (manual || unsorted || !start) return rows
-    return [...rows].sort((a, b) => compareStepsFrom(start, locations, a.step, b.step, useMarker))
+    return [...rows].sort((a, b) => compareStepsFrom(start, locations, a, b, resolve))
   }
 
   const withSteps = active.filter((j) => visibleSteps(j, hideCompleted, hideWithdrawn).length > 0)
@@ -804,7 +794,7 @@ function baseOpenStops(
     ? sortJobsByManualOrder(withSteps, opts?.jobOrder ?? [])
     : unsorted
       ? withSteps
-      : sortJobsByFirstStep(withSteps, start, locations, hideCompleted, hideWithdrawn, useMarker)
+      : sortJobsByFirstStep(withSteps, start, locations, hideCompleted, hideWithdrawn, resolve)
   const rows: BaseRow[] = []
   for (const job of ordered) {
     for (const step of visibleSteps(job, hideCompleted, hideWithdrawn)) {

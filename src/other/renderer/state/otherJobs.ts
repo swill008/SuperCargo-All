@@ -16,6 +16,7 @@ import {
 } from '@other/otherJob'
 import { calibrateZone, resolveMarker, type BodyRadiusLookup, type CalibrateResult, type MarkerPos } from '@other/otherMarkers'
 import { findRosterLocation, nearestRosterPlace, stepActivePlace } from '@other/otherNext'
+import { resolvePlaceText } from '@other/otherResolve'
 import { setBodyRadiusLookup } from '@other/otherGeo'
 import { bodyRadiusFromTable } from '@other/otherBodies'
 import { bodiesTable } from './otherBodiesStore'
@@ -280,8 +281,10 @@ export function otherMissionMarkers(): ReadonlyMap<string, ReadonlyMap<string, M
  * have no objectiveId: those without a UEX place take the mission's markers that no other step's
  * objectiveId uses, in log order (a mission's markers and steps come in the same order), so the
  * n-th such step gets the n-th unused marker; with one unused marker, the first such step gets it.
- * Only steps whose place has no UEX coords get a position; a step whose marker can't be placed
- * keeps none (or the last one it had). jobId limits the pass to one job.
+ * Every step with its own objective's marker gets the position (the stop-place resolver weighs it as
+ * evidence, even when the text names a UEX place); the by-order link still skips steps whose place
+ * has UEX coords, so the pairing of unclaimed markers stays as it was. A step whose marker can't be
+ * placed keeps none (or the last one it had). jobId limits the pass to one job.
  */
 /** planet table radius (otherBodiesStore), for body-frame markers and surface arcs */
 const tableRadius: BodyRadiusLookup = (body) => bodyRadiusFromTable(bodiesTable(), body)
@@ -292,12 +295,16 @@ setBodyRadiusLookup(tableRadius)
 const learnedSent = new Set<string>()
 
 /**
- * A generic step place (no roster coords) placed by a marker near a known place: tell main so the
- * planet table's learned list (diagnostics + label hint) keeps it. Once per (name, near) per run.
+ * A generic step place placed by a marker near a known place: tell main so the planet table's
+ * learned list (diagnostics + label hint) keeps it. Only when the resolver's answer is the marker
+ * (no roster place won); a stop that names a known place isn't "learned". Once per (name, near) per run.
  */
 function reportLearned(step: OtherStep, pos: { x: number; y: number; z: number }, locations: Location[], ref: string): void {
   const name = step.location?.trim()
   if (!name) return
+  // the step's own place with this marker (not the pickup of a combined step)
+  const match = resolvePlaceText(name, { locations, useMarker: true }, pos)
+  if (match.status !== 'marker') return
   const near = nearestRosterPlace(pos, locations)
   if (!near) return
   const key = `${name.toLowerCase()}\n${near.name.toLowerCase()}`
@@ -346,7 +353,6 @@ function placeSteps(d: Draft, ctx: Ctx, jobId?: string): void {
         m = hit[1]
       }
       if (!m) return s
-      if (!byOrder && hasUex(s)) return s
       const pos = resolveMarker(zones, m)
       if (!pos || (s.position && s.position.x === pos.x && s.position.y === pos.y && s.position.z === pos.z)) return s
       changed = true
@@ -1205,6 +1211,8 @@ export const useOtherJobs = create<OtherJobsState>((set, get) => {
       for (const j of d.jobs) {
         for (const st of j.steps) {
           if (!st.position || before.get(`${j.id}\n${st.id}`) !== false) continue
+          // a step that names a known place got its marker as evidence only: not a place "found"
+          if (resolvePlaceText(st.location ?? '', { locations, useMarker: true }, st.position).match) continue
           placed += 1
           const near = nearestRosterPlace(st.position, locations)
           found.push(near ? `${st.location || st.label} near ${near.name}` : st.location || st.label)

@@ -410,7 +410,7 @@ const labelMeters = (label) => {
 }
 
 // --export-diagnostics <file>: the app writes it ~6 s after the main window loads
-const DIAG_SECTIONS = ['SUMMARY', 'SETTINGS', 'SNAPSHOT', 'UNKNOWN LINES', 'DECISIONS', 'PERF', 'USAGE', 'ERRORS', 'DEBUG LOG', 'LOG EXCERPT']
+const DIAG_SECTIONS = ['SUMMARY', 'SETTINGS', 'SNAPSHOT', 'MATCHES', 'UNKNOWN LINES', 'DECISIONS', 'PERF', 'USAGE', 'ERRORS', 'DEBUG LOG', 'LOG EXCERPT']
 async function waitForFile(file, ms = 20000) {
   const t0 = Date.now()
   while (Date.now() - t0 < ms) {
@@ -529,10 +529,11 @@ async function j74Run(name, { collected = false, exportDiag = false } = {}) {
   let overlay = ''
   let next = ''
   let snap = null
+  let sec = {}
   let err = ''
   try {
     e.append(J74_L.marker(), J74_L.accept(), J74_L.deliver(), J74_L.collect(), ...(collected ? [J74_L.collected()] : []))
-    const want = collected ? /near HDPC-Cassillo/i : /Farnesway/i
+    const want = collected ? /(near|at) HDPC-Cassillo/i : /Farnesway/i
     await until(() => (e.jobs()?.jobs?.[0]?.steps?.length >= 2 ? true : null))
     overlay = (await until(() => windowText(port, 'overlay').then((t) => (want.test(t) ? t : '')), 10000)) || (await windowText(port, 'overlay'))
     await cdpEval(port, 'main', `(() => { const b = [...document.querySelectorAll('button')].find((x) => x.textContent.trim() === 'NEXT'); b?.click(); return !!b })()`)
@@ -541,13 +542,15 @@ async function j74Run(name, { collected = false, exportDiag = false } = {}) {
       const out = path.join(e.data, `${name}.txt`)
       await stubSaveDialog(iport, out)
       const res = await cdpEval(port, 'main', `window.supercargo.diagExport({ note: '', includeImages: false })`, 40000)
-      snap = snapshotJson(fs.readFileSync(res?.path ?? out, 'utf8'))
+      const text = fs.readFileSync(res?.path ?? out, 'utf8')
+      snap = snapshotJson(text)
+      sec = diagSections(text)
     }
   } catch (x) {
     err = String(x?.message ?? x)
   }
   await stop()
-  return { e, overlay, next, snap, err, doc: e.jobs() }
+  return { e, overlay, next, snap, sec, err, doc: e.jobs() }
 }
 // "Security Compound" line(s) of a window's text
 const lineWith = (text, re) => (text ?? '').split(/\n/).filter((l) => re.test(l)).join(' | ')
@@ -586,6 +589,51 @@ async function j74Stale(name, keepVersion) {
   fs.writeFileSync(path.join(e.data, 'other-jobs.json'), JSON.stringify(doc))
   return { e, before: doc }
 }
+
+// CONTRACT8 (one stop-place resolver): jobs with the given steps, fixed typed start (or a WHERE AM I read when `read`
+// is a COVALEX_READS key), Next tab opened, then a button-path export. Returns both windows' text, the SNAPSHOT,
+// the export sections and ## MATCHES parsed (null when it isn't JSON, e.g. "(all exact)").
+async function matchRun(name, { jobs, read, want = /./, overlayWant = want }) {
+  const settings = read ? { otherStartMode: 'auto' } : { otherStartMode: 'fixed' }
+  const start = read ? {} : { startLocation: 'Lorville', startTypedAt: iso(ago(60)) }
+  const e = setup(name, settings, { jobs: jobs.map((j) => logJob(mission(), j)), history: [], listOrder: 'distance', ...start })
+  const textFile = path.join(e.home, 'where-text.json')
+  if (read) fs.writeFileSync(textFile, JSON.stringify({ zone2: serverTimeNow(COVALEX_READS[read]), zone1: '' }))
+  const port = await freePort()
+  const iport = await freePort()
+  const stop = await launch(e, [...cdpArgs(port), ...inspectArgs(iport)], read ? { SC_WHERE_TEXT_FILE: textFile } : {})
+  let w = null
+  let overlay = ''
+  let next = ''
+  let text = null
+  let err = ''
+  try {
+    if (read) {
+      await cdpEval(port, 'main', 'window.supercargo.otherWhereRun()')
+      w = await until(() => (e.jobs()?.where?.name === COVALEX ? e.jobs().where : null))
+    }
+    overlay = (await until(() => windowText(port, 'overlay').then((t) => (overlayWant.test(t) ? t : '')), 10000)) || (await windowText(port, 'overlay'))
+    await clickButton(port, 'main', /^NEXT$/)
+    next = (await until(() => windowText(port, 'main').then((t) => (want.test(t) ? t : '')), 8000)) || (await windowText(port, 'main'))
+    const out = path.join(e.data, `${name}.txt`)
+    await stubSaveDialog(iport, out)
+    const res = await cdpEval(port, 'main', `window.supercargo.diagExport({ note: '', includeImages: false })`, 40000)
+    text = fs.readFileSync(res?.path ?? out, 'utf8')
+  } catch (x) {
+    err = String(x?.message ?? x)
+  }
+  await stop()
+  const sec = diagSections(text)
+  return { e, w, overlay, next, text, sec, snap: snapshotJson(text), matches: sectionJson(sec['MATCHES']), err }
+}
+// distanceTable row (SNAPSHOT) whose place matches re
+const distRow = (snap, re) => (snap?.other?.distanceTable?.distance ?? []).find((r) => re.test(String(r.place)))
+// ## MATCHES entry whose text matches re
+const matchEntry = (matches, re) => (Array.isArray(matches) ? matches : []).find((m) => re.test(String(m.text)))
+const short = (v, n = 400) => JSON.stringify(v ?? null)?.slice(0, n)
+// the matchWord tags, as innerText shows them (the overlay upper-cases some text: match either case)
+const TAG = { corrected: /≈\s*corrected/i, marker: /📍\s*game marker/i, none: /✗\s*not found/i, unsure: /\?\s*not sure/i }
+const NON_EXACT_TAG = /≈\s*corrected|📍\s*game marker|\?\s*guess|⚠\s*mismatch|\?\s*not sure|✗\s*not found/i
 
 const scenarios = {
   // #1 both windows ingest the same accept
@@ -1615,10 +1663,10 @@ const scenarios = {
     const ovl = lineWith(r.overlay, /Security Compound|near|km|Gm|Mm/i)
     return [
       // the overlay title is upper case on screen (CSS), so match either case
-      ['overlay: "near HDPC-Cassillo"', /near HDPC-Cassillo/i.test(r.overlay), `overlay=${JSON.stringify(r.overlay.slice(0, 400))} ${r.err}`],
+      ['overlay: "near HDPC-Cassillo"', /(near|at) HDPC-Cassillo/i.test(r.overlay), `overlay=${JSON.stringify(r.overlay.slice(0, 400))} ${r.err}`],
       ['overlay: no "Not found in UEX"', r.overlay.length > 0 && !/Not found in UEX/.test(r.overlay), `lines=${JSON.stringify(ovl)}`],
       ['overlay: a distance', /\d\s*(Gm|Mm|km)/.test(r.overlay.replace(/\(\d+(\.\d+)?\s*km\)/gi, '')), `lines=${JSON.stringify(ovl)}`],
-      ['Next tab: "near HDPC-Cassillo"', /near HDPC-Cassillo/.test(r.next), `next=${JSON.stringify(lineWith(r.next, /Security Compound|near/).slice(0, 400))}`],
+      ['Next tab: "near HDPC-Cassillo"', /(near|at) HDPC-Cassillo/.test(r.next), `next=${JSON.stringify(lineWith(r.next, /Security Compound|near/).slice(0, 400))}`],
       ['Next tab: no "Not found in UEX"', r.next.length > 0 && !/Not found in UEX/.test(r.next), `next=${JSON.stringify(r.next.slice(0, 400))}`],
       ['table distance ~ Lorville -> Hurston centre + marker position', near(row?.distance, want) || near(row?.distance, arc), `row=${JSON.stringify(row)?.slice(0, 300)} want~${Math.round(want ?? 0)} (line) or ${Math.round(arc ?? 0)} (surface)`],
       ['zone 862321816216 calibrated on Hurston for build 12913470', !!r.doc?.markerZones?.['12913470']?.['862321816216'], `zones=${JSON.stringify(r.doc?.markerZones ?? null)?.slice(0, 300)}`]
@@ -1693,8 +1741,8 @@ const scenarios = {
       await clickButton(port, 'main', '/^NEXT$/')
       await until(() => clickButton(port, 'main', '/^REFRESH$/').then((ok) => (clicked = ok)), 6000)
       msg = lineWith(await until(() => windowText(port, 'main').then((t) => (/Refreshed|Refresh failed/.test(t) ? t : '')), 15000), /Refresh/)
-      overlay = (await until(() => windowText(port, 'overlay').then((t) => (/near HDPC-Cassillo/i.test(t) ? t : '')), 8000)) || (await windowText(port, 'overlay'))
-      next = (await until(() => windowText(port, 'main').then((t) => (/near HDPC-Cassillo/.test(t) ? t : '')), 8000)) || (await windowText(port, 'main'))
+      overlay = (await until(() => windowText(port, 'overlay').then((t) => (/(near|at) HDPC-Cassillo/i.test(t) ? t : '')), 8000)) || (await windowText(port, 'overlay'))
+      next = (await until(() => windowText(port, 'main').then((t) => (/(near|at) HDPC-Cassillo/.test(t) ? t : '')), 8000)) || (await windowText(port, 'main'))
       await clickButton(port, 'main', '/^JOBS$/')
       jobsBtn = await until(() => cdpEval(port, 'main', `[...document.querySelectorAll('button')].some((x) => /^REFRESH$/.test(x.textContent.trim()))`), 4000)
     } catch (x) {
@@ -1707,11 +1755,11 @@ const scenarios = {
     const endedBefore = findJob(before, J74_ENDED)
     const endedAfter = findJob(doc, J74_ENDED)
     return [
-      ['before REFRESH: start-up did not place it (watermark past the marker)', !!pre && !/near HDPC-Cassillo/i.test(pre), `overlay=${JSON.stringify(lineWith(pre, /Security Compound|near/i).slice(0, 200))} ${err}`],
+      ['before REFRESH: start-up did not place it (watermark past the marker)', !!pre && !/(near|at) HDPC-Cassillo/i.test(pre), `overlay=${JSON.stringify(lineWith(pre, /Security Compound|near/i).slice(0, 200))} ${err}`],
       ['REFRESH button on the Next screen', clicked, `clicked=${clicked}`],
       ['delivery step gets a position', !!drop?.position, `step=${JSON.stringify(drop ?? null)?.slice(0, 200)}`],
-      ['overlay: "near HDPC-Cassillo"', /near HDPC-Cassillo/i.test(overlay), `overlay=${JSON.stringify(lineWith(overlay, /Security Compound|near/i).slice(0, 200))}`],
-      ['Next tab: "near HDPC-Cassillo"', /near HDPC-Cassillo/.test(next), `next=${JSON.stringify(lineWith(next, /Security Compound|near/i).slice(0, 200))}`],
+      ['overlay: "near HDPC-Cassillo"', /(near|at) HDPC-Cassillo/i.test(overlay), `overlay=${JSON.stringify(lineWith(overlay, /Security Compound|near/i).slice(0, 200))}`],
+      ['Next tab: "near HDPC-Cassillo"', /(near|at) HDPC-Cassillo/.test(next), `next=${JSON.stringify(lineWith(next, /Security Compound|near/i).slice(0, 200))}`],
       ['result line names the place', /Refreshed.*\d+ place.*(Security Compound|HDPC-Cassillo)/.test(msg), `msg=${JSON.stringify(msg)}`],
       ['zone recalibrated for build 12913470', !!doc?.markerZones?.['12913470']?.['862321816216'], `zones=${JSON.stringify(doc?.markerZones ?? null)?.slice(0, 200)}`],
       ['watermark unchanged', !!before.lastLogEventAt && doc?.lastLogEventAt === before.lastLogEventAt && doc?.lastLogEventCount === before.lastLogEventCount, `before=${before.lastLogEventAt}/${before.lastLogEventCount} after=${doc?.lastLogEventAt}/${doc?.lastLogEventCount}`],
@@ -1733,7 +1781,7 @@ const scenarios = {
     let err = ''
     const placed = await until(() => j74Drop(e.jobs())?.position, 15000)
     try {
-      overlay = (await until(() => windowText(port, 'overlay').then((t) => (/near HDPC-Cassillo/i.test(t) ? t : '')), 8000)) || (await windowText(port, 'overlay'))
+      overlay = (await until(() => windowText(port, 'overlay').then((t) => (/(near|at) HDPC-Cassillo/i.test(t) ? t : '')), 8000)) || (await windowText(port, 'overlay'))
     } catch (x) {
       err = String(x?.message ?? x)
     }
@@ -1749,7 +1797,7 @@ const scenarios = {
     const a2 = autos()
     return [
       ['first start: step placed without clicking', !!placed, `position=${JSON.stringify(placed ?? null)}`],
-      ['overlay: "near HDPC-Cassillo"', /near HDPC-Cassillo/i.test(overlay), `overlay=${JSON.stringify(lineWith(overlay, /Security Compound|near/i).slice(0, 200))} ${err}`],
+      ['overlay: "near HDPC-Cassillo"', /(near|at) HDPC-Cassillo/i.test(overlay), `overlay=${JSON.stringify(lineWith(overlay, /Security Compound|near/i).slice(0, 200))} ${err}`],
       ['refreshedForVersion stored', typeof mid?.refreshedForVersion === 'string' && mid.refreshedForVersion.length > 0, `refreshedForVersion=${mid?.refreshedForVersion}`],
       ['watermark unchanged', !!before.lastLogEventAt && mid?.lastLogEventAt === before.lastLogEventAt && mid?.lastLogEventCount === before.lastLogEventCount, `before=${before.lastLogEventAt}/${before.lastLogEventCount} after=${mid?.lastLogEventAt}/${mid?.lastLogEventCount}`],
       ['ended job not revived', findJob(mid, J74_ENDED)?.status === findJob(before, J74_ENDED)?.status && findJob(mid, J74_ENDED)?.status !== 'active', `before=${findJob(before, J74_ENDED)?.status} after=${findJob(mid, J74_ENDED)?.status}`],
@@ -1947,6 +1995,150 @@ const scenarios = {
       ['Rappel read gives no position', !rappel?.where?.point && !/rappel/i.test(rappel?.where?.label ?? rappel?.where?.name ?? ''), `result=${JSON.stringify(rappel)?.slice(0, 400)}`],
       ['Rappel read: a failed position check says why', /star-frame lines not used/i.test(JSON.stringify(lastRead?.checks ?? rappel?.info?.checks ?? null)), `checks=${JSON.stringify(lastRead?.checks ?? rappel?.info?.checks)?.slice(0, 400)}`],
       ['Rappel read: start unchanged', !!before && after?.name === COVALEX && after?.at === before.at, `before=${before?.label}@${before?.at} after=${after?.label}@${after?.at}`]
+    ]
+  },
+
+  // CONTRACT8 (J82 through the resolver): the OCR-doubled pickup name "S1DCO06" folds to the roster's Covalex S1DC06
+  // ('corrected', not the drop-off marker); ~0.3 km from the read start; the read start adds "you are here"
+  'match-j82-corrected': async () => {
+    const step = {
+      id: 's1',
+      kind: 'turnin',
+      label: 'Collect Scrap from Covalex Distribution Center S1DCO06 on Hurston. Deliver Scrap to Security Compound',
+      location: 'Security Compound',
+      pickupLocation: 'Covalex Distribution Center S1DCO06 on Hurston',
+      pickedUp: false,
+      item: 'Scrap',
+      have: 0,
+      need: 1,
+      done: false,
+      position: { x: 12851198309.646416, y: 18566.685364, z: 672945.839535 }
+    }
+    const r = await matchRun('match-j82-corrected', { jobs: [{ ref: 'J82', title: 'Med. Distance Covalex Delivery Stanton', steps: [step] }], read: 'planet', want: TAG.corrected })
+    const row = distRow(r.snap, /S1DCO06/i)
+    const m = matchEntry(r.matches, /S1DCO06/i)
+    return [
+      ['start read at Covalex S1DC06', r.w?.name === COVALEX, `where=${short(r.w, 300)} ${r.err}`],
+      ['overlay: "≈ corrected" tag', TAG.corrected.test(r.overlay), `overlay=${short(lineWith(r.overlay, /S1DC|corrected/i))}`],
+      ['Next tab: "≈ corrected" tag', TAG.corrected.test(r.next), `next=${short(lineWith(r.next, /S1DC|corrected/i))}`],
+      ['table row: match corrected to Covalex S1DC06 (roster)', row?.match?.status === 'corrected' && row.match.source === 'roster' && /Covalex Distribution Centre S1DC06/.test(JSON.stringify(row.match)), `match=${short(row?.match, 500)}`],
+      ['table row: ~0.3 km (pickup, not the 4 km drop-off marker)', row?.distance > 100 && row.distance < 500 && row.distanceSource !== 'marker', `distance=${row?.distance} source=${row?.distanceSource}`],
+      ['evidence: name corrected, Hurston agrees, you are here', /corrected/i.test(short(row?.match?.evidence, 2000)) && /Hurston/.test(short(row?.match?.evidence, 2000)) && /you are here/i.test(short(row?.match?.evidence, 2000)), `evidence=${short(row?.match?.evidence, 600)}`],
+      ['confidence >= 7', row?.match?.confidence >= 7, `confidence=${row?.match?.confidence}`],
+      ['## MATCHES lists it as corrected', m?.status === 'corrected' && Array.isArray(m.evidence) && Array.isArray(m.candidates), `matches=${short(r.matches, 500)} raw=${short((r.sec['MATCHES'] ?? '(missing)').slice(0, 200))}`]
+    ]
+  },
+
+  // CONTRACT8 (J74): "Security Compound" has no roster place; the game's marker places it -> '📍 game marker',
+  // confidence 8. ADDENDUM: the generic site belongs to the nearest roster place to the marker -> "at HDPC-Cassillo"
+  // (site from 'marker'; the contract's HDPC-Farnesway is not within 25 km of the marker, so it is not the parent)
+  'match-j74-marker': async () => {
+    const r = await j74Run('match-j74-marker', { collected: true, exportDiag: true })
+    const row = distRow(r.snap, /Security Compound/)
+    const matches = sectionJson(r.sec?.['MATCHES'])
+    const m = matchEntry(matches, /Security Compound/)
+    const site = row?.match?.site
+    return [
+      ['overlay: "📍 game marker" tag', TAG.marker.test(r.overlay), `overlay=${short(lineWith(r.overlay, /Security Compound|marker|at |near/i))} ${r.err}`],
+      ['overlay: "at HDPC-Cassillo"', /\bat HDPC-Cassillo/i.test(r.overlay), `overlay=${short(lineWith(r.overlay, /HDPC|at /i))}`],
+      ['Next tab: "📍 game marker" tag + "Security Compound · at HDPC-Cassillo"', TAG.marker.test(r.next) && /Security Compound\s*·\s*at HDPC-Cassillo/i.test(r.next), `next=${short(lineWith(r.next, /Security Compound|marker|HDPC/i))}`],
+      ['Next tab: not "at HDPC-Farnesway" (the pickup is not the parent)', r.next.length > 0 && !/Security Compound\s*·\s*at HDPC-Farnesway/i.test(r.next), `next=${short(lineWith(r.next, /Security Compound/i))}`],
+      ['table row: status marker, source marker', row?.match?.status === 'marker' && row.match.source === 'marker', `match=${short(row?.match, 500)}`],
+      ['table row: site HDPC-Cassillo from marker (near = same)', site?.name === 'HDPC-Cassillo' && site.from === 'marker' && row.match.near?.name === 'HDPC-Cassillo', `site=${short(site)} near=${short(row?.match?.near)}`],
+      ['table row: confidence 8, has a distance', row?.match?.confidence === 8 && row?.distance > 0, `confidence=${row?.match?.confidence} distance=${row?.distance}`],
+      ['## MATCHES lists Security Compound as marker', m?.status === 'marker', `matches=${short(matches, 500)}`]
+    ]
+  },
+
+  // CONTRACT8 ADDENDUM (J82 drop-off): pickup done, the active place is the generic "Security Compound"; the contract
+  // names Covalex Distribution Center S1DC06, within 25 km of the drop-off marker, so the site is Covalex S1DC06
+  // (from 'contract'), positioned by the marker (status 'marker'); shown "Security Compound · at Covalex Distribution
+  // Centre S1DC06", never another place's distance
+  'match-j82-dropoff-site': async () => {
+    const step = {
+      id: 's1',
+      kind: 'turnin',
+      label: 'Collect Scrap from Covalex Distribution Center S1DCO06 on Hurston. Deliver Scrap to Security Compound',
+      location: 'Security Compound',
+      pickupLocation: 'Covalex Distribution Center S1DCO06 on Hurston',
+      pickedUp: true,
+      item: 'Scrap',
+      have: 0,
+      need: 1,
+      done: false,
+      position: { x: 12851198309.646416, y: 18566.685364, z: 672945.839535 }
+    }
+    const r = await matchRun('match-j82-dropoff-site', {
+      jobs: [{ ref: 'J82', title: 'Med. Distance Covalex Delivery Stanton', steps: [step] }],
+      read: 'planet',
+      want: /Security Compound[\s\S]{0,80}at Covalex/i
+    })
+    const row = distRow(r.snap, /Security Compound/)
+    const site = row?.match?.site
+    const m = matchEntry(r.matches, /Security Compound/)
+    return [
+      ['start read at Covalex S1DC06', r.w?.name === COVALEX, `where=${short(r.w, 300)} ${r.err}`],
+      ['overlay: "at Covalex Distribution Centre S1DC06"', /\bat Covalex Distribution Centre S1DC06/i.test(r.overlay), `overlay=${short(lineWith(r.overlay, /Security Compound|at Covalex/i))}`],
+      ['Next tab: "Security Compound · at Covalex Distribution Centre S1DC06"', /Security Compound\s*·\s*at Covalex Distribution Centre S1DC06/i.test(r.next), `next=${short(lineWith(r.next, /Security Compound|Covalex/i))}`],
+      ['Next tab: "📍 game marker" tag', TAG.marker.test(r.next), `next=${short(lineWith(r.next, /Security Compound|marker/i))}`],
+      ['table row: site Covalex S1DC06 from contract', site?.name === COVALEX && site.from === 'contract', `site=${short(site)} match=${short(row?.match, 500)}`],
+      ['table row: status marker, point from the marker', row?.match?.status === 'marker' && row.match.source === 'marker' && row.distanceSource === 'marker', `status=${row?.match?.status} source=${row?.match?.source} distanceSource=${row?.distanceSource}`],
+      ['table row: distance ~4 km (start -> drop-off marker)', row?.distance > 2000 && row.distance < 7000, `distance=${row?.distance}`],
+      ['site meters ~4 km (marker -> Covalex)', site?.meters > 2000 && site.meters < 7000, `site=${short(site)}`],
+      ['## MATCHES lists Security Compound with the site', m?.status === 'marker' && /Covalex Distribution Centre S1DC06/.test(JSON.stringify(m)), `matches=${short(r.matches, 600)}`]
+    ]
+  },
+
+  // CONTRACT8: a look-alike name on another body ("Covalex ... S1DC06" is on Hurston, the text says microTech) is
+  // rejected: '✗ not found', no distance (never the Hurston place's), listed in ## MATCHES; an exact stop isn't listed
+  'match-lookalike-other-body': async () => {
+    const go = (id, place) => ({ id, kind: 'go', label: `Deliver Scrap to ${place}`, location: place, have: 0, need: 1, done: false })
+    const PLACE = 'Covalex Distribution Center S1DC06 on microTech'
+    const r = await matchRun('match-lookalike-other-body', {
+      jobs: [{ ref: 'J90', steps: [go('s1', PLACE)] }, { ref: 'J91', steps: [go('s1', 'Port Tressler')] }],
+      want: /not found/i,
+      overlayWant: /Port Tressler|microTech/i
+    })
+    const row = distRow(r.snap, /on microTech/i)
+    const exact = distRow(r.snap, /^Port Tressler$/)
+    return [
+      ['Next tab: "✗ not found" tag', TAG.none.test(r.next), `next=${short(lineWith(r.next, /microTech|S1DC06|not found/i))} ${r.err}`],
+      ['table row: status none, no point, no roster match', row?.match?.status === 'none' && !row.match.point && !row.match.match, `match=${short(row?.match, 500)}`],
+      ['table row: no distance (not the Hurston S1DC06 distance)', !!row && row.distance == null, `distance=${row?.distance} source=${row?.distanceSource} why=${row?.noDistanceWhy}`],
+      ['evidence says microTech disagrees', /microtech/i.test(short(row?.match?.evidence, 2000)) && /✗/.test(short(row?.match?.evidence, 2000)), `evidence=${short(row?.match?.evidence, 600)}`],
+      ['exact stop still exact with a distance', exact?.match?.status === 'exact' && exact.distance > 0, `row=${short(exact, 300)}`],
+      ['## MATCHES lists the look-alike as none', matchEntry(r.matches, /on microTech/i)?.status === 'none', `matches=${short(r.matches, 500)}`],
+      ['## MATCHES leaves out the exact stop', !!r.matches && !matchEntry(r.matches, /^Port Tressler$/), `matches=${short(r.matches, 500)}`]
+    ]
+  },
+
+  // CONTRACT8: two roster places score the same ("Shubin Mining Facility on Lyria": SAL-2 and SAL-5), no marker ->
+  // '? not sure' with both named, no distance, listed in ## MATCHES
+  'match-two-equal': async () => {
+    const step = { id: 's1', kind: 'go', label: 'Deliver Scrap to Shubin Mining Facility on Lyria', location: 'Shubin Mining Facility on Lyria', have: 0, need: 1, done: false }
+    const r = await matchRun('match-two-equal', { jobs: [{ ref: 'J92', steps: [step] }], want: /not sure/i })
+    const row = distRow(r.snap, /Shubin Mining Facility on Lyria/i)
+    const names = (row?.match?.candidates ?? []).slice(0, 2).map((c) => c.name)
+    const scores = (row?.match?.candidates ?? []).slice(0, 2).map((c) => c.score)
+    return [
+      ['Next tab: "? not sure" tag', TAG.unsure.test(r.next), `next=${short(lineWith(r.next, /Shubin|not sure/i))} ${r.err}`],
+      ['Next tab: names both places ("not sure: A or B?")', /not sure:.*SAL-[25].*\bor\b.*SAL-[25]/i.test(r.next), `next=${short(lineWith(r.next, /not sure/i))}`],
+      ['table row: status unsure, no point, no distance', row?.match?.status === 'unsure' && !row.match.point && row.distance == null, `match=${short(row?.match, 500)} distance=${row?.distance}`],
+      ['top two candidates SAL-2 and SAL-5 with equal scores', names.sort().join() === 'Shubin Mining Facility SAL-2,Shubin Mining Facility SAL-5' && scores[0] === scores[1] && scores[0] >= 5, `candidates=${short(row?.match?.candidates, 400)}`],
+      ['## MATCHES lists it as unsure', matchEntry(r.matches, /Shubin Mining Facility on Lyria/i)?.status === 'unsure', `matches=${short(r.matches, 500)}`]
+    ]
+  },
+
+  // CONTRACT8: only exact names -> ## MATCHES says "(all exact)" and no warning tag shows
+  'match-all-exact': async () => {
+    const go = (id, place) => ({ id, kind: 'go', label: `Go to ${place}`, location: place, have: 0, need: 1, done: false })
+    // one open step per job is listed (show-all off), so two jobs
+    const r = await matchRun('match-all-exact', { jobs: [{ steps: [go('s1', 'Port Tressler')] }, { steps: [go('s2', 'Seraphim Station')] }], want: /Port Tressler|Seraphim/i })
+    const rows = r.snap?.other?.distanceTable?.distance ?? []
+    return [
+      ['## MATCHES is "(all exact)"', /\(all exact\)/.test(r.sec['MATCHES'] ?? ''), `matches=${short((r.sec['MATCHES'] ?? '(missing)').slice(0, 300))} ${r.err}`],
+      ['table rows all exact', rows.length >= 2 && rows.every((x) => x.match?.status === 'exact'), `rows=${short(rows.map((x) => [x.place, x.match?.status]))}`],
+      ['no non-exact tag on the overlay or Next tab', r.next.length > 0 && !NON_EXACT_TAG.test(r.overlay) && !NON_EXACT_TAG.test(r.next), `overlay=${short(lineWith(r.overlay, NON_EXACT_TAG))} next=${short(lineWith(r.next, NON_EXACT_TAG))}`]
     ]
   },
 

@@ -18,6 +18,7 @@ import { formatTravel } from '@other/otherGeo'
 import type { WhereRunResult, WhereSource } from '@other/otherWhere'
 import { miniBtn, otherView, withoutWithdrawn, JobTags } from '../pages/JobsPartsStyles'
 import { AccTag, TrackedTag } from './AccuracyMeter'
+import { MatchTag, stopPlaceText } from './MatchTag'
 import { setOverlayDiag, overlayDiag } from '../state/otherOverlayDiag'
 
 /** AFK keep-alive state (src/other/otherAfk.ts AfkState); preload methods may be missing mid-build */
@@ -103,14 +104,16 @@ export default function OtherOverlay(): React.ReactElement {
   // name kept for fallbacks (roster lookup when there is no point)
   const startLocation = origin.name ?? ''
   const originPoint = origin.point
+  // a read start (not typed) counts as "you are here" evidence for the resolver
+  const originIsRead = origin.kind != null && origin.kind !== 'typed'
   const hasStart = !!(origin.name || origin.point)
   // withdrawn steps never become the current stop
   const liveJobs = useMemo(() => jobs.map(withoutWithdrawn), [jobs])
   const open = useMemo(
     () => listOpenStops(liveJobs, startLocation, locations, {
-      showAll, hideCompleted, listOrder, jobOrder, markerDistance, origin: originPoint
+      showAll, hideCompleted, listOrder, jobOrder, markerDistance, origin: originPoint, originIsRead
     }),
-    [liveJobs, startLocation, originPoint, locations, showAll, hideCompleted, listOrder, jobOrder, markerDistance]
+    [liveJobs, startLocation, originPoint, originIsRead, locations, showAll, hideCompleted, listOrder, jobOrder, markerDistance]
   )
   // the overlay walks places: several steps at one station are one stop
   const groups = useMemo(() => groupByPlace(open, locations), [open, locations])
@@ -263,7 +266,13 @@ export default function OtherOverlay(): React.ReactElement {
 
   // ## OVERLAY in EXPORT DIAGNOSTICS: what this card is showing now
   const distanceShown = showDistance && group && legMeters != null ? `${travelText(legMeters, legJumps, legSurface, legApprox)} ${legFrom}` : null
-  const placeShown = group && current ? formatPlaceNear(group.place || stepActivePlace(current.step) || current.step.label, group.near, locations) : null
+  // the stop's resolved place (otherResolve): its label and near place, else the raw text
+  const match = group?.match
+  const placeShown = group && current
+    ? match
+      ? stopPlaceText(match, group.place || stepActivePlace(current.step) || current.step.label, locations)
+      : formatPlaceNear(group.place || stepActivePlace(current.step) || current.step.label, group.near, locations)
+    : null
   useEffect(() => {
     setOverlayDiag({
       placeListSize: locations.length,
@@ -329,6 +338,7 @@ export default function OtherOverlay(): React.ReactElement {
           >
             {placeShown ?? 'NO OPEN STOP'}
           </div>
+          {current ? <MatchTag match={match} /> : null}
           {groupTracked ? <TrackedTag /> : null}
         </div>
         <div style={{ display: 'flex', alignItems: 'center', gap: 6, flexShrink: 0, WebkitAppRegion: 'no-drag' } as React.CSSProperties}>
@@ -451,7 +461,7 @@ export default function OtherOverlay(): React.ReactElement {
           {nextGroup ? (
             <div style={{ marginTop: upcoming ? 4 : 0 }}>
               <span style={{ color: C.acc }}>Next Location</span>
-              <span>: {formatPlaceNear(nextGroup.place || stepActivePlace(nextGroup.rows[0].step), nextGroup.near, locations)}</span>
+              <span>: {nextGroup.match ? stopPlaceText(nextGroup.match, nextGroup.place || stepActivePlace(nextGroup.rows[0].step), locations) : formatPlaceNear(nextGroup.place || stepActivePlace(nextGroup.rows[0].step), nextGroup.near, locations)}</span>
               {nextLeg != null ? (
                 <span title={formatMapDistance(nextLeg)}>
                   {' \u00b7 '}{travelText(nextLeg, nextGroup.legJumps, nextGroup.legSurface, nextGroup.distanceSource === 'marker')}

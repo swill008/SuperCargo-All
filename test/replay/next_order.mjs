@@ -61,6 +61,18 @@ esbuild.buildSync({
   alias: { '@shared': path.join(root, 'src/shared'), '@other': path.join(root, 'src/other') }
 })
 const G = await import(pathToFileURL(geoFile).href)
+const resFile = path.join(tmp, 'otherResolve.mjs')
+esbuild.buildSync({
+  entryPoints: [path.join(root, 'src/other/otherResolve.ts')],
+  bundle: true,
+  platform: 'node',
+  format: 'esm',
+  outfile: resFile,
+  logLevel: 'error',
+  tsconfig: path.join(root, 'tsconfig.node.json'),
+  alias: { '@shared': path.join(root, 'src/shared'), '@other': path.join(root, 'src/other') }
+})
+const RS = await import(pathToFileURL(resFile).href)
 
 const locations = JSON.parse(fs.readFileSync(path.join(root, 'data/uex/locations.json'), 'utf8')).locations
 const byName = (n) => locations.find((l) => l.name === n)
@@ -584,6 +596,73 @@ safe('pickup doubled zero', () => {
   // after pickup the place is Security Compound (not in the roster): the marker gives ~4 km
   const after = rows(step({ pickupLocation: raw, pickedUp: true }))[0]
   check('pickup doubled zero', 'after pickup: marker ~4 km', after?.distanceSource === 'marker' && after.distance > 3500 && after.distance < 4600, `${after?.distance} ${after?.distanceSource}`)
+})
+
+// batch 7: every stop's place comes from the one resolver (resolveStopPlace); rows and groups carry its answer
+safe('resolver wiring', () => {
+  const roster = [...locations, ...otherPositions.filter((p) => !byName(p.name))]
+  const rows = N.listOpenStops(jobs, START, locations, { listOrder: 'distance' })
+  check('resolver wiring', 'every row carries match with a status', rows.every((r) => r.match && typeof r.match.status === 'string'), rows.map((r) => r.match?.status).join(','))
+  check('resolver wiring', "roster rows: match exact, source 'roster' -> distanceSource 'uex'", rows.filter((r) => placeOf(r) !== OFF_MAP).every((r) => r.match.status === 'exact' && r.match.source === 'roster' && r.distanceSource === 'uex'), rows.map((r) => `${r.match?.status}/${r.match?.source}/${r.distanceSource}`).join(','))
+  const off = rows.find((r) => placeOf(r) === OFF_MAP)
+  check('resolver wiring', "off-map: match 'none', no point, 'not-in-uex'", off?.match.status === 'none' && !off.match.point && !off.point && off.noDistanceWhy === 'not-in-uex', `${off?.match.status} ${off?.noDistanceWhy}`)
+  check('resolver wiring', 'row point is match.point', rows.every((r) => r.point === r.match.point), '')
+  const groups = N.groupByPlace(rows, locations)
+  check('resolver wiring', "group.match is its first row's", groups.every((g) => g.match === g.rows[0].match), '')
+
+  // J82 shape: pickup S1DCO06 not collected -> corrected to Centre S1DC06, ~0.3 km; after pickup the marker decides
+  const origin = { x: 12851200217, y: 15353, z: 671084, system: 'Stanton', body: 'Hurston' }
+  const position = { x: 12851198309.646416, y: 18566.685364, z: 672945.839535 }
+  const st = (o) => ({ id: 'w82', kind: 'turnin', label: 'Deliver Scrap to Security Compound', location: 'Security Compound', item: 'Scrap',
+    have: 0, need: 1, done: false, position, pickupLocation: 'Covalex Distribution Center S1DCO06 on Hurston', pickedUp: false, ...o })
+  const jb = (s1) => ({ id: 'jw82', ref: 'J82', title: 'Scrap', kind: 'delivery', reward: 1, status: 'active', createdAt: 1, steps: [s1] })
+  const pick = N.listOpenStops([jb(st({}))], '', roster, { listOrder: 'distance', origin })[0]
+  check('resolver wiring', "J82 pickup: match 'corrected' to Centre S1DC06", pick?.match.status === 'corrected' && pick.match.match?.name === 'Covalex Distribution Centre S1DC06', `${pick?.match.status} ${pick?.match.match?.name}`)
+  check('resolver wiring', 'J82 pickup: no marker evidence (marker belongs to the drop-off)', pick && !pick.match.evidence.some((e) => e.kind === 'marker'), JSON.stringify(pick?.match.evidence))
+  check('resolver wiring', 'J82 pickup: typed-like origin gives no here evidence', pick && !pick.match.evidence.some((e) => e.kind === 'here'), '')
+  const read = N.listOpenStops([jb(st({}))], '', roster, { listOrder: 'distance', origin, originIsRead: true })[0]
+  check('resolver wiring', 'originIsRead: here evidence on the pickup', read?.match.evidence.some((e) => e.kind === 'here' && e.ok), JSON.stringify(read?.match.evidence))
+  const after = N.listOpenStops([jb(st({ pickedUp: true }))], '', roster, { listOrder: 'distance', origin })[0]
+  check('resolver wiring', "after pickup: match 'marker', near = match.near", after?.match.status === 'marker' && after.distanceSource === 'marker' && after.near === after.match.near && !!after.near, `${after?.match.status} ${JSON.stringify(after?.near)}`)
+  // after pickup the generic site belongs to the place the contract names (addendum): site Covalex S1DC06 from 'contract'
+  check('resolver wiring', "after pickup: site Covalex S1DC06 from 'contract'", after?.match.site?.from === 'contract' && /S1DC06$/.test(after.match.site.name), JSON.stringify(after?.match.site))
+  // markers off: no marker, so the contract's place is the point ('guess', confidence 5), never another place's distance
+  const off2 = N.listOpenStops([jb(st({ pickedUp: true }))], '', roster, { listOrder: 'distance', origin, markerDistance: false })[0]
+  check('resolver wiring', "markers off: 'guess' at the contract's place (~0.3 km)", off2?.match.status === 'guess' && off2.match.confidence === 5 && off2.match.site?.from === 'contract' && off2.distanceSource === 'uex' && off2.distance > 200 && off2.distance < 400, `${off2?.match.status} ${off2?.distance}`)
+  // the job is passed through: a site named only in another step of the job finds that place (with its marker within 25 km;
+  // without a marker only the step's own text may name the parent, so J74's compound isn't guessed at its pickup)
+  const twoSteps = { ...jb(st({ pickedUp: true, pickupLocation: undefined, label: 'Deliver Scrap to Security Compound' })), steps: [
+    { id: 'w82p', kind: 'pickup', label: 'Collect Scrap', location: 'Covalex Distribution Center S1DCO06 on Hurston', item: 'Scrap', have: 0, need: 1, done: true },
+    st({ pickedUp: true, pickupLocation: undefined, label: 'Deliver Scrap to Security Compound' })
+  ] }
+  const viaJob = N.listOpenStops([twoSteps], '', roster, { listOrder: 'distance', origin })[0]
+  check('resolver wiring', "job passed: site from the job's other step", viaJob?.match.site?.from === 'contract' && /S1DC06$/.test(viaJob.match.site.name), `${viaJob?.match.status} ${JSON.stringify(viaJob?.match.site)}`)
+
+  // a roster name whose game marker is far away: the marker wins the distance (never the roster place's)
+  const ev = byName('Everus Harbor')
+  const far = { ...job(60, 'Port Tressler'), steps: [{ ...job(60, 'Port Tressler').steps[0], position: { x: ev.x, y: ev.y, z: ev.z } }] }
+  const fr = N.listOpenStops([far], START, locations, { listOrder: 'distance' })[0]
+  check('resolver wiring', 'name vs far marker: distance to the marker', fr?.distanceSource === 'marker' && near(fr?.distance, dist(byName(START), ev)) && ['marker', 'mismatch'].includes(fr?.match.status), `${fr?.match.status} ${fr?.distanceSource} ${fr?.distance}`)
+  const frOff = N.listOpenStops([far], START, locations, { listOrder: 'distance', markerDistance: false })[0]
+  check('resolver wiring', 'same with markers off: roster place', frOff?.distanceSource === 'uex' && near(frOff?.distance, dist(byName(START), byName('Port Tressler'))), `${frOff?.match.status} ${frOff?.distance}`)
+
+  // one resolveStopPlace per step per listOpenStops run (the sort compares reuse it): count reads of step.position
+  if (typeof RS.resolveStopPlace !== 'function') return check('resolver wiring', 'resolveStopPlace exported', false, 'missing')
+  const counted = (base) => {
+    let n = 0
+    const s1 = new Proxy(base, { get: (t, k) => { if (k === 'position') n++; return t[k] } })
+    return { s1, reads: () => n, reset: () => { n = 0 } }
+  }
+  const c = counted({ ...job(70, 'Nowhere Gulch Camp 7').steps[0], position: { x: byName(START).x + 1000, y: byName(START).y, z: byName(START).z } })
+  RS.resolveStopPlace(c.s1, { locations, useMarker: true })
+  const perCall = c.reads()
+  c.reset()
+  const many = [{ ...job(70, 'x'), steps: [c.s1] }, ...PLACES.map((p, i) => job(71 + i, p))]
+  N.listOpenStops(many, START, locations, { listOrder: 'distance' })
+  check('resolver wiring', 'distance sort: one resolve per step', perCall > 0 && c.reads() === perCall, `reads ${c.reads()} per call ${perCall}`)
+  c.reset()
+  N.listOpenStops(many, START, locations, { listOrder: 'distance', showAll: true })
+  check('resolver wiring', 'show-all sort: one resolve per step', c.reads() === perCall, `reads ${c.reads()} per call ${perCall}`)
 })
 
 fs.rmSync(tmp, { recursive: true, force: true })

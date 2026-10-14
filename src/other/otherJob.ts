@@ -42,7 +42,11 @@ export interface OtherStep {
   logText?: string
   /** the game's ObjectiveId from "New Objective"; joins the step to its CreateMarker */
   objectiveId?: string
-  /** system-frame meters from the objective's marker, set only when the place has no UEX coords */
+  /**
+   * system-frame meters from this step's objective marker (the place in `location`), set whenever
+   * the marker can be placed. Evidence for the stop-place resolver (otherResolve), not the answer:
+   * a roster place that the text names and the marker agrees with still wins.
+   */
   position?: { x: number; y: number; z: number }
 }
 
