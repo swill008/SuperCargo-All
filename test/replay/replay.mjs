@@ -21,12 +21,12 @@ const mission = () => `00000000-0000-4000-8000-${String(++seq).padStart(12, '0')
 const stamp = () => `<${new Date().toISOString()}>`
 const L = {
   accept: (id, title) =>
-    `${stamp()} [Notice] <SHUDEvent_OnNotification> Added notification "Contract Accepted: ${title}" [3] to queue. New queue size: 1, MissionId: [${id}], ObjectiveId: [] [Team_CoreGameplayFeatures][Missions]`,
+    `${stamp()} [Notice] <SHUDEvent_OnNotification> Added notification "Contract Accepted:  ${title}: " [3] to queue. New queue size: 1, MissionId: [${id}], ObjectiveId: [] [Team_CoreGameplayFeatures][Missions]`,
   objective: (id, text) =>
-    `${stamp()} [Notice] <SHUDEvent_OnNotification> Added notification "New Objective: ${text}" [4] to queue. New queue size: 1, MissionId: [${id}], ObjectiveId: [obj_1] [Team_CoreGameplayFeatures][Missions]`,
+    `${stamp()} [Notice] <SHUDEvent_OnNotification> Added notification "New Objective: ${text}: " [4] to queue. New queue size: 1, MissionId: [${id}], ObjectiveId: [obj_1] [Team_CoreGameplayFeatures][Missions]`,
   end: (id, type) =>
     `${stamp()} [Notice] <EndMission> Ending mission for player. MissionId[${id}] Player[Tester] PlayerId[1] CompletionType[${type}] Reason[] [Team_CoreGameplayFeatures][Missions]`,
-  drop: () => `${stamp()} [Notice] <Channel Disconnected> cause=1 reason=Player requested disconnect [Team_Network]`
+  drop: () => `${stamp()} [Notice] <Channel Disconnected> cause=30018 reason="Remote Disconnect - Player requested disconnect" frame=1 isRemote=1 viewState=eCVS_InGame [Team_Network]`
 }
 
 function dataDir(home) {
@@ -210,7 +210,40 @@ const scenarios = {
   }
 }
 
-const pick = process.argv.slice(2)
+// --log <file> [--mode live|scan] replays a real Game.log and prints what Other mode made of each mission
+async function replayRealLog(file, mode) {
+  const text = fs.readFileSync(file, 'utf8')
+  const name = `real-${mode}-${path.basename(file).replace(/\W+/g, '_').slice(0, 40)}`
+  const e = setup(name)
+  let stop
+  if (mode === 'scan') {
+    fs.writeFileSync(e.gameLog, text)
+    stop = await launch(e)
+  } else {
+    stop = await launch(e)
+    const lines = text.split(/\r?\n/)
+    for (let i = 0; i < lines.length; i += 300) {
+      e.append(...lines.slice(i, i + 300))
+      await sleep(150)
+    }
+    await sleep(4000)
+  }
+  await stop()
+  const doc = e.jobs() ?? { jobs: [], history: [] }
+  const out = { file, mode, jobs: doc.jobs ?? [], history: doc.history ?? [], log: e.log() }
+  fs.writeFileSync(path.join(runRoot, `${name}.json`), JSON.stringify(out, null, 1))
+  console.log(`${name}: jobs=${out.jobs.length} history=${out.history.length} -> ${path.join(runRoot, name + '.json')}`)
+  return out
+}
+
+const argv = process.argv.slice(2)
+if (argv[0] === '--log') {
+  const mode = argv.includes('--mode') ? argv[argv.indexOf('--mode') + 1] : 'live'
+  await replayRealLog(argv[1], mode)
+  process.exit(0)
+}
+
+const pick = argv
 const names = pick.length ? pick : Object.keys(scenarios)
 let failed = 0
 console.log(`replay: ${names.length} scenario(s), data under ${runRoot}${useXvfb ? ' (xvfb)' : ''}`)
