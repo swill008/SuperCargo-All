@@ -138,6 +138,10 @@ export interface OtherJobsDoc {
   where?: Where | null
   /** wall-clock ISO time STARTING AT was last typed non-empty; auto start mode uses the newer of it and where.at */
   startTypedAt?: string
+  /** missionId of the active job the game's r_DisplayInfo "Tracked mission" names (matched by its first 8 hex chars) */
+  trackedMissionId?: string
+  /** wall-clock ISO time trackedMissionId last changed */
+  trackedAt?: string
   /** bumped on every save so a window can tell its own save from the other window's */
   rev?: number
 }

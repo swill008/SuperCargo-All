@@ -130,20 +130,33 @@ The compact overlay is the same renderer bundle at `#compact`, in a second alway
 ## Other mode: WHERE AM I and start modes (`features`, 2026-10-14)
 
 Not part of upstream v0.8.3; lives under `src/other/` with the re-tie points listed in
-[STANDALONE.md](../src/other/STANDALONE.md) (rules 9-13 and re-tie points 9-11). Map and display-info
+[STANDALONE.md](../src/other/STANDALONE.md) (rules 9-20 and re-tie points 9-15). Map and display-info
 facts are in [OTHER-MODE-AUDIT.md](OTHER-MODE-AUDIT.md#where-am-i-and-start-modes).
 
 | File | Owns | Entry points |
 |---|---|---|
 | `src/other/otherGeo.ts` | Travel distance between two star-frame points: same system, other system via gateways (`jumps`), or over a body's surface | `travel()`, `compareTravel()`, `formatTravel()`; types `GeoPoint`, `Travel` |
-| `src/other/otherWhere.ts` | The `Where` model and its sources; parsing and resolving the map bottom line and the r_DisplayInfo text against the location roster | `parseMapLine()`, `parseDisplayInfo()`, `resolveMapLine()`, `resolveDisplayInfo()`; types `Where`, `WhereSource`, `MapLine`, `DisplayInfo`, `WhereRunResult` |
+| `src/other/otherWhere.ts` | The `Where` model and its sources; parsing and resolving the map bottom line and the r_DisplayInfo text against the location roster | `parseMapLine()`, `parseDisplayInfo()` (whole panel: zones, positions, radius/altitude, player location, ServerTime, tracked mission, `checks`), `resolveMapLine()`, `resolveDisplayInfo()`, `ACCURACY`, `whereAccuracy()` (fades 1 per 5 min, min 1), `accuracyWord()`; types `Where`, `WhereSource`, `MapLine`, `DisplayInfo`, `WhereRunResult` |
 | `src/other/main/whereAmI.ts` | Main side of WHERE AM I: global hotkey, one screen capture, OCR of zone 2 then zone 1, parse/resolve, broadcast; calibration preview and per-zone test; test seam `SC_WHERE_TEXT_FILE` (JSON `{zone1?, zone2?}` used instead of capture + OCR) | `registerOtherWhereHotkey(getSettings)` (re-exported by `main/register.ts`, called from upstream `registerHotkey()`); `registerOtherWhereIpc(getSettings)` (called by `registerOther()`) for IPC `otherWhere:run`, `otherWhere:calPreview`, `otherWhere:calTest`; `runWhere()` (a second run while one is running returns `error: 'busy'`, not broadcast); sends `evt:other:where`; `WHERE_FAIL_MESSAGE`; `getRecentWhereRuns()` for diagnostics |
 | `src/other/renderer/components/OtherMapCalibrator.tsx` | Settings UI (shown in `renderer/settingsBlock.tsx`, Other block) to set the two capture zones (`otherWhereZone1`, `otherWhereZone2`) on a preview grab and test each | `window.supercargo.otherWhereCalPreview()`, `otherWhereCalTest(zone)` |
 | `test/replay/where_checks.mjs` | Parse/resolve checks for `otherWhere.ts`: map bottom lines and r_DisplayInfo 3 blocks transcribed from real screenshots, OCR-noisy variants and garbage, against the roster `data/uex/other-positions.json` | `node test/replay/where_checks.mjs` (bundles with esbuild; no build needed; separate from `run_all.mjs`) |
+| `src/other/otherAfk.ts` | AFK button shared state and pure cycle: `AfkState`, key names → scan codes, which key each press sends, start / press / skip / stop steps, limits (`AFK_LAST_KEYS_MAX` 5, interval 5-600 s, a WHERE AM I read about once a minute ~2 s after a press) | `afkConfig()`, `afkStart()`, `afkPressed()`, `afkSkipped()`, `afkStopReason()`, `afkStopped()`, `afkKeyForPress()`, `afkScanCode()`, `normaliseAfkKey()`; type `AfkState` |
+| `src/other/main/afk.ts` | Main side of AFK: timer, bring the Star Citizen window to the front, press the key through a persistent PowerShell child running an Add-Type C# helper (SendInput with scan codes); Windows only (other systems: `lastError: 'Windows only'`); test seam `SC_AFK_DRYRUN=1` (no focus, no keys, presses recorded; `SC_AFK_INTERVAL_MS` sets the interval) | `registerOtherAfkIpc(getSettings)` (called by `registerOther()`) for IPC `otherAfk:start`, `otherAfk:stop`, `otherAfk:get`; broadcasts `evt:other:afk`; `stopOtherAfk()` (on `will-quit`); `getAfkState()` |
+| `src/other/renderer/components/AccuracyMeter.tsx` | Position accuracy as colour: red (0) → amber (5) → green (10) from the theme; number and word always shown | `AccTag` (overlay `ACC n` tag + 10-segment bar), `AccSlider` (Next tab, under STARTING AT), `TrackedTag`, `accuracyColor()` |
+| `src/other/renderer/components/HotkeyRecorder.tsx` | Click-to-record hotkey field producing an Electron accelerator ('' = off); pauses all app global hotkeys while recording; warns on clashes; shows "in use by another app" after a failed registration | default `HotkeyRecorder({ value, onChange, conflicts })`; helpers `keyFromCode()`, `accelFromEvent()`, `normAccel()`; uses `otherHotkeysPause()`, `otherHotkeysResume()`, `otherHotkeyCheck(accel)`. Used for WHERE AM I (Other settings block) and for the upstream OCR hotkey (`SettingsPage.tsx`, re-tie 14) |
+| `test/replay/afk_checks.mjs` | Checks the AFK pure cycle (`otherAfk.ts`) with a fake clock and sanity-checks the PowerShell / C# helper text in `main/afk.ts` (it can only run on Windows) | `node test/replay/afk_checks.mjs` (bundles with esbuild; no build needed) |
 
 Settings (`src/other/workMode.ts`, defaults in `OTHER_SETTING_DEFAULTS`): `otherStartMode` ('auto' | 'fixed',
 replaces `otherAutoStart`), `otherWhereHotkey` (CommandOrControl+Shift+L), `otherWhereZone1`, `otherWhereZone2`,
-`otherWhereUseZone2`. Doc fields: `where` (replaces `currentLocation` / `currentLocationAt`), `startTypedAt`.
+`otherWhereUseZone2`, `otherWhereLive` (false), `otherWhereLiveSec` (45, 30-120), `otherAfkIntervalSec` (15),
+`otherAfkFirstKey` (F2), `otherAfkCycleKey` (F1), `otherAfkMaxMin` (120, 0 = no limit), `otherAfkWhereRead` (true).
+Doc fields: `where` (replaces `currentLocation` / `currentLocationAt`; carries `accuracy` 0-10), `startTypedAt`,
+`trackedMissionId` (+ `trackedAt`).
+
+IPC added for the hotkey recorder: `otherHotkeys:pause`, `otherHotkeys:resume` (re-runs upstream `registerHotkey()`
+through the `reregisterHotkeys` callback), `otherHotkeys:check` (accelerator → `{ ok, reason?: 'invalid' | 'in-use' }`).
+In `whereAmI.ts`: `syncWhereLive()` / `stopWhereLive()` (live timer, called by `registerOther()` and by
+`onOtherSettingsChanged(patch)` from the upstream settings-set handler), `runLiveWhere()`, `getWhereLiveStats()`.
 
 **Data flow (WHERE AM I).**
 
@@ -159,6 +172,28 @@ overlay WHERE AM I button ┴─► otherWhere:run ─► main/whereAmI: one cap
    ─► resolveOrigin({typed, typedAt, where, mode}) ─► listOpenStops(origin) ─► overlay card / Next page
 ```
 
+**Data flow (live reads).**
+
+```
+settings otherWhereLive / otherWhereLiveSec ─► settings-set handler ─► onOtherSettingsChanged(patch) ─► syncWhereLive()
+   timer every N s (skipped while a read runs, a hotkey is being recorded, or Work mode is not Other)
+   ─► runLiveWhere() ─► runWhere({ zones: 2, why: 'live' }) ─► same parse / resolve as above (+ checks, accuracy, info)
+   ─► evt:other:where to ALL windows ─► main window: applyWhere only when ok (sets trackedMissionId from info.trackedMission)
+        overlay: silent, except one quiet message after 3 live failures in a row
+   ─► getWhereLiveStats() ─► diagnostics SNAPSHOT (reads, ok, failed, skipped)
+```
+
+**Data flow (AFK).**
+
+```
+overlay AFK button ─► otherAfk:start ─► main/afk.ts (Windows; SC_AFK_DRYRUN = record only, any OS)
+   every otherAfkIntervalSec: game window to front ─► PowerShell helper SendInput (scan code)
+        press 1 = otherAfkFirstKey (F2, map), later presses = otherAfkCycleKey (F1)
+        about once a minute, ~2 s after a press (otherAfkWhereRead): runWhere({ why: 'live' }) as above
+   ─► evt:other:afk (AfkState) to ALL windows ─► overlay "AFK ON · next key in N s"; diagnostics SNAPSHOT (on, presses, lastError)
+   stops: button (otherAfk:stop), game window gone, otherAfkMaxMin, app will-quit; leaves the game focused
+```
+
 Other clues take the same last step: a tick or a log Objective Complete sets `where` to that step's place;
 inventory log events set or clear it. None of them moves the log watermark (`lastLogEventAt` / `lastLogEventCount`).
 
@@ -170,3 +205,5 @@ inventory log events set or clear it. None of them moves the log watermark (`las
 - Map coordinates `0.00° 0.00°` are ignored as a position (not a real direction; the name is used instead); the
   distance is truncated to 0.01 Gm, so map positions are good to about 5-10 Mm.
 - Quantum travel and ATC log lines are not used: none names the place.
+- AFK sends keys only on Windows and has not been run against the game here (Linux build; dry run only).
+- A real zone 2 OCR read takes about 5 s, so live reads are spaced 30 s or more.

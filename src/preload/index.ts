@@ -35,6 +35,7 @@ import type { OtherJobsDoc } from '@other/otherJob'
 import type { OtherLogEvent, OtherScanResult } from '@other/otherEvents'
 import type { OtherAction } from '@other/otherActions'
 import type { WhereRunResult } from '@other/otherWhere'
+import type { AfkState } from '@other/otherAfk'
 
 type Unsubscribe = () => void
 
@@ -170,6 +171,14 @@ const api = {
   otherWhereCalPreview: (): Promise<string | null> => ipcRenderer.invoke(IPC.otherWhereCalPreview),
   otherWhereCalTest: (zone: 1 | 2): Promise<WhereRunResult> => ipcRenderer.invoke(IPC.otherWhereCalTest, zone),
   onOtherWhere: (cb: (r: WhereRunResult) => void): Unsubscribe => on(IPC.evtOtherWhere, cb),
+  otherHotkeysPause: (): Promise<boolean> => ipcRenderer.invoke(IPC.otherHotkeysPause),
+  otherHotkeysResume: (): Promise<boolean> => ipcRenderer.invoke(IPC.otherHotkeysResume),
+  otherHotkeyCheck: (accel: string): Promise<{ ok: boolean; reason?: 'invalid' | 'in-use' }> =>
+    ipcRenderer.invoke(IPC.otherHotkeyCheck, accel),
+  otherAfkStart: (): Promise<AfkState> => ipcRenderer.invoke(IPC.otherAfkStart),
+  otherAfkStop: (): Promise<AfkState> => ipcRenderer.invoke(IPC.otherAfkStop),
+  otherAfkGet: (): Promise<AfkState> => ipcRenderer.invoke(IPC.otherAfkGet),
+  onOtherAfk: (cb: (s: AfkState) => void): Unsubscribe => on(IPC.evtOtherAfk, cb),
   onObjective: (cb: (e: ObjectiveEvent) => void): Unsubscribe => on(IPC.evtObjective, cb),
   onContractEnded: (cb: (e: ContractEndedEvent) => void): Unsubscribe =>
     on(IPC.evtContractEnded, cb),

@@ -130,7 +130,7 @@ settings, the scanSession guard, and the alias config.
 
 Added 2026-10-14 after this audit (approved by the user). Files, entry points and data flow are in
 [SYSTEM-MAP.md](SYSTEM-MAP.md#other-mode-where-am-i-and-start-modes-features-2026-10-14); the rules are in
-[STANDALONE.md](../src/other/STANDALONE.md) (rules 9-13).
+[STANDALONE.md](../src/other/STANDALONE.md) (rules 9-20).
 
 - **A. Start modes.** `otherStartMode` replaces `otherAutoStart` (no compatibility: unreleased fork). **auto**: the newer of the typed start (`startTypedAt`) and the latest clue (`where.at`) wins. **fixed**: the typed start only. The AUTO / FIXED toggle replaces AUTO / PINNED.
 - **B. Clues** (each sets `where` with its source, newest wins in auto): `tick` (DONE / GO HERE / TURN IN, the step's place before the tick), `objective` (log Objective Complete), `inventory` (RequestLocationInventory / Update Inventory Location; see `otherCurrentLocation.ts` for the 36/36 log check), `map`, `displayinfo`, plus `typed`. The UI shows the source.
@@ -151,6 +151,56 @@ Added 2026-10-14 after this audit (approved by the user). Files, entry points an
 - Rule: altitude under 100 km → body centre + planet vector; otherwise the solar position. Name = nearest roster place within 50 km on a body or 100 km in space, else none. Labels: "HDRSO-Stott · 22.8 km", "Open space · 443,380 km from Hurston".
 
 **Known limits.** Zone 2 needs `r_DisplayInfo 3` and recalibration after a resolution change; surface data is a fixed snapshot in the body frame; the map on a planet gives only the body centre; `0°/0°` is ignored.
+
+## Whole-panel read, accuracy, live reads, tracked mission, AFK (batch 2)
+
+Added 2026-10-14, all user-approved (CONTRACT2 C1-C8, N1-N4, O1-O4, AFK). Rules 14-20 in
+[STANDALONE.md](../src/other/STANDALONE.md); files and data flow in [SYSTEM-MAP.md](SYSTEM-MAP.md).
+
+**Accuracy scale** (`ACCURACY` in `otherWhere.ts`; score at read time, then −1 per 5 min since `where.at`, min 1):
+
+| Score | Word | Clue |
+|---|---|---|
+| 10 | exact | Display info near a body: planet zone line or CamPos + body centre, checks pass |
+| 9 | exact | Display info in space: SolarSystem line (matches Root) |
+| 8 | good | Map line names a station / place |
+| 7 | good | Inventory log line |
+| 6 | good | Objective Complete log line |
+| 5 | rough | You ticked a step |
+| 4 | rough | Map line names only a body (body centre) |
+| 3 | guess | Map coordinates only |
+| 0 | none | No position |
+| – | – | Typed start: no score (the user's choice) |
+
+A display-info read whose ServerTime is more than 2 min off the PC clock is "maybe stale": −3 (min 1).
+
+**Sense checks** (each recorded in `DisplayInfo.checks`; a source is used only when its checks pass):
+- near a body: the planet zone km line agrees with CamPos within 1 km; |position| ≈ radius + altitude within 5 km;
+  `Current player location : StantonN` agrees with the body (1 Hurston, 2 Crusader, 3 ArcCorp, 4 microTech; moons "1a" etc.);
+  the planet zone line alone means near that body; altitude over 100 km → use the SolarSystem line instead;
+- SolarSystem line matches Root within 1 km (when Root is there), else Root alone;
+- then zone 1 (the map line), then log clues.
+
+**OCR tolerance** (from the user's real reads): OOC / 00C / 0OC / O0C, spaces for underscores, a unit per number
+(m, km, Km, the "Kkm" typo), stray commas (`12849498.,1180km`), leading junk (`~~`), a `Pos:` whose numbers wrap to the
+next line; system names by prefix (Stanton, Pyro, Nyx) ignoring trailing digits / l / I / | and "SolarSystem";
+place names fold O→0 and I/l→1 inside tokens with a digit (`S1DCO6` = `S1DC06`). An unknown or missing system
+on either side counts as the same system for distances (the real near-Hurston read gave "Stantonl" and every stop
+showed "No jump route" before this).
+
+**Replay scenarios** (`test/replay/replay.mjs`, real app path, `SC_WHERE_TEXT_FILE` / `SC_AFK_DRYRUN` seams; all fail
+on the batch-1 build): `where-real-near-hurston`, `where-real-space`, `where-system-stantonl`, `place-ocr-o-zero`,
+`where-tracked-mission`, `where-live` (waits for the 30 s minimum interval; no test override), `afk-dry-run`,
+`hotkey-check-invalid`.
+
+**Known limits.**
+- AFK is untested on Windows here: the build machine is Linux, so only the dry run (no focus, no keys) and the
+  helper-text checks in `afk_checks.mjs` have run. SendInput, the foreground-lock workaround and the "game window
+  gone" stop need a check on a Windows PC with the game. AFK presses keys in the game for you: check RSI's terms.
+- A real zone 2 OCR read takes about 5 s (whole panel, 3× upscale), so live reads are 30-120 s apart and AFK reads
+  about once a minute.
+- The tracked mission id is matched on its first 8 hex characters only; a badly garbled id matches nothing.
+- Live reads need r_DisplayInfo 3 on and the panel visible; they never fall back to the map line.
 
 ## Suggested order
 

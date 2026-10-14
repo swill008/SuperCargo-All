@@ -1,10 +1,10 @@
 /** Job row for Other-mode Jobs page. */
-import React, { useMemo } from 'react'
+import React from 'react'
 import { C, F } from '@renderer/theme'
 import { Btn } from '@renderer/components/ui'
 import { useStore } from '@renderer/state/store'
 import { type OtherJobEdit } from '../state/otherJobs'
-import { mergeLocations } from '../state/otherPlaces'
+import { useMergedLocations } from '../state/otherPlaces'
 import { formatPlaceWithBodySystem } from '@other/otherNext'
 import { OTHER_KIND_LABEL, type OtherJob } from '@other/otherJob'
 import { EditForm } from './JobsPartsUi'
@@ -32,8 +32,7 @@ export function JobRow({ job, uex, expanded, editing, onToggle, onEdit, onCancel
   const done = live.filter((s) => s.done).length
   const total = live.length
   const steps = shownSteps(job.steps, view)
-  const haulLocs = useStore((s) => s.locations) ?? []
-  const roster = useMemo(() => mergeLocations(haulLocs), [haulLocs])
+  const roster = useMergedLocations()
   const statusColor = job.status === 'active' ? C.green : job.status === 'complete' ? C.dim : C.amber
   return (
     <div style={{ borderBottom: `1px solid ${C.lineSoft}` }}>

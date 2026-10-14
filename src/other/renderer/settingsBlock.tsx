@@ -4,6 +4,7 @@
 import React, { useEffect, useState } from 'react'
 import { Btn } from '@renderer/components/ui'
 import OtherMapCalibrator from './components/OtherMapCalibrator'
+import HotkeyRecorder from './components/HotkeyRecorder'
 import { C, F } from '@renderer/theme'
 import { useStore } from '@renderer/state/store'
 import { dlog } from '@renderer/state/log'
@@ -36,6 +37,20 @@ const numStyle: React.CSSProperties = {
   padding: '6px 8px'
 }
 
+/** upstream debug-window hotkey (fixed) */
+const DEBUG_HOTKEY = 'CommandOrControl+Shift+D'
+
+/** single keys the AFK presser can send (no modifiers) */
+const AFK_KEYS: string[] = [
+  ...Array.from({ length: 12 }, (_, i) => `F${i + 1}`),
+  ...'ABCDEFGHIJKLMNOPQRSTUVWXYZ'.split(''),
+  ...'0123456789'.split(''),
+  'Escape',
+  'Tab'
+]
+
+const selectStyle: React.CSSProperties = { ...numStyle, width: 110 }
+
 const TOGGLES: { key: BoolKey; label: string; hint: string }[] = [
   { key: 'otherAutoTickObjectives', label: 'Auto-tick objectives', hint: 'Tick a step when the log says Objective Complete.' },
   { key: 'otherCrashNotice', label: 'Crash notice', hint: 'On start-up, say when the game did not quit cleanly and jobs were kept.' },
@@ -59,9 +74,7 @@ export default function OtherSettingsBlock({
   const settings = useStore((s) => s.settings)
   const updateSettings = useStore((s) => s.updateSettings)
   const whereHotkeySaved = otherSetting(settings, 'otherWhereHotkey')
-  const [whereHotkey, setWhereHotkey] = useState(whereHotkeySaved)
   const [zonesOpen, setZonesOpen] = useState(false)
-  useEffect(() => setWhereHotkey(whereHotkeySaved), [whereHotkeySaved])
   useEffect(() => {
     if (!zonesOpen) return
     const onKey = (e: KeyboardEvent): void => {
@@ -80,6 +93,20 @@ export default function OtherSettingsBlock({
     const n = Math.max(0, Math.floor(Number(raw) || 0))
     set({ [key]: n })
   }
+  // clamp on blur/commit so typing "4" on the way to "45" isn't rejected
+  const rangeSet = (
+    key: 'otherWhereLiveSec' | 'otherAfkIntervalSec' | 'otherAfkMaxMin',
+    raw: string,
+    min: number,
+    max: number
+  ): void => {
+    const n = Math.floor(Number(raw))
+    if (!Number.isFinite(n)) return
+    const v = Math.min(max, Math.max(min, n))
+    if (v !== otherSetting(settings, key)) set({ [key]: v })
+  }
+  const whereLive = otherSetting(settings, 'otherWhereLive')
+  const afkWhereRead = otherSetting(settings, 'otherAfkWhereRead')
   const withdrawn = otherSetting(settings, 'otherWithdrawnSteps')
   const haulPrompt = otherSetting(settings, 'otherHaulSwitchPrompt')
   const startMode = otherSetting(settings, 'otherStartMode')
@@ -162,30 +189,13 @@ export default function OtherSettingsBlock({
           Hotkey
           <span style={hintStyle}>Reads your location from the map screen.</span>
         </span>
-        <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
-          <input
-            value={whereHotkey}
-            placeholder="e.g. CommandOrControl+Shift+L"
-            onChange={(e) => setWhereHotkey(e.target.value)}
-            onBlur={() => {
-              if (whereHotkey.trim() !== whereHotkeySaved) set({ otherWhereHotkey: whereHotkey.trim() })
-            }}
-            onKeyDown={(e) => {
-              if (e.key === 'Enter') (e.target as HTMLInputElement).blur()
-            }}
-            style={{
-              flex: 1,
-              background: 'transparent',
-              border: '1px solid rgba(255,255,255,0.16)',
-              color: C.text,
-              fontFamily: F.mono,
-              fontSize: 12,
-              padding: '8px 12px',
-              outline: 'none'
-            }}
-          />
-          <span style={{ fontFamily: F.body, fontSize: 11, color: C.faint, flex: 'none' }}>global, blank to disable</span>
-        </div>
+        <HotkeyRecorder
+          value={whereHotkeySaved}
+          onChange={(v) => {
+            if (v !== whereHotkeySaved) set({ otherWhereHotkey: v })
+          }}
+          conflicts={[settings.ocrHotkey, DEBUG_HOTKEY]}
+        />
       </div>
       <div style={rowStyle}>
         <span style={keyStyle}>
@@ -193,6 +203,18 @@ export default function OtherSettingsBlock({
           <span style={hintStyle}>r_DisplayInfo text, upper right of the map screen</span>
         </span>
         <Toggle on={useZone2} onClick={() => set({ otherWhereUseZone2: !useZone2 })} />
+      </div>
+      <div style={rowStyle}>
+        <span style={keyStyle}>
+          Live position
+          <span style={hintStyle}>
+            Re-read the r_DisplayInfo panel every N s while it&apos;s on screen (about 5 s of OCR each time)
+          </span>
+        </span>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
+          <Toggle on={whereLive} onClick={() => set({ otherWhereLive: !whereLive })} />
+          {renderNum('otherWhereLiveSec', 30, 120, 's', !whereLive)}
+        </div>
       </div>
       <div style={rowStyle}>
         <span style={keyStyle}>
@@ -205,6 +227,52 @@ export default function OtherSettingsBlock({
           </Btn>
           <span style={{ fontFamily: F.mono, fontSize: 12, color: C.body }}>{zoneStatus}</span>
         </div>
+      </div>
+      <div style={sectionStyle}>AFK</div>
+      <div style={rowStyle}>
+        <span style={keyStyle}>
+          AFK key presser
+          <span style={hintStyle}>
+            Presses keys in Star Citizen for you. Check RSI&apos;s terms before using it; the game window is brought to the
+            front every cycle.
+          </span>
+        </span>
+        <span style={{ fontFamily: F.body, fontSize: 12, color: C.dim }}>Start and stop it with AFK on the overlay.</span>
+      </div>
+      <div style={rowStyle}>
+        <span style={keyStyle}>
+          Interval
+          <span style={hintStyle}>Seconds between key presses (5{'\u2013'}120).</span>
+        </span>
+        {renderNum('otherAfkIntervalSec', 5, 120, 's')}
+      </div>
+      <div style={rowStyle}>
+        <span style={keyStyle}>
+          First key
+          <span style={hintStyle}>Pressed on the first cycle (F2 = map).</span>
+        </span>
+        {renderKey('otherAfkFirstKey')}
+      </div>
+      <div style={rowStyle}>
+        <span style={keyStyle}>
+          Cycle key
+          <span style={hintStyle}>Pressed on every later cycle.</span>
+        </span>
+        {renderKey('otherAfkCycleKey')}
+      </div>
+      <div style={rowStyle}>
+        <span style={keyStyle}>
+          Time limit
+          <span style={hintStyle}>Stop AFK after this many minutes. 0 = no limit.</span>
+        </span>
+        {renderNum('otherAfkMaxMin', 0, 1440, 'min')}
+      </div>
+      <div style={rowStyle}>
+        <span style={keyStyle}>
+          Read position while AFK
+          <span style={hintStyle}>About once a minute, run a quiet WHERE AM I read after a key press.</span>
+        </span>
+        <Toggle on={afkWhereRead} onClick={() => set({ otherAfkWhereRead: !afkWhereRead })} />
       </div>
       {zonesOpen && (
         <div
@@ -266,6 +334,48 @@ export default function OtherSettingsBlock({
       letterSpacing: '0.08em',
       cursor: 'pointer'
     }
+  }
+
+  function renderNum(
+    key: 'otherWhereLiveSec' | 'otherAfkIntervalSec' | 'otherAfkMaxMin',
+    min: number,
+    max: number,
+    unit: string,
+    disabled = false
+  ): React.ReactElement {
+    return (
+      <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+        <input
+          // keyed by the saved value so an outside change (or a clamp) refreshes the field
+          key={`${key}:${otherSetting(settings, key)}`}
+          type="number"
+          min={min}
+          max={max}
+          disabled={disabled}
+          defaultValue={otherSetting(settings, key)}
+          onBlur={(e) => rangeSet(key, e.target.value, min, max)}
+          onKeyDown={(e) => {
+            if (e.key === 'Enter') (e.target as HTMLInputElement).blur()
+          }}
+          style={{ ...numStyle, opacity: disabled ? 0.45 : 1 }}
+        />
+        <span style={{ fontFamily: F.mono, fontSize: 13, color: C.body }}>{unit}</span>
+      </div>
+    )
+  }
+
+  function renderKey(key: 'otherAfkFirstKey' | 'otherAfkCycleKey'): React.ReactElement {
+    const cur = otherSetting(settings, key)
+    const opts = AFK_KEYS.includes(cur) ? AFK_KEYS : [cur, ...AFK_KEYS]
+    return (
+      <select value={cur} onChange={(e) => set({ [key]: e.target.value })} style={selectStyle}>
+        {opts.map((k) => (
+          <option key={k} value={k} style={{ background: C.black }}>
+            {k}
+          </option>
+        ))}
+      </select>
+    )
   }
 
   function renderChoice<V extends string>(values: readonly V[], current: V, pick: (v: V) => void): React.ReactElement {

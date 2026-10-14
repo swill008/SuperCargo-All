@@ -31,13 +31,14 @@ const WHERE_SOURCES = ['typed', 'tick', 'objective', 'inventory', 'map', 'displa
 const isNum = (v: unknown): boolean => typeof v === 'number' && Number.isFinite(v)
 const isStrOrNull = (v: unknown): boolean => v === null || v === undefined || typeof v === 'string'
 
-/** where: null, or an object with label/source/at and an optional finite point */
+/** where: null, or an object with label/source/at, an optional finite point and optional accuracy 0-10 */
 function isWhere(v: unknown): boolean {
   if (v === null) return true
   if (!v || typeof v !== 'object' || Array.isArray(v)) return false
   const w = v as Record<string, unknown>
   if (typeof w.label !== 'string' || typeof w.at !== 'string' || !WHERE_SOURCES.includes(w.source as string)) return false
   if (!isStrOrNull(w.name) || !isStrOrNull(w.system) || !isStrOrNull(w.body)) return false
+  if (w.accuracy !== undefined && !(isNum(w.accuracy) && (w.accuracy as number) >= 0 && (w.accuracy as number) <= 10)) return false
   if (w.point === undefined) return true
   const p = w.point as Record<string, unknown> | null
   return !!p && typeof p === 'object' && isNum(p.x) && isNum(p.y) && isNum(p.z)
@@ -73,6 +74,8 @@ function parseDoc(raw: string): Parsed {
   check('lastLogEventAt', isStr)
   check('where', isWhere)
   check('startTypedAt', isStr)
+  check('trackedMissionId', isStr)
+  check('trackedAt', isStr)
   check('rev', (v) => typeof v === 'number' && Number.isFinite(v))
   if (dropped.length) logger.warn('other', 'jobs file: bad field types reset', { fields: dropped })
   return { ok: true, doc: out as unknown as OtherJobsDoc }

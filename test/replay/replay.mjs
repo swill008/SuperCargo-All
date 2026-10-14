@@ -250,6 +250,26 @@ const DISPLAY_INFO_HURSTON = [
   'CamPos Planet Zone: -663018.807425 -725441.096333 -190488.315800',
   'Radius: 1000000.000000 ElevationUnderCam: 1064.250000 Altitude 7.436596'
 ].join('\n')
+// the user's real OCR text (CONTRACT2): near Hurston, read as "Open space" / "Stantonl" before the fixes
+const OCR_NEAR_HURSTON = [
+  'Zone: MISC Hull B 881455961181 Pos: -0.94m 26.39m 0.52m',
+  '',
+  'Zone: 00C Stanton 1 Hurston Pos: -500.7481km 922.8720km -1516.49m',
+  '',
+  'Zone: SolarSystem 862321811808 Pos: 12849498.1180km 427.5609km -1516.49m',
+  'Zone: Root Pos: 12849498.,1180km 427.5609km -1516.49m',
+  '',
+  'FPS 82.6 - 12.2ms [11.9ms]'
+].join('\n')
+// in space, only the top 3 lines read (failed before: no system named)
+const OCR_SPACE_TOP3 = [
+  'Zone: MISC Hull B 881455961181 Pos: -2.91m 14.90m 0.56m',
+  '',
+  'Zone: SolarSystem 862321811808 Pos: 12472406.2902km 231654.0157km -233.7724Km',
+  '~~ Zone: Root Pos: 12472406.2902km 231654.0157km -233.7724km',
+  '',
+  'FPS 111.3 - 9.0ms [8.8ms]'
+].join('\n')
 
 // --export-diagnostics <file>: the app writes it ~6 s after the main window loads
 const DIAG_SECTIONS = ['SUMMARY', 'SETTINGS', 'SNAPSHOT', 'UNKNOWN LINES', 'DECISIONS', 'PERF', 'USAGE', 'ERRORS', 'DEBUG LOG', 'LOG EXCERPT']
@@ -1014,6 +1034,209 @@ const scenarios = {
       ['overlay shows "+ 1 jump"', /\+\s*1 jump/.test(overlay), `overlay=${JSON.stringify(overlay.slice(0, 300))} ${err}`],
       ['distance goes through the gateways', row?.distance > 0 && Math.abs(row.distance - viaGate) / viaGate < 0.02, `distance=${row?.distance} viaGate=${Math.round(viaGate)}`]
     ]
+  },
+
+  // C1/C2/C3/N1: the user's real OCR text near Hurston ("00C Stanton 1 Hurston", "Stantonl" before the fix)
+  // reads as on Hurston, system Stanton, accuracy 10; the overlay start line shows "ACC 10"
+  'where-real-near-hurston': async () => {
+    const step = { id: 's1', kind: 'go', label: 'Go to Lorville', location: 'Lorville', have: 0, need: 1, done: false }
+    const e = setup('where-real-near-hurston', {}, { jobs: [logJob(mission(), { steps: [step] })], history: [] })
+    const textFile = path.join(e.home, 'where-text.json')
+    fs.writeFileSync(textFile, JSON.stringify({ zone2: OCR_NEAR_HURSTON, zone1: '' }))
+    const port = await freePort()
+    const stop = await launch(e, cdpArgs(port), { SC_WHERE_TEXT_FILE: textFile })
+    let r
+    let w
+    let overlay = ''
+    let err = ''
+    try {
+      r = await cdpEval(port, 'main', 'window.supercargo.otherWhereRun()')
+      w = await until(() => (e.jobs()?.where?.source === 'displayinfo' ? e.jobs().where : null))
+      overlay = (await until(() => windowText(port, 'overlay').then((t) => (/ACC\s*10/.test(t) ? t : '')), 8000)) || (await windowText(port, 'overlay'))
+    } catch (x) {
+      err = String(x?.message ?? x)
+    }
+    await stop()
+    const cas = ROSTER.find((l) => l.name === 'HDPC-Cassillo')
+    const p = w?.point
+    const toCas = p && cas ? Math.hypot(p.x - cas.x, p.y - cas.y, p.z - cas.z) : null
+    return [
+      ['run ok from zone 2', r?.ok === true && r?.zone === 2, `result=${JSON.stringify(r)?.slice(0, 300)} ${err}`],
+      ['where.body Hurston', /^hurston$/i.test(w?.body ?? ''), `where=${JSON.stringify(w)}`],
+      ['where.system Stanton', /^stanton$/i.test(w?.system ?? ''), `system=${w?.system}`],
+      ['accuracy 10', w?.accuracy === 10 && r?.where?.accuracy === 10, `doc=${w?.accuracy} result=${r?.where?.accuracy}`],
+      ['label names Hurston', /Hurston/.test(w?.label ?? ''), `label=${w?.label}`],
+      ['point ~422 km from HDPC-Cassillo', toCas != null && Math.abs(toCas - 422000) < 15000, `distance=${toCas == null ? null : Math.round(toCas)}`],
+      ['overlay shows ACC 10', /ACC\s*10/.test(overlay), `overlay=${JSON.stringify(overlay.slice(0, 300))} ${err}`]
+    ]
+  },
+
+  // C3/C7/N1: the real top-3-lines read in space (no system named, "~~" junk, "Km") -> ok, accuracy 9, system null
+  'where-real-space': async () => {
+    const e = setup('where-real-space')
+    const textFile = path.join(e.home, 'where-text.json')
+    fs.writeFileSync(textFile, JSON.stringify({ zone2: OCR_SPACE_TOP3, zone1: '' }))
+    const port = await freePort()
+    const stop = await launch(e, cdpArgs(port), { SC_WHERE_TEXT_FILE: textFile })
+    let r
+    let w
+    let err = ''
+    try {
+      r = await cdpEval(port, 'main', 'window.supercargo.otherWhereRun()')
+      w = await until(() => (e.jobs()?.where?.source === 'displayinfo' ? e.jobs().where : null))
+    } catch (x) {
+      err = String(x?.message ?? x)
+    }
+    await stop()
+    return [
+      ['run ok from zone 2', r?.ok === true && r?.zone === 2, `result=${JSON.stringify(r)?.slice(0, 300)} ${err}`],
+      ['accuracy 9', r?.where?.accuracy === 9, `accuracy=${r?.where?.accuracy}`],
+      ['saved with a star-frame point', !!w?.point && Math.abs(w.point.x - 12472406290) < 5e6, `where=${JSON.stringify(w)}`]
+    ]
+  },
+
+  // C4: a saved where with system "Stantonl" (the real near-Hurston read before fix a) still measures to a
+  // Stanton stop: a distance, no "No jump route", 0 jumps
+  'where-system-stantonl': async () => {
+    const step = { id: 's1', kind: 'go', label: 'Go to HUR-L1 Green Glade Station', location: 'HUR-L1 Green Glade Station', have: 0, need: 1, done: false }
+    const cas = ROSTER.find((l) => l.name === 'HDPC-Cassillo')
+    const where = { name: null, label: 'Open space · near Hurston', point: { x: cas.x, y: cas.y, z: cas.z, system: 'Stantonl', body: 'Hurston' }, system: 'Stantonl', body: 'Hurston', source: 'displayinfo', at: iso(ago(10)), accuracy: 10 }
+    const e = setup('where-system-stantonl', { otherStartMode: 'auto' }, { jobs: [logJob(mission(), { steps: [step] })], history: [], where, listOrder: 'distance' })
+    const out = path.join(e.data, 'diag-stantonl.txt')
+    const port = await freePort()
+    const stop = await launch(e, [`--export-diagnostics=${out}`, ...cdpArgs(port)])
+    const text = await waitForFile(out)
+    let overlay = ''
+    let err = ''
+    try {
+      overlay = (await until(() => windowText(port, 'overlay').then((t) => (/Green Glade/.test(t) ? t : '')), 8000)) || (await windowText(port, 'overlay'))
+    } catch (x) {
+      err = String(x?.message ?? x)
+    }
+    await stop()
+    const row = (snapshotJson(text)?.other?.distanceTable?.distance ?? []).find((r) => /Green Glade/.test(String(r.place)))
+    const want = rosterDist('HDPC-Cassillo', 'HUR-L1 Green Glade Station')
+    return [
+      ['overlay has no "No jump route"', overlay.length > 0 && !/No jump route/.test(overlay), `overlay=${JSON.stringify(overlay.slice(0, 300))} ${err}`],
+      ['overlay shows a distance', /\d\s*(Gm|Mm|km)/.test(overlay), `overlay=${JSON.stringify(overlay.slice(0, 300))}`],
+      ['table distance is the straight line, 0 jumps', row?.distance > 0 && Math.abs(row.distance - want) / want < 0.02 && !row?.jumps, `row=${JSON.stringify(row)} want=${Math.round(want)}`]
+    ]
+  },
+
+  // C5: an OCR'd step place "S1DCO6" (letter O) matches Covalex S1DC06 and gets a distance
+  'place-ocr-o-zero': async () => {
+    const step = { id: 's1', kind: 'go', label: 'Go to Covalex', location: 'Covalex Distribution Center S1DCO6 on Hurston', have: 0, need: 1, done: false }
+    const e = setup('place-ocr-o-zero', { otherStartMode: 'fixed' }, { jobs: [logJob(mission(), { steps: [step] })], history: [], startLocation: 'Lorville', startTypedAt: iso(ago(60)), listOrder: 'distance' })
+    const out = path.join(e.data, 'diag-o-zero.txt')
+    const port = await freePort()
+    const stop = await launch(e, [`--export-diagnostics=${out}`, ...cdpArgs(port)])
+    const text = await waitForFile(out)
+    let overlay = ''
+    let err = ''
+    try {
+      overlay = (await until(() => windowText(port, 'overlay').then((t) => (/S1DC/.test(t) ? t : '')), 8000)) || (await windowText(port, 'overlay'))
+    } catch (x) {
+      err = String(x?.message ?? x)
+    }
+    await stop()
+    const row = (snapshotJson(text)?.other?.distanceTable?.distance ?? []).find((r) => /S1DC/i.test(String(r.place)))
+    return [
+      ['overlay has no "Not found in UEX"', overlay.length > 0 && !/Not found in UEX/.test(overlay), `overlay=${JSON.stringify(overlay.slice(0, 300))} ${err}`],
+      ['table row has a distance', row?.distance > 0, `row=${JSON.stringify(row)}`]
+    ]
+  },
+
+  // O2: the panel's "Tracked mission" id (OCR garbled O for 0) marks the matching active job; overlay shows TRACKED
+  'where-tracked-mission': async () => {
+    const id = '6844f110-b18a-49ef-ae09-b9617767c5cd'
+    const other = mission()
+    const step = (s) => ({ id: 's1', kind: 'go', label: `Go to ${s}`, location: s, have: 0, need: 1, done: false })
+    const e = setup('where-tracked-mission', {}, { jobs: [logJob(other, { ref: 'J01', steps: [step('Lorville')] }), logJob(id, { id, ref: 'J02', title: 'Courier', steps: [step('HDPC-Cassillo')] })], history: [] })
+    const textFile = path.join(e.home, 'where-text.json')
+    const panel = `${OCR_NEAR_HURSTON}\nTracked mission : FTL_Courier_Stanton_Chlorine_Rank1_0 [6844f11O-b18a-49ef-ae09-b9617767c5cd]`
+    fs.writeFileSync(textFile, JSON.stringify({ zone2: panel, zone1: '' }))
+    const port = await freePort()
+    const stop = await launch(e, cdpArgs(port), { SC_WHERE_TEXT_FILE: textFile })
+    let r
+    let tracked
+    let overlay = ''
+    let err = ''
+    try {
+      r = await cdpEval(port, 'main', 'window.supercargo.otherWhereRun()')
+      tracked = await until(() => e.jobs()?.trackedMissionId)
+      overlay = (await until(() => windowText(port, 'overlay').then((t) => (/TRACKED/.test(t) ? t : '')), 8000)) || (await windowText(port, 'overlay'))
+    } catch (x) {
+      err = String(x?.message ?? x)
+    }
+    await stop()
+    return [
+      ['run ok', r?.ok === true, `result=${JSON.stringify(r)?.slice(0, 300)} ${err}`],
+      ['doc trackedMissionId is the job', tracked === id, `trackedMissionId=${tracked}`],
+      ['overlay shows TRACKED', /TRACKED/.test(overlay), `overlay=${JSON.stringify(overlay.slice(0, 300))}`]
+    ]
+  },
+
+  // O3: live position on -> main re-reads zone 2 by itself (no button / hotkey) and the doc's where updates
+  'where-live': async () => {
+    const e = setup('where-live', { otherWhereLive: true, otherWhereLiveSec: 30 })
+    const textFile = path.join(e.home, 'where-text.json')
+    fs.writeFileSync(textFile, JSON.stringify({ zone2: DISPLAY_INFO_HURSTON, zone1: '' }))
+    // no test override for the interval: the first live read comes at the 30 s minimum
+    const stop = await launch(e, [], { SC_WHERE_TEXT_FILE: textFile })
+    const w = await until(() => (e.jobs()?.where?.source === 'displayinfo' ? e.jobs().where : null), 45000)
+    await stop()
+    const lines = count(e.log(), /where: run done.*\blive\b/g)
+    return [
+      ['where updated with no manual run', w?.source === 'displayinfo' && w?.name === 'HDRSO-Stott', `where=${JSON.stringify(w)}`],
+      ['the read was a live one', lines >= 1, `live run lines=${lines}`]
+    ]
+  },
+
+  // AFK button, dry run (SC_AFK_DRYRUN: no focus, no keys sent): first press F2 (map), then F1; stop turns it off
+  'afk-dry-run': async () => {
+    const e = setup('afk-dry-run', { otherAfkFirstKey: 'F2', otherAfkCycleKey: 'F1' })
+    const port = await freePort()
+    const stop = await launch(e, cdpArgs(port), { SC_AFK_DRYRUN: '1', SC_AFK_INTERVAL_MS: '500' })
+    let started
+    let mid
+    let stopped
+    let after
+    let err = ''
+    try {
+      started = await cdpEval(port, 'main', 'window.supercargo.otherAfkStart()')
+      // lastKeys keeps the newest 5: read as soon as 2 presses are in, so the first F2 is still there
+      mid = await until(() => cdpEval(port, 'main', 'window.supercargo.otherAfkGet()').then((s) => (s?.presses >= 2 ? s : null)), 2500)
+      stopped = await cdpEval(port, 'main', 'window.supercargo.otherAfkStop()')
+      await sleep(1200)
+      after = await cdpEval(port, 'main', 'window.supercargo.otherAfkGet()')
+    } catch (x) {
+      err = String(x?.message ?? x)
+    }
+    await stop()
+    const keys = mid?.lastKeys ?? []
+    return [
+      ['start turns it on (dry run)', started?.on === true && started?.dryRun === true, `start=${JSON.stringify(started)} ${err}`],
+      ['at least 2 presses in ~2 s', (mid?.presses ?? 0) >= 2, `state=${JSON.stringify(mid)}`],
+      ['first key F2, then F1', keys[0] === 'F2' && keys[1] === 'F1', `lastKeys=${JSON.stringify(keys)}`],
+      ['stop turns it off', stopped?.on === false && after?.on === false, `stop=${JSON.stringify(stopped)} after=${JSON.stringify(after)}`],
+      ['no presses after stop', typeof after?.presses === 'number' && after.presses === stopped?.presses, `stopped=${stopped?.presses} after=${after?.presses}`]
+    ]
+  },
+
+  // C8: the hotkey check IPC rejects a key that is not an Electron accelerator
+  'hotkey-check-invalid': async () => {
+    const e = setup('hotkey-check-invalid')
+    const port = await freePort()
+    const stop = await launch(e, cdpArgs(port))
+    let r
+    let err = ''
+    try {
+      r = await cdpEval(port, 'main', "window.supercargo.otherHotkeyCheck('NotAKey')")
+    } catch (x) {
+      err = String(x?.message ?? x)
+    }
+    await stop()
+    return [['otherHotkeyCheck("NotAKey") -> ok false', r?.ok === false, `result=${JSON.stringify(r)} ${err}`]]
   },
 
   // the main window loads the Other doc and runs the start-up scan once (not once per subscribe / window)

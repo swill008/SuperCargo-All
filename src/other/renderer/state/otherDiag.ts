@@ -7,11 +7,11 @@ import type { Location } from '@shared/types'
 import type { ListOrder, OtherHistoryEntry, OtherJob, OtherStep } from '@other/otherJob'
 import { findRosterLocation, listOpenStops, resolveOrigin, stepActivePlace } from '@other/otherNext'
 import type { GeoPoint } from '@other/otherGeo'
-import type { Where } from '@other/otherWhere'
+import { accuracyWord, whereAccuracy, type DisplayInfo, type Where } from '@other/otherWhere'
 import { isRootFrame, isSmallZone, type MarkerPos } from '@other/otherMarkers'
 import { OTHER_SETTING_DEFAULTS, otherSetting, resolveWorkMode } from '@other/workMode'
 import { useStore } from '@renderer/state/store'
-import { useOtherJobs, otherMissionMarkers, otherLastWhereRun } from './otherJobs'
+import { useOtherJobs, otherMissionMarkers, otherLastWhereRun, otherLiveWhereReads } from './otherJobs'
 import { useOtherHistory } from './otherHistory'
 import { mergeLocations } from './otherPlaces'
 
@@ -20,9 +20,77 @@ const round = (n: number | null | undefined): number | null => (n == null || !Nu
 const roundPoint = (p?: GeoPoint): Record<string, unknown> | null =>
   p ? { x: round(p.x), y: round(p.y), z: round(p.z), system: p.system ?? null, body: p.body ?? null } : null
 
+/** accuracy now (fading) and its word; never throws */
+function accuracyNow(w: Where | null | undefined): { accuracyNow: number | null; word: string | null } {
+  try {
+    const n = whereAccuracy(w)
+    return { accuracyNow: n, word: n == null ? null : accuracyWord(n) }
+  } catch (err) {
+    return { accuracyNow: null, word: `error: ${(err as Error)?.message ?? String(err)}` }
+  }
+}
+
 function compactWhere(w: Where | null): Record<string, unknown> | null {
   if (!w) return null
-  return { name: w.name, label: w.label, source: w.source, at: w.at, system: w.system, body: w.body, point: roundPoint(w.point) }
+  return {
+    name: w.name,
+    label: w.label,
+    source: w.source,
+    at: w.at,
+    system: w.system,
+    body: w.body,
+    point: roundPoint(w.point),
+    accuracy: w.accuracy ?? null,
+    ...accuracyNow(w)
+  }
+}
+
+/** every parsed r_DisplayInfo field (positions rounded to 0.1 m) */
+function fullInfo(info: DisplayInfo | undefined): Record<string, unknown> | null {
+  if (!info) return null
+  const r1 = (n: number | undefined): number | null => (n == null || !Number.isFinite(n) ? null : Math.round(n * 10) / 10)
+  const p = (v?: { x: number; y: number; z: number }): Record<string, unknown> | null => (v ? { x: r1(v.x), y: r1(v.y), z: r1(v.z) } : null)
+  return {
+    system: info.system,
+    body: info.body,
+    planetZone: info.planetZone ?? null,
+    planetPos: p(info.planetPos),
+    solarPos: p(info.solarPos),
+    rootPos: p(info.rootPos),
+    shipPos: p(info.shipPos),
+    zones: info.zones?.map((z) => ({ name: z.name, pos: p(z.pos) })) ?? null,
+    radiusM: r1(info.radiusM),
+    altitudeM: r1(info.altitudeM),
+    elevationM: r1(info.elevationM),
+    xyPos: info.xyPos ? { x: r1(info.xyPos.x), y: r1(info.xyPos.y) } : null,
+    playerLocation: info.playerLocation ?? null,
+    playerLocationIndex: info.playerLocationIndex ?? null,
+    serverTime: info.serverTime ?? null,
+    universeTime: info.universeTime ?? null,
+    trackedMission: info.trackedMission ?? null,
+    checks: info.checks ?? null
+  }
+}
+
+// AFK state for the snapshot: the snapshot is synchronous, so keep the newest state from
+// otherAfkGet / onOtherAfk (preload methods added by the main/afk agents; absent = not built)
+type AfkBridge = { otherAfkGet?: () => Promise<unknown>; onOtherAfk?: (cb: (s: unknown) => void) => unknown }
+let afkCache: { state: unknown; at: string } | null = null
+let afkBound = false
+function afkSnapshot(): Record<string, unknown> | null {
+  const bridge = window.supercargo as unknown as AfkBridge
+  if (!afkBound && bridge.onOtherAfk) {
+    afkBound = true
+    bridge.onOtherAfk((st) => (afkCache = { state: st, at: new Date().toISOString() }))
+  }
+  if (!bridge.otherAfkGet) return null
+  void bridge
+    .otherAfkGet()
+    .then((st) => (afkCache = { state: st, at: new Date().toISOString() }))
+    .catch(() => undefined)
+  if (!afkCache) return { pending: true }
+  const st = (afkCache.state ?? {}) as Record<string, unknown>
+  return { on: st.on ?? null, presses: st.presses ?? null, lastError: st.lastError ?? null, dryRun: st.dryRun ?? null, startedAt: st.startedAt ?? null, endsAt: st.endsAt ?? null, lastKeys: st.lastKeys ?? null, readAt: afkCache.at }
 }
 
 function compactStep(s: OtherStep): Record<string, unknown> {
@@ -205,10 +273,19 @@ export function otherDiagSnapshot(): Record<string, unknown> {
           zone: r.zone,
           error: r.error,
           ms: r.ms,
+          why: r.why ?? null,
+          note: r.note ?? null,
           where: compactWhere(r.where ?? null),
+          info: fullInfo(r.info),
+          checks: r.info?.checks ?? null,
           raw: { zone1: clip(r.raw?.zone1), zone2: clip(r.raw?.zone2) }
         }
       })(),
+      whereAccuracy: accuracyNow(s.where),
+      liveWhereReads: otherLiveWhereReads(),
+      trackedMissionId: s.trackedMissionId ?? null,
+      trackedAt: s.trackedAt ?? null,
+      afk: afkSnapshot(),
       start: {
         used: start,
         label: origin.label,

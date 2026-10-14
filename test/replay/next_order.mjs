@@ -270,6 +270,66 @@ safe('resolveOrigin', () => {
   check('resolveOrigin', 'open-space clue: no name, label + point carried', space.name === null && space.label?.startsWith('Open space') && space.point === pt && space.kind === 'displayinfo', show(space))
 })
 
+// ---- batch 2: misread systems (fix c), O/0 in names (fix d), origin accuracy ----
+safe('systems', () => {
+  // the contract's Hurston reading: SolarSystem/Root line, system read as "Stantonl"
+  const here = { x: 12849498118.0, y: 427560.9, z: -1516.49, system: 'Stantonl', body: null }
+  const gg = byName('HUR-L1 Green Glade Station')
+  const t = G.travel(here, N.locationPoint(gg), locations)
+  check('systems', '"Stantonl" origin -> HUR-L1 Green Glade ≈1.29 Gm, jumps 0', t?.jumps === 0 && Math.abs(t.meters / 1e9 - 1.29) < 0.01, JSON.stringify(t))
+  for (const sys of ['Stanton1', 'StantonSolarSystem', 'Stanton System', 'STANTON']) {
+    const u = G.travel({ ...here, system: sys }, N.locationPoint(gg), locations)
+    check('systems', `"${sys}" counts as stanton`, u?.jumps === 0 && near(u?.meters, t?.meters), JSON.stringify(u))
+  }
+  if (typeof G.systemKey === 'function') {
+    check('systems', 'systemKey normalises', G.systemKey('Stantonl', locations) === 'stanton' && G.systemKey('Pyro1', locations) === 'pyro' && G.systemKey('Foo', locations) === '', '')
+  }
+  // a system the roster doesn't have = same system (straight distance)
+  const pyroStop = locations.find((l) => l.system === 'pyro' && l.x != null && !/gateway/i.test(l.name))
+  const foo = G.travel({ ...here, system: 'Foo' }, N.locationPoint(pyroStop), locations)
+  check('systems', 'made-up system "Foo" -> same-system distance', foo?.jumps === 0 && near(foo?.meters, dist(here, pyroStop)), JSON.stringify(foo))
+  const pyro = G.travel({ ...here, system: 'Stantonl' }, N.locationPoint(pyroStop), locations)
+  check('systems', 'real Pyro stop from "Stantonl" still jumps 1', pyro?.jumps === 1, JSON.stringify(pyro))
+  const nul = G.travel({ ...here, system: null }, N.locationPoint(pyroStop), locations)
+  check('systems', 'no system -> same-system distance', nul?.jumps === 0, JSON.stringify(nul))
+})
+
+safe('names O/0', () => {
+  const want = 'Covalex Distribution Center S1DC06'
+  const hit = N.findRosterLocation('Covalex Distribution Center S1DCO6 on Hurston', locations)
+  check('names O/0', 'S1DCO6 on Hurston finds S1DC06', hit?.name === want, hit?.name)
+  check('names O/0', 'S1DCO6 snaps to S1DC06', N.snapLocationToUex('Covalex Distribution Center S1DCO6', locations) === want, N.snapLocationToUex('Covalex Distribution Center S1DCO6', locations))
+  const lower = N.findRosterLocation('covalex distribution center s1dco6', locations)
+  check('names O/0', 'lower case s1dco6 matches too', lower?.name === want, lower?.name)
+  check('names O/0', 'S4DC05 still S4DC05', N.findRosterLocation('Covalex Distribution Center S4DC05', locations)?.name.includes('S4DC05'), '')
+  check('names O/0', 'exact names unchanged', N.findRosterLocation('HUR-L1 Green Glade Station', locations)?.name === 'HUR-L1 Green Glade Station' && N.findRosterLocation('Port Tressler', locations)?.name === 'Port Tressler', '')
+  check('names O/0', 'unknown place still unknown', N.findRosterLocation(OFF_MAP, locations) === undefined, '')
+  // UEX "Center" without coords + starmap "Centre" with coords (the real merged roster): the folded match must take the one with coords
+  const twoSpellings = [
+    { name: 'Covalex Distribution Center S1DC06', code: '', maxContainerSize: 0, uexId: 1, system: 'stanton' },
+    { name: 'Covalex Distribution Centre S1DC06', code: '', maxContainerSize: 0, uexId: 0, system: 'stanton', body: 'Hurston', x: 1, y: 2, z: 3 }
+  ]
+  const withCoords = N.findRosterLocation('Covalex Distribution Center S1DCO6 on Hurston', twoSpellings)
+  check('names O/0', 'S1DCO6 picks the spelling that has coords', withCoords?.x === 1, withCoords?.name)
+  check('names O/0', 'S9DC99 (no such place) not matched', N.findRosterLocation('Covalex Distribution Center S9DC99', locations) == null || N.findRosterLocation('Covalex Distribution Center S9DC99', locations)?.name !== want, N.findRosterLocation('Covalex Distribution Center S9DC99', locations)?.name)
+})
+
+safe('origin accuracy', () => {
+  const now = Date.parse('2026-10-14T12:00:00Z')
+  const iso = (ms) => new Date(ms).toISOString()
+  const w = (ago, accuracy) => ({ name: 'Everus Harbor', label: 'Everus Harbor', system: 'stanton', body: null, source: 'displayinfo', at: iso(now - ago), accuracy })
+  const R = (o) => N.resolveOrigin({ locations, now, mode: 'auto', ...o })
+  const fresh = R({ where: w(0, 10) })
+  check('origin accuracy', 'fresh display-info clue -> 10', fresh.accuracy === 10, String(fresh.accuracy))
+  const faded = R({ where: w(11 * 60000, 10) })
+  check('origin accuracy', 'fades -1 per 5 min (11 min -> 8)', faded.accuracy === 8, String(faded.accuracy))
+  const floor = R({ where: w(500 * 60000, 10) })
+  check('origin accuracy', 'never below 1', floor.accuracy === 1, String(floor.accuracy))
+  const typed = R({ typed: 'Port Tressler', typedAt: iso(now) })
+  check('origin accuracy', 'typed -> null', typed.accuracy === null && typed.kind === 'typed', String(typed.accuracy))
+  check('origin accuracy', 'nothing set -> null', R({}).accuracy === null, '')
+})
+
 // ---- multi-system + surface (2026-10-14) ----
 safe('cross-system', () => {
   const start = byName(START)

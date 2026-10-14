@@ -16,7 +16,7 @@ import {
 } from '@other/otherJob'
 import { calibrateZone, resolveMarker, type MarkerPos } from '@other/otherMarkers'
 import { findRosterLocation, stepActivePlace } from '@other/otherNext'
-import type { Where, WhereRunResult, WhereSource } from '@other/otherWhere'
+import { ACCURACY, type Where, type WhereRunResult, type WhereSource } from '@other/otherWhere'
 import { mergeLocations } from './otherPlaces'
 import type { OtherLogEvent } from '@other/otherEvents'
 import type { OtherAction } from '@other/otherActions'
@@ -67,6 +67,10 @@ interface OtherJobsState {
   where: Where | null
   /** wall-clock ISO time STARTING AT was last typed non-empty (doc field; auto start mode compares it with where.at) */
   startTypedAt?: string
+  /** missionId of the active job the game says is tracked (doc field; from r_DisplayInfo "Tracked mission") */
+  trackedMissionId?: string
+  /** wall-clock ISO time trackedMissionId last changed (doc field) */
+  trackedAt?: string
   /** build of the newest log session (doc field) */
   markerBuild?: string
   /** start-up: last game session crashed and active log jobs were kept (rule 6) */
@@ -91,8 +95,9 @@ interface OtherJobsState {
   restoreJob: (id: string) => void
   completeJob: (id: string) => void
   toggleStep: (jobId: string, stepId: string) => void
-  /** WHERE AM I result: main window applies + saves (newest wins); the overlay ignores it. Never moves the log watermark. */
-  applyWhere: (w: Where) => void
+  /** WHERE AM I result: main window applies + saves (newest wins); the overlay ignores it. Never moves the log watermark.
+   *  With the run result: 'live' reads trace only on a change; info.trackedMission sets trackedMissionId (O2). */
+  applyWhere: (w: Where | null | undefined, r?: Pick<WhereRunResult, 'why' | 'info'>) => void
 }
 
 let seq = 0
@@ -326,6 +331,32 @@ function isNewer(cur: Where | null, next: { at: string }): boolean {
   return b >= a
 }
 
+/** N1: base accuracy for a log / tick clue */
+const CLUE_ACCURACY: Partial<Record<WhereSource, number>> = {
+  inventory: ACCURACY.inventory,
+  objective: ACCURACY.objective,
+  tick: ACCURACY.tick
+}
+
+/** O2: first 8 chars of a mission uuid, OCR-tolerant (O->0, I/l->1), lower case; '' when too short */
+export function missionKey(id: string | undefined): string {
+  if (!id) return ''
+  const k = id
+    .replace(/[Oo]/g, '0')
+    .replace(/[Il|]/g, '1')
+    .toLowerCase()
+    .replace(/[^0-9a-f]/g, '')
+    .slice(0, 8)
+  return k.length === 8 ? k : ''
+}
+
+/** O2: the active job whose missionId starts with the same 8 hex chars as the tracked id */
+export function matchTrackedMission(jobs: OtherJob[], trackedId: string | undefined): OtherJob | undefined {
+  const k = missionKey(trackedId)
+  if (!k) return undefined
+  return jobs.find((j) => j.status === 'active' && !!j.missionId && missionKey(j.missionId) === k)
+}
+
 /** a Where for a named place; system, body and point from the roster when it knows the place */
 function whereFromPlace(name: string, source: WhereSource, at: string): Where {
   const loc = findRosterLocation(name, mergeLocations(useStore.getState().locations))
@@ -333,20 +364,36 @@ function whereFromPlace(name: string, source: WhereSource, at: string): Where {
     loc && loc.x != null && loc.y != null && loc.z != null
       ? { x: loc.x, y: loc.y, z: loc.z, system: loc.system ?? null, body: loc.body ?? null }
       : undefined
-  return { name, label: name, system: loc?.system ?? null, body: loc?.body ?? null, source, at, ...(point ? { point } : {}) }
+  const accuracy = CLUE_ACCURACY[source]
+  return {
+    name,
+    label: name,
+    system: loc?.system ?? null,
+    body: loc?.body ?? null,
+    source,
+    at,
+    ...(point ? { point } : {}),
+    ...(accuracy !== undefined ? { accuracy } : {})
+  }
 }
 
-/** set where from a clue when it is not older than the current one; trace either way */
-function takeWhere(cur: Where | null, next: Where, why?: Record<string, unknown>): Where | null {
-  const from = cur ? { name: cur.name, source: cur.source, at: cur.at } : null
-  const to = { name: next.name, source: next.source, at: next.at, roster: !!next.point }
+/** set where from a clue when it is not older than the current one; trace either way
+ *  (quiet: live re-reads trace only when name / label / source / accuracy change) */
+function takeWhere(cur: Where | null, next: Where, why?: Record<string, unknown>, quiet = false): Where | null {
+  const from = cur ? { name: cur.name, source: cur.source, at: cur.at, accuracy: cur.accuracy } : null
+  const to = { name: next.name, source: next.source, at: next.at, roster: !!next.point, accuracy: next.accuracy }
+  const same =
+    !!cur && cur.name === next.name && cur.label === next.label && cur.source === next.source && cur.accuracy === next.accuracy
   if (!isNewer(cur, next)) {
+    if (quiet) return cur
     decide('where: older clue ignored', undefined, { from, to, ...why })
     dlog.debug('other', 'where: older clue ignored', { from, to })
     return cur
   }
-  decide(`where: ${next.source}`, undefined, { from, to, ...why })
-  dlog.debug('other', 'where set', { from, to })
+  if (!(quiet && same)) {
+    decide(`where: ${next.source}`, undefined, { from, to, ...why })
+    dlog.debug('other', 'where set', { from, to })
+  }
   return next
 }
 
@@ -672,6 +719,8 @@ export function buildOtherDoc(): OtherJobsDoc {
     markerBuild: s.markerBuild,
     where: s.where,
     startTypedAt: s.startTypedAt,
+    trackedMissionId: s.trackedMissionId,
+    trackedAt: s.trackedAt,
     rev: s.rev
   }
 }
@@ -715,6 +764,11 @@ let listenersBound = false
 let lastWhereRun: (WhereRunResult & { receivedAt: string }) | null = null
 export function otherLastWhereRun(): (WhereRunResult & { receivedAt: string }) | null {
   return lastWhereRun
+}
+/** diagnostics: live ('live') reads received this run (main window) */
+let liveWhereReads = 0
+export function otherLiveWhereReads(): number {
+  return liveWhereReads
 }
 /** init's promise, once per window (see init) */
 let initOnce: Promise<void> | null = null
@@ -768,6 +822,8 @@ export const useOtherJobs = create<OtherJobsState>((set, get) => {
       markerBuild: typeof doc.markerBuild === 'string' ? doc.markerBuild : undefined,
       where: doc.where && typeof doc.where === 'object' ? doc.where : null,
       startTypedAt: typeof doc.startTypedAt === 'string' ? doc.startTypedAt : undefined,
+      trackedMissionId: typeof doc.trackedMissionId === 'string' ? doc.trackedMissionId : undefined,
+      trackedAt: typeof doc.trackedAt === 'string' ? doc.trackedAt : undefined,
       rev: doc.rev ?? 0
     })
     useOtherHistory.getState().load(doc)
@@ -799,8 +855,10 @@ export const useOtherJobs = create<OtherJobsState>((set, get) => {
       // WHERE AM I (hotkey or overlay button): main process broadcasts each read to every window
       window.supercargo.onOtherWhere?.((r) => {
         lastWhereRun = { ...r, receivedAt: new Date().toISOString() }
-        dlog.info('other', 'where am i result', { ok: r.ok, zone: r.zone, error: r.error, ms: r.ms, label: r.where?.label })
-        if (r.ok && r.where) get().applyWhere(r.where)
+        if (r.why === 'live') liveWhereReads += 1
+        if (r.why === 'live') dlog.debug('other', 'where am i live result', { ok: r.ok, zone: r.zone, error: r.error, ms: r.ms, label: r.where?.label })
+        else dlog.info('other', 'where am i result', { ok: r.ok, zone: r.zone, error: r.error, ms: r.ms, label: r.where?.label })
+        get().applyWhere(r.ok ? r.where : undefined, r)
       })
       // steps filled outside the reducer (OCR, edit) have no objectiveId: link this run's markers by order
       let placing = false
@@ -933,6 +991,8 @@ export const useOtherJobs = create<OtherJobsState>((set, get) => {
     markerBuild: undefined,
     where: null,
     startTypedAt: undefined,
+    trackedMissionId: undefined,
+    trackedAt: undefined,
     crashNotice: null,
     dismissCrashNotice: () => set({ crashNotice: null }),
 
@@ -1178,13 +1238,29 @@ export const useOtherJobs = create<OtherJobsState>((set, get) => {
       get().persist()
     },
 
-    applyWhere: (w) => {
+    applyWhere: (w, r) => {
       if (get().passive) return
-      const cur = get().where
-      const next = takeWhere(cur, w, { label: w.label })
-      if (next === cur) return
-      set({ where: next })
-      get().persist()
+      const live = r?.why === 'live'
+      let changed = false
+      if (w) {
+        const cur = get().where
+        const next = takeWhere(cur, w, { label: w.label, why: r?.why }, live)
+        if (next !== cur) {
+          set({ where: next })
+          changed = true
+        }
+      }
+      // O2: the panel's tracked mission names an active job -> mark it (no match = ignore)
+      const tracked = r?.info?.trackedMission
+      if (tracked?.id) {
+        const job = matchTrackedMission(get().jobs, tracked.id)
+        if (job?.missionId && job.missionId !== get().trackedMissionId) {
+          decide('tracked mission', job.missionId, { ref: job.ref, from: short(get().trackedMissionId), read: tracked.id, name: tracked.name })
+          set({ trackedMissionId: job.missionId, trackedAt: new Date().toISOString() })
+          changed = true
+        } else if (!job && !live) dlog.debug('other', 'tracked mission: no active job matches', { read: tracked.id, name: tracked.name })
+      }
+      if (changed) get().persist()
     }
   }
 })

@@ -5,8 +5,10 @@
  *   2. routeAccepted() in the Game.log accepted handler (skip Manifest in Other mode)
  *   3. registerOtherWhereHotkey(getSettings) at the end of registerHotkey() (after its unregisterAll),
  *      and registerHotkey() again when patch.otherWhereHotkey changes
+ *   4. registerOther({ ..., reregisterHotkeys: registerHotkey }) so the hotkey recorder's resume re-runs it
+ *   5. onOtherSettingsChanged(patch) at the end of the settingsSet handler (live position timer)
  */
-import type { BrowserWindow } from 'electron'
+import { app, type BrowserWindow } from 'electron'
 import { IPC } from '@shared/channels'
 import type { AppSettings, ContractAcceptedEvent } from '@shared/types'
 import { resolveWorkMode } from '../workMode'
@@ -16,7 +18,14 @@ import { refreshOtherPlaces } from './uex'
 import type { OtherLogEvent } from '@other/otherEvents'
 import { createTracedOtherParser, createLocationEmitter, currentLocationRoster, lineTime } from './scanLog'
 import { wipeOtherOcrSession, hookOtherOcrSessionQuit } from './ocrSession'
-import { registerOtherWhereIpc, registerOtherWhereHotkey as registerWhereHotkey } from './whereAmI'
+import {
+  registerOtherWhereIpc,
+  registerOtherWhereHotkey as registerWhereHotkey,
+  setOtherHotkeyReregister,
+  stopWhereLive,
+  syncWhereLive
+} from './whereAmI'
+import { registerOtherAfkIpc, stopOtherAfk } from './afk'
 import { loadCachedLocations } from '../../main/uex'
 import { logger } from '../../main/logger'
 
@@ -29,16 +38,25 @@ export interface RegisterOtherOptions {
   watcher: OtherLineSource
   getSettings: () => AppSettings
   getMainWindow: () => BrowserWindow | null
+  /** upstream registerHotkey(): unregisterAll + OCR + WHERE AM I (hotkey recorder resume) */
+  reregisterHotkeys?: () => void
 }
 
 let started = false
 
-export function registerOther({ watcher, getSettings, getMainWindow }: RegisterOtherOptions): void {
+export function registerOther({ watcher, getSettings, getMainWindow, reregisterHotkeys }: RegisterOtherOptions): void {
   if (started) return
   started = true
   registerOtherJobsIpc(getSettings)
   registerOtherActionRelay(getMainWindow)
   registerOtherWhereIpc(getSettings)
+  if (reregisterHotkeys) setOtherHotkeyReregister(reregisterHotkeys)
+  syncWhereLive(getSettings)
+  registerOtherAfkIpc(getSettings)
+  app.on('will-quit', () => {
+    stopWhereLive()
+    stopOtherAfk()
+  })
   wipeOtherOcrSession()
   hookOtherOcrSessionQuit()
   void refreshOtherPlaces(loadCachedLocations()?.locations ?? [])
@@ -84,4 +102,9 @@ export function routeAccepted(
 /** WHERE AM I hotkey; call after upstream registerHotkey()'s globalShortcut.unregisterAll() */
 export function registerOtherWhereHotkey(getSettings: () => AppSettings): void {
   registerWhereHotkey(getSettings)
+}
+
+/** settingsSet re-tie: restarts / stops the live position timer when its settings change */
+export function onOtherSettingsChanged(patch: Partial<AppSettings>): void {
+  if (patch.otherWhereLive !== undefined || patch.otherWhereLiveSec !== undefined) syncWhereLive()
 }

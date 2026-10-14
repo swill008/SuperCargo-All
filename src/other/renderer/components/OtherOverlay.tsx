@@ -3,12 +3,12 @@
  * Same window as the haul overlay; different body so we never show box math.
  * Cycle arrows walk the open-stop list. Clicks need overlay click-through OFF.
  */
-import React, { useEffect, useMemo, useState } from 'react'
+import React, { useEffect, useMemo, useRef, useState } from 'react'
 import { C, F } from '@renderer/theme'
 import { useStore } from '@renderer/state/store'
 import { otherSetting } from '@other/workMode'
 import { useOtherJobs } from '../state/otherJobs'
-import { mergeLocations } from '../state/otherPlaces'
+import { useMergedLocations } from '../state/otherPlaces'
 import {
   listOpenStops, stepActivePlace, stepActionLabel, formatPlaceWithBodySystem, formatMapDistance,
   resolveOrigin, groupByPlace, remainingRoute
@@ -17,6 +17,20 @@ import type { ListOrder } from '@other/otherNext'
 import { formatTravel } from '@other/otherGeo'
 import type { WhereRunResult, WhereSource } from '@other/otherWhere'
 import { miniBtn, otherView, withoutWithdrawn, JobTags } from '../pages/JobsPartsStyles'
+import { AccTag, TrackedTag } from './AccuracyMeter'
+
+/** AFK keep-alive state (src/other/otherAfk.ts AfkState); preload methods may be missing mid-build */
+interface AfkView { on: boolean; nextAt?: string; lastError?: string }
+interface AfkApi {
+  otherAfkStart?: () => Promise<AfkView>
+  otherAfkStop?: () => Promise<AfkView>
+  otherAfkGet?: () => Promise<AfkView>
+  onOtherAfk?: (cb: (s: AfkView) => void) => (() => void) | void
+}
+const afkApi = (): AfkApi => window.supercargo as unknown as AfkApi
+const AFK_ERR_MS = 6000
+/** live reads stay silent until this many fail in a row */
+const LIVE_FAIL_LIMIT = 3
 
 const WHITE = '#eaf1f7'
 
@@ -27,7 +41,13 @@ const NO_DISTANCE_TEXT = { 'not-in-uex': 'Not found in UEX', 'no-start': 'No sta
 const SOURCE_WORD: Record<WhereSource, string> = {
   typed: 'typed', tick: 'tick', objective: 'objective', inventory: 'inventory', map: 'map', displayinfo: 'display info'
 }
-const WHERE_FAIL = "couldn't read the map, try again"
+const WHERE_FAIL = "\ud83d\udccd Couldn't read the map, try again"
+const LIVE_FAIL = '\ud83d\udccd Live position: no read for a while'
+/** score from resolveOrigin (null = typed / unknown) */
+const originAccuracy = (o: object): number | null => {
+  const a = (o as { accuracy?: number | null }).accuracy
+  return typeof a === 'number' && Number.isFinite(a) ? a : null
+}
 const WHERE_MSG_MS = 4000
 /** "12.3 Gm" / "≈490 km surface" / "38.0 Gm + 1 jump"; ≈ prefix for marker-based */
 const travelText = (m: number, jumps: number | undefined, surface: boolean | undefined, approx: boolean): string => {
@@ -48,9 +68,10 @@ export default function OtherOverlay(): React.ReactElement {
   // rule 8: the overlay only sends actions; the main window applies and saves them
   const toggleStep = (jobId: string, stepId: string): void => window.supercargo.otherAction({ type: 'toggleStep', jobId, stepId })
   const abandonJob = (jobId: string): void => window.supercargo.otherAction({ type: 'abandon', jobId })
+  const trackedMissionId = useOtherJobs((s) => (s as { trackedMissionId?: string }).trackedMissionId)
+  const trackedAt = useOtherJobs((s) => (s as { trackedAt?: string }).trackedAt)
   const settings = useStore((s) => s.settings)
-  const haulLocs = useStore((s) => s.locations) ?? []
-  const locations = useMemo(() => mergeLocations(haulLocs), [haulLocs])
+  const locations = useMergedLocations()
   const opacity = settings.overlayOpacity ?? 0.85
   const returnToFirst = settings.overlayReturnToFirst !== false
   const returnSeconds = Math.max(0, Math.min(20, settings.overlayReturnSeconds ?? 8))
@@ -91,22 +112,50 @@ export default function OtherOverlay(): React.ReactElement {
   // the overlay walks places: several steps at one station are one stop
   const groups = useMemo(() => groupByPlace(open, locations), [open, locations])
 
+  // set when the card jumped to the tracked job: the return-to-first timer leaves it there
+  const heldByTrack = useRef(false)
   useEffect(() => {
     setIdx(0)
+    heldByTrack.current = false
   }, [startLocation, originPoint])
+  const isTracked = (missionId: string | undefined): boolean => !!trackedMissionId && missionId === trackedMissionId
+  // a new tracked mission (new trackedAt): jump to that job's next stop once the groups have it
+  const [trackPending, setTrackPending] = useState(false)
+  useEffect(() => {
+    if (trackedAt && trackedMissionId) setTrackPending(true)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [trackedAt])
+  useEffect(() => {
+    if (!trackPending) return
+    const i = groups.findIndex((g) => g.rows.some((r) => r.job.missionId === trackedMissionId))
+    if (i >= 0) {
+      setIdx(i)
+      heldByTrack.current = true
+    }
+    setTrackPending(false)
+  }, [trackPending, groups, trackedMissionId])
 
   // WHERE AM I: any run (button or hotkey) is broadcast to every window
   const [whereBusy, setWhereBusy] = useState(false)
   const [whereMsg, setWhereMsg] = useState<string | null>(null)
   const fixedTyped = startMode === 'fixed' && !!typedStart.trim()
+  const liveFails = useRef(0)
   useEffect(() => {
     const off = window.supercargo.onOtherWhere((r: WhereRunResult) => {
+      // live reads are quiet: only a run of failures says anything, once
+      if (r.why === 'live') {
+        if (r.ok) liveFails.current = 0
+        else if (++liveFails.current === LIVE_FAIL_LIMIT) setWhereMsg(LIVE_FAIL)
+        return
+      }
       setWhereBusy(false)
       if (r.ok && r.where) {
-        const label = r.where.label || r.where.name || '?'
-        setWhereMsg(fixedTyped
-          ? `\ud83d\udccd ${label} \u00b7 FIXED start kept`
-          : `\ud83d\udccd ${label} (${SOURCE_WORD[r.where.source] ?? r.where.source})`)
+        liveFails.current = 0
+        const acc = typeof r.where.accuracy === 'number' ? ` \u00b7 ACC ${Math.round(r.where.accuracy)}` : ''
+        const what = r.note
+          ? r.note
+          : `Read OK \u00b7 ${r.where.source === 'map' ? 'map' : SOURCE_WORD[r.where.source] ?? r.where.source}`
+        setWhereMsg(`\ud83d\udccd ${what}${acc}${fixedTyped ? ' \u00b7 FIXED start kept' : ''}`)
       } else setWhereMsg(WHERE_FAIL)
     })
     return () => { off?.() }
@@ -130,8 +179,44 @@ export default function OtherOverlay(): React.ReactElement {
     if (idx >= groups.length) setIdx(Math.max(0, groups.length - 1))
   }, [idx, groups.length])
 
+  // AFK keep-alive: main owns the timer; this shows it and toggles it
+  const [afk, setAfk] = useState<AfkView>({ on: false })
+  const [afkErr, setAfkErr] = useState<string | null>(null)
+  const [afkNow, setAfkNow] = useState(() => Date.now())
   useEffect(() => {
-    if (!returnToFirst || idx <= 0) return
+    const api = afkApi()
+    let alive = true
+    api.otherAfkGet?.().then((st) => { if (alive && st) setAfk(st) }, () => undefined)
+    const off = api.onOtherAfk?.((st) => setAfk(st))
+    return () => { alive = false; if (typeof off === 'function') off() }
+  }, [])
+  useEffect(() => {
+    if (afk.lastError) setAfkErr(afk.lastError)
+  }, [afk.lastError])
+  useEffect(() => {
+    if (!afkErr) return
+    const t = window.setTimeout(() => setAfkErr(null), AFK_ERR_MS)
+    return () => window.clearTimeout(t)
+  }, [afkErr])
+  useEffect(() => {
+    if (!afk.on) return
+    setAfkNow(Date.now())
+    const t = window.setInterval(() => setAfkNow(Date.now()), 1000)
+    return () => window.clearInterval(t)
+  }, [afk.on])
+  const toggleAfk = (): void => {
+    const api = afkApi()
+    const call = afk.on ? api.otherAfkStop : api.otherAfkStart
+    if (!call) { setAfkErr('AFK: not available in this build'); return }
+    call().then(
+      (st) => { if (st) { setAfk(st); if (st.lastError) setAfkErr(st.lastError) } },
+      (e: unknown) => setAfkErr(`AFK: ${e instanceof Error ? e.message : String(e)}`)
+    )
+  }
+  const afkNextSec = afk.on && afk.nextAt ? Math.max(0, Math.ceil((Date.parse(afk.nextAt) - afkNow) / 1000)) : null
+
+  useEffect(() => {
+    if (!returnToFirst || idx <= 0 || heldByTrack.current) return
     const timer = window.setTimeout(() => setIdx(0), returnSeconds * 1000)
     return () => window.clearTimeout(timer)
   }, [idx, returnToFirst, returnSeconds])
@@ -164,6 +249,8 @@ export default function OtherOverlay(): React.ReactElement {
       ? NO_DISTANCE_TEXT[group.noDistanceWhy]
       : null
   const startName = origin.label || origin.name
+  const startAcc = origin.kind && origin.kind !== 'typed' ? originAccuracy(origin) : null
+  const groupTracked = !!group?.rows.some((r) => isTracked(r.job.missionId))
   const startWord = origin.kind ? `${SOURCE_WORD[origin.kind]}${origin.stale ? ' \u00b7 stale' : ''}` : ''
   const nextLeg = showDistance && nextGroup && nextGroup.leg != null ? nextGroup.leg : null
   const left = useMemo(() => remainingRoute(groups, idx), [groups, idx])
@@ -208,12 +295,13 @@ export default function OtherOverlay(): React.ReactElement {
               ? formatPlaceWithBodySystem(group.place || stepActivePlace(current.step) || current.step.label, locations)
               : 'NO OPEN STOP'}
           </div>
+          {groupTracked ? <TrackedTag /> : null}
         </div>
         <div style={{ display: 'flex', alignItems: 'center', gap: 6, flexShrink: 0, WebkitAppRegion: 'no-drag' } as React.CSSProperties}>
           <button
             type="button"
             disabled={!canPrev}
-            onClick={() => setIdx((n) => Math.max(0, n - 1))}
+            onClick={() => { heldByTrack.current = false; setIdx((n) => Math.max(0, n - 1)) }}
             style={{
               background: 'transparent',
               border: `1px solid ${C.accBorder}`,
@@ -237,7 +325,7 @@ export default function OtherOverlay(): React.ReactElement {
           <button
             type="button"
             disabled={!canNext}
-            onClick={() => setIdx((n) => Math.min(total - 1, n + 1))}
+            onClick={() => { heldByTrack.current = false; setIdx((n) => Math.min(total - 1, n + 1)) }}
             style={{
               background: 'transparent',
               border: `1px solid ${C.accBorder}`,
@@ -264,11 +352,12 @@ export default function OtherOverlay(): React.ReactElement {
           {whereBusy ? (
             'reading\u2026'
           ) : whereMsg ? (
-            <span style={{ color: whereMsg === WHERE_FAIL ? C.amber : C.acc }}>{whereMsg}</span>
+            <span style={{ color: whereMsg === WHERE_FAIL ? C.amber : whereMsg === LIVE_FAIL ? C.ghost : C.acc }}>{whereMsg}</span>
           ) : startName ? (
             <span title={startName}>
               <span style={{ ...hintStyle, letterSpacing: '0.08em' }}>FROM:</span>{' '}
               <span style={{ color: C.dim }}>{startName}</span>{` (${startWord})`}
+              {startAcc != null ? <span style={{ marginLeft: 6 }}><AccTag score={startAcc} /></span> : null}
             </span>
           ) : (
             <>
@@ -339,6 +428,16 @@ export default function OtherOverlay(): React.ReactElement {
         </div>
       )}
       <div style={{ flex: 1 }} />
+      {afk.on || afkErr ? (
+        <div style={{ ...hintStyle, letterSpacing: '0.06em', marginTop: 8, display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+          {afk.on ? (
+            <span style={{ color: C.amber }}>
+              {`AFK ON${afkNextSec != null ? ` \u00b7 next key in ${afkNextSec} s` : ''}`}
+            </span>
+          ) : null}
+          {afkErr ? <span style={{ color: C.red }}>{afkErr.startsWith('AFK') ? afkErr : `AFK: ${afkErr}`}</span> : null}
+        </div>
+      ) : null}
       {left.stops > 0 ? (
         <div style={{ ...hintStyle, letterSpacing: '0.06em', marginTop: 8 }} title={showDistance && left.distance != null ? formatMapDistance(left.distance) : undefined}>
           {left.stops} {left.stops === 1 ? 'stop' : 'stops'} left
@@ -378,6 +477,19 @@ export default function OtherOverlay(): React.ReactElement {
             </button>
           </div>
         )}
+        <button
+          type="button"
+          onClick={toggleAfk}
+          title="AFK: presses keys in Star Citizen for you every cycle (Windows). Click again to stop."
+          style={{
+            ...miniBtn, flex: 'none', WebkitAppRegion: 'no-drag',
+            color: afk.on ? C.ink : C.text,
+            background: afk.on ? C.amber : (miniBtn.background ?? 'transparent'),
+            border: afk.on ? `1px solid ${C.amber}` : miniBtn.border
+          } as React.CSSProperties}
+        >
+          AFK
+        </button>
         <div
           style={{
             marginLeft: 'auto',

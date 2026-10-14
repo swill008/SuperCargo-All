@@ -73,6 +73,13 @@ export const IPC = {
   otherWhereCalPreview: 'otherWhere:calPreview', // fresh screenshot data URL for the zone calibrator
   otherWhereCalTest: 'otherWhere:calTest', // read one zone (1 | 2), not broadcast
   evtOtherWhere: 'evt:other:where', // main -> all windows, one WhereRunResult
+  otherHotkeysPause: 'otherHotkeys:pause', // hotkey recorder listening: unregister all app global shortcuts
+  otherHotkeysResume: 'otherHotkeys:resume', // re-register (upstream registerHotkey path)
+  otherHotkeyCheck: 'otherHotkeys:check', // (accelerator) -> { ok, reason?: 'invalid' | 'in-use' }
+  otherAfkStart: 'otherAfk:start', // -> AfkState
+  otherAfkStop: 'otherAfk:stop', // -> AfkState
+  otherAfkGet: 'otherAfk:get', // -> AfkState
+  evtOtherAfk: 'evt:other:afk', // main -> all windows, one AfkState on every change
   evtObjective: 'evt:objective',
   evtContractEnded: 'evt:contract:ended',
   evtContractPaid: 'evt:contract:paid',

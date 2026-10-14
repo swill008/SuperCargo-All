@@ -80,6 +80,20 @@ declare module '@shared/types' {
     otherWhereZone2?: import('@shared/types').CropRect
     /** read zone 2 first; off = zone 1 only */
     otherWhereUseZone2?: boolean
+    /** re-read zone 2 (r_DisplayInfo panel) every otherWhereLiveSec seconds, no keypress */
+    otherWhereLive?: boolean
+    /** live re-read interval, seconds (30-120) */
+    otherWhereLiveSec?: number
+    /** AFK button: seconds between key presses */
+    otherAfkIntervalSec?: number
+    /** AFK: first key (opens the map) */
+    otherAfkFirstKey?: string
+    /** AFK: key pressed every cycle after the first */
+    otherAfkCycleKey?: string
+    /** AFK: stop by itself after this many minutes (0 = no limit) */
+    otherAfkMaxMin?: number
+    /** AFK: run a WHERE AM I read about once a minute while the map is open */
+    otherAfkWhereRead?: boolean
     /** distances on the overlay card */
     otherOverlayDistance?: boolean
   }
@@ -102,6 +116,13 @@ export const OTHER_SETTING_DEFAULTS = {
   otherWhereZone1: { x: 0.15, y: 0.81, w: 0.4, h: 0.06 },
   otherWhereZone2: { x: 0.78, y: 0, w: 0.22, h: 0.24 },
   otherWhereUseZone2: true,
+  otherWhereLive: false,
+  otherWhereLiveSec: 45,
+  otherAfkIntervalSec: 15,
+  otherAfkFirstKey: 'F2',
+  otherAfkCycleKey: 'F1',
+  otherAfkMaxMin: 120,
+  otherAfkWhereRead: true,
   otherOverlayDistance: true
 }
 

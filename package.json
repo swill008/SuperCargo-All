@@ -18,6 +18,7 @@
     "test:replay:logs": "electron-vite build && node test/replay/run_all.mjs",
     "test:fixtures": "python -I test/replay/make_fixture.py",
     "test:next-order": "node test/replay/next_order.mjs",
+    "test:afk": "node test/replay/afk_checks.mjs",
     "test:where": "node test/replay/where_checks.mjs",
     "typecheck:node": "tsc --noEmit -p tsconfig.node.json --composite false",
     "typecheck:web": "tsc --noEmit -p tsconfig.web.json --composite false",

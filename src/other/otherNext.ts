@@ -4,10 +4,10 @@
  * Does not call planRoute / packer / hold.
  */
 import type { Location } from '@shared/types'
-import { resolveLogLocation } from '@shared/logLocation'
+import { resolveLogLocation, splitLogAddress } from '@shared/logLocation'
 import type { ListOrder, OtherJob, OtherStep } from '@other/otherJob'
 import { compareTravel, formatShortDistance, travel, type GeoPoint, type Travel } from './otherGeo'
-import type { Where, WhereSource } from './otherWhere'
+import { whereAccuracy, type Where, type WhereSource } from './otherWhere'
 
 export type { ListOrder }
 
@@ -49,6 +49,41 @@ export function findNextTravelStop<T extends { step: OtherStep }>(open: T[], fro
   return undefined
 }
 
+/**
+ * OCR-tolerant name key: lower case, words only, and inside words that carry a digit O -> 0 and
+ * I/L -> 1 ("S1DCO6" = "S1DC06"). Applied to both sides, so only a fallback after plain matching.
+ */
+export function foldPlaceName(s: string): string {
+  return s
+    .toLowerCase()
+    .replace(/\s*\([^)]*\)\s*$/, '')
+    .split(/[^a-z0-9]+/)
+    .filter(Boolean)
+    .map((w) => (/\d/.test(w) ? w.replace(/o/g, '0').replace(/[il]/g, '1') : w === 'centre' ? 'center' : w))
+    .join(' ')
+}
+
+/** fallback match on folded names (exact, then one contains the other); prefers the address's system */
+function findFolded(raw: string, locations: Location[]): Location | undefined {
+  const { name, systemHint } = splitLogAddress(raw)
+  const key = foldPlaceName(name)
+  if (key.length < 4 || !/\d/.test(key)) return undefined
+  // same place under two spellings (UEX "Center" without coords, starmap "Centre" with): take the one with coords
+  const pick = (hits: Location[]): Location | undefined => {
+    const inSystem = systemHint ? hits.filter((l) => l.system === systemHint) : []
+    const pool = inSystem.length ? inSystem : hits
+    return pool.find((l) => l.x != null && l.y != null && l.z != null) ?? pool[0]
+  }
+  const exact = locations.filter((l) => foldPlaceName(l.name) === key)
+  if (exact.length) return pick(exact)
+  return pick(
+    locations.filter((l) => {
+      const n = foldPlaceName(l.name)
+      return n.length >= 4 && /\d/.test(n) && (n.includes(key) || key.includes(n))
+    })
+  )
+}
+
 export function findRosterLocation(raw: string, locations: Location[]): Location | undefined {
   const trimmed = raw.trim()
   if (!trimmed || locations.length === 0) return undefined
@@ -56,10 +91,12 @@ export function findRosterLocation(raw: string, locations: Location[]): Location
   const key = resolved.toLowerCase()
   const exact = locations.find((l) => l.name.toLowerCase() === key)
   if (exact) return exact
-  return locations.find((l) => {
-    const n = l.name.toLowerCase()
-    return n.includes(key) || key.includes(n)
-  })
+  return (
+    locations.find((l) => {
+      const n = l.name.toLowerCase()
+      return n.includes(key) || key.includes(n)
+    }) ?? findFolded(trimmed, locations)
+  )
 }
 
 /** Official UEX name only when the match is unique. Otherwise keep OCR text. */
@@ -77,7 +114,7 @@ export function snapLocationToUex(raw: string, locations: Location[]): string {
     return n.length >= 10 && rawL.includes(n)
   })
   if (hits.length === 1) return hits[0].name
-  return trimmed
+  return findFolded(trimmed, locations)?.name ?? trimmed
 }
 
 /** a roster place as a travel point (system/body carried); undefined without coords */
@@ -239,6 +276,8 @@ export interface ResolvedOrigin {
   kind: WhereSource | null
   /** a location clue (not typed) older than 5 min */
   stale: boolean
+  /** position accuracy 0-10 now (whereAccuracy, fades with age); null for typed or nothing set */
+  accuracy: number | null
 }
 
 /**
@@ -253,11 +292,11 @@ export function resolveOrigin(o: {
   now?: number
   locations: Location[]
 }): ResolvedOrigin {
-  const none: ResolvedOrigin = { name: null, label: null, kind: null, stale: false }
+  const none: ResolvedOrigin = { name: null, label: null, kind: null, stale: false, accuracy: null }
   const typed = o.typed?.trim()
   const fromTyped = (): ResolvedOrigin => {
     const point = locationPoint(findRosterLocation(typed!, o.locations))
-    return { name: typed!, label: typed!, ...(point ? { point } : {}), kind: 'typed', stale: false }
+    return { name: typed!, label: typed!, ...(point ? { point } : {}), kind: 'typed', stale: false, accuracy: null }
   }
   if (o.mode === 'fixed') return typed ? fromTyped() : none
   const w = o.where
@@ -277,7 +316,8 @@ export function resolveOrigin(o: {
     label: w.label?.trim() || wName,
     ...(point ? { point } : {}),
     kind: w.source,
-    stale: w.source !== 'typed' && Number.isFinite(at) && now - at > STALE_MS
+    stale: w.source !== 'typed' && Number.isFinite(at) && now - at > STALE_MS,
+    accuracy: w.source === 'typed' ? null : whereAccuracy(w, now)
   }
 }
 

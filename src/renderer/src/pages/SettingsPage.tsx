@@ -7,6 +7,8 @@ import PageHeader, { PAGE_PADDING } from '../components/PageHeader'
 import { Btn } from '../components/ui'
 import OcrCalibrator from '../components/OcrCalibrator'
 import OtherSettingsBlock from '@other/renderer/settingsBlock'
+import HotkeyRecorder from '@other/renderer/components/HotkeyRecorder'
+import { otherSetting } from '@other/workMode'
 import PrivacyPolicy from '../components/PrivacyPolicy'
 import type { DisplayInfo, ContractDataStatus, DataSyncResult } from '@shared/types'
 import {
@@ -72,16 +74,11 @@ export default function SettingsPage(): React.ReactElement {
   const [ordered, setOrdered] = useState<string[]>([])
   const [scanMsg, setScanMsg] = useState('')
   const [displays, setDisplays] = useState<DisplayInfo[]>([])
-  const [hotkey, setHotkey] = useState(settings.ocrHotkey)
   const [contractData, setContractData] = useState<ContractDataStatus | null>(null)
   const [rescanning, setRescanning] = useState(false)
   const [dataSyncing, setDataSyncing] = useState(false)
   const [dataStatus, setDataStatus] = useState<DataSyncResult | null>(null)
   const [telemetry, setTelemetry] = useState<{ uploaded: number; queued: number } | null>(null)
-
-  useEffect(() => {
-    setHotkey(settings.ocrHotkey)
-  }, [settings.ocrHotkey])
 
   useEffect(() => {
     void window.supercargo.ocrListDisplays().then(setDisplays)
@@ -490,30 +487,13 @@ export default function SettingsPage(): React.ReactElement {
       </div>
       <div style={rowStyle}>
         <span style={keyStyle}>Capture hotkey</span>
-        <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
-          <input
-            value={hotkey}
-            placeholder="e.g. CommandOrControl+Shift+C"
-            onChange={(e) => setHotkey(e.target.value)}
-            onBlur={() => {
-              if (hotkey.trim() !== settings.ocrHotkey) void updateSettings({ ocrHotkey: hotkey.trim() })
-            }}
-            onKeyDown={(e) => {
-              if (e.key === 'Enter') (e.target as HTMLInputElement).blur()
-            }}
-            style={{
-              flex: 1,
-              background: 'transparent',
-              border: `1px solid rgba(255,255,255,0.16)`,
-              color: C.text,
-              fontFamily: F.mono,
-              fontSize: 12,
-              padding: '8px 12px',
-              outline: 'none'
-            }}
-          />
-          <span style={{ fontFamily: F.body, fontSize: 11, color: C.faint, flex: 'none' }}>global, blank to disable</span>
-        </div>
+        <HotkeyRecorder
+          value={settings.ocrHotkey}
+          onChange={(v) => {
+            if (v !== settings.ocrHotkey) void updateSettings({ ocrHotkey: v })
+          }}
+          conflicts={[otherSetting(settings, 'otherWhereHotkey'), 'CommandOrControl+Shift+D']}
+        />
       </div>
       <div style={rowStyle}>
         <span style={keyStyle}>Auto-capture on accept</span>

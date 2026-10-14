@@ -13,8 +13,9 @@ import {
 } from '@other/otherNext'
 import { formatTravel } from '@other/otherGeo'
 import type { WhereSource } from '@other/otherWhere'
-import { mergeLocations } from '../state/otherPlaces'
+import { useMergedLocations } from '../state/otherPlaces'
 import { otherView, withoutWithdrawn, JobTags } from './JobsPartsStyles'
+import { AccSlider, TrackedTag } from '../components/AccuracyMeter'
 
 type OpenStop = OpenStopRow
 
@@ -96,6 +97,8 @@ export default function NextPage(): React.ReactElement {
   // latest location clue (tick, objective, inventory, map, display info)
   const where = useOtherJobs((s) => s.where)
   const setStartLocation = useOtherJobs((s) => s.setStartLocation)
+  // job the game tracks (from r_DisplayInfo)
+  const trackedMissionId = useOtherJobs((s) => (s as { trackedMissionId?: string }).trackedMissionId)
   const groupBy = useOtherJobs((s) => s.groupBy)
   const setGroupBy = useOtherJobs((s) => s.setGroupBy)
   const listOrder = useOtherJobs((s) => s.listOrder)
@@ -108,8 +111,7 @@ export default function NextPage(): React.ReactElement {
   const toggleStep = useOtherJobs((s) => s.toggleStep)
   const showAll = !!useStore((s) => s.settings.overlayShowAllObjectives)
   const hideCompleted = useStore((s) => s.settings.overlayHideCompletedObjectives) !== false
-  const haulLocs = useStore((s) => s.locations) ?? []
-  const locations = useMemo(() => mergeLocations(haulLocs), [haulLocs])
+  const locations = useMergedLocations()
   const names = useMemo(() => locations.map((l) => l.name).filter(Boolean), [locations])
 
   const settings = useStore((s) => s.settings)
@@ -128,6 +130,11 @@ export default function NextPage(): React.ReactElement {
     [typedStart, startTypedAt, where, startMode, locations, now]
   )
   const fromClue = origin.kind != null && origin.kind !== 'typed'
+  // score from resolveOrigin; null for typed
+  const originAcc = ((): number | null => {
+    const a = (origin as { accuracy?: number | null }).accuracy
+    return fromClue && typeof a === 'number' && Number.isFinite(a) ? a : null
+  })()
   const originName = origin.label || origin.name || ''
   // name kept for fallbacks (roster lookup when there is no point)
   const startLocation = origin.name ?? ''
@@ -261,6 +268,7 @@ export default function NextPage(): React.ReactElement {
             <div style={{ fontFamily: F.display, fontSize: 16, color: snapped ? C.acc : C.text, flex: 1 }}>
               {title}
             </div>
+            {groupBy === 'job' && trackedMissionId && rows[0]?.job.missionId === trackedMissionId ? <TrackedTag /> : null}
             {groupBy === 'job' && rows[0] ? <JobTags rep={rows[0].job.rep} sharedBy={rows[0].job.sharedBy} view={view} /> : null}
             {g.distance != null ? (
               <div style={{ textAlign: 'right', flex: 'none' }}>
@@ -306,6 +314,7 @@ export default function NextPage(): React.ReactElement {
                 ) : null}
                 <div style={{ fontFamily: F.mono, fontSize: 12, color: C.dim, marginTop: 2 }}>
                   {job.ref}
+                  {trackedMissionId && job.missionId === trackedMissionId ? <span style={{ marginLeft: 8 }}><TrackedTag /></span> : null}
                   {distance != null ? (
                     <span title={distTip(distance, distanceSource)}>{` \u00b7 ${distText(distance, distanceSource, jumps, surface)}`}</span>
                   ) : ''}
@@ -400,8 +409,11 @@ export default function NextPage(): React.ReactElement {
             placeholder={fromClue && originName ? `Auto: ${originName}` : 'Type city or station \u2014 e.g. New Babbage'}
           />
           {origin.kind ? (
-            <div style={{ fontFamily: F.body, fontSize: 11, color: origin.stale ? C.amber : C.dim, marginTop: 3 }}>
-              {`from: ${SOURCE_WORD[origin.kind]}${originAt ? ` \u00b7 ${ago(originAt, now)}` : ''}${origin.stale ? ' \u00b7 stale' : ''}`}
+            <div style={{ display: 'flex', alignItems: 'center', gap: 12, flexWrap: 'wrap', marginTop: 3 }}>
+              <span style={{ fontFamily: F.body, fontSize: 11, color: origin.stale ? C.amber : C.dim }}>
+                {`from: ${SOURCE_WORD[origin.kind]}${originAt ? ` \u00b7 ${ago(originAt, now)}` : ''}${origin.stale ? ' \u00b7 stale' : ''}`}
+              </span>
+              {originAcc != null ? <AccSlider score={originAcc} /> : null}
             </div>
           ) : null}
         </div>

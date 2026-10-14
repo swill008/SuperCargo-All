@@ -22,6 +22,37 @@ export interface Travel {
 
 const norm = (s?: string | null): string => (s ?? '').trim().toLowerCase()
 
+/** "Stanton1" / "Stantonl" / "StantonSolarSystem" / "Stanton System" -> "stanton" (letters/digits only) */
+const baseSystem = (s?: string | null): string =>
+  (s ?? '')
+    .toLowerCase()
+    .replace(/solar\s*system|system/g, '')
+    .replace(/[^a-z0-9]+/g, '')
+
+// systems the roster knows (normalised), cached per roster array
+const knownCache = new WeakMap<Location[], string[]>()
+function knownSystems(locations: Location[]): string[] {
+  let hit = knownCache.get(locations)
+  if (!hit) {
+    hit = [...new Set(locations.map((l) => baseSystem(l.system)).filter(Boolean))].sort((a, b) => b.length - a.length)
+    knownCache.set(locations, hit)
+  }
+  return hit
+}
+
+/**
+ * Roster system key for a (possibly misread) system name, or '' when the roster has no such system.
+ * Exact or prefix + trailing OCR junk (digits, l, i, |): "Stantonl" -> "stanton".
+ */
+export function systemKey(s: string | null | undefined, locations: Location[]): string {
+  const n = baseSystem(s)
+  if (!n) return ''
+  for (const k of knownSystems(locations)) {
+    if (n === k || (n.startsWith(k) && /^[0-9li]*$/.test(n.slice(k.length)))) return k
+  }
+  return ''
+}
+
 const finite = (p?: { x?: number; y?: number; z?: number } | null): boolean =>
   !!p && Number.isFinite(p.x) && Number.isFinite(p.y) && Number.isFinite(p.z)
 
@@ -35,7 +66,7 @@ const xyz = (l: Location): XYZ => ({ x: l.x!, y: l.y!, z: l.z! })
 function bodyCentre(body: string, system: string, locations: Location[]): XYZ | undefined {
   const key = norm(body)
   const hits = locations.filter((l) => norm(l.name) === key && finite(l))
-  const hit = hits.find((l) => !system || !l.system || norm(l.system) === system) ?? hits[0]
+  const hit = hits.find((l) => !system || !l.system || baseSystem(l.system) === system) ?? hits[0]
   return hit ? xyz(hit) : undefined
 }
 
@@ -43,7 +74,7 @@ function bodyCentre(body: string, system: string, locations: Location[]): XYZ | 
 function gateway(inSys: string, to: string, locations: Location[]): XYZ | undefined {
   const want = `${to} gateway`
   const hit = locations.find((l) => {
-    if (!finite(l) || norm(l.system) !== inSys) return false
+    if (!finite(l) || baseSystem(l.system) !== inSys) return false
     const n = norm(l.name)
     return n === want || n === `${want} (${inSys})`
   })
@@ -53,11 +84,14 @@ function gateway(inSys: string, to: string, locations: Location[]): XYZ | undefi
 /** both points within 5% of the same distance from the body centre = on its surface */
 const SURFACE_RADIUS_TOL = 0.05
 
-/** null when either point is unknown or no gateway joins the systems. Unknown system on either side = same system. */
+/**
+ * null when either point is unknown or no gateway joins the systems. Names are normalised
+ * (systemKey); a system the roster doesn't have, or none, on either side = same system.
+ */
 export function travel(a: GeoPoint | undefined, b: GeoPoint | undefined, locations: Location[]): Travel | null {
   if (!a || !b || !finite(a) || !finite(b)) return null
-  const sa = norm(a.system)
-  const sb = norm(b.system)
+  const sa = systemKey(a.system, locations)
+  const sb = systemKey(b.system, locations)
   if (!sa || !sb || sa === sb) {
     const chord = dist(a, b)
     const body = norm(a.body)

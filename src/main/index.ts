@@ -18,7 +18,7 @@ import { prunePending } from './ocr/samples'
 import * as contractData from './contractData'
 import * as telemetry from './telemetry'
 import * as usageStats from './usageStats'
-import { registerOther, routeAccepted, registerOtherWhereHotkey } from '@other/main/register'
+import { registerOther, routeAccepted, registerOtherWhereHotkey, onOtherSettingsChanged } from '@other/main/register'
 import { EventEmitter } from 'node:events'
 import * as boxReports from './boxReports'
 import * as crew from './crew'
@@ -785,6 +785,7 @@ function registerIpc(): void {
     ) {
       contractData.rebuild(settings)
     }
+    onOtherSettingsChanged(patch)
     return settings
   })
 
@@ -1007,7 +1008,7 @@ if (!gotLock) {
 
   app.whenReady().then(() => {
     registerIpc()
-    registerOther({ watcher: otherLines, getSettings: () => settings, getMainWindow: () => mainWindow })
+    registerOther({ watcher: otherLines, getSettings: () => settings, getMainWindow: () => mainWindow, reregisterHotkeys: registerHotkey })
     autoDetectLogPath()
     setReportSource({ info: debugInfo, settings: () => settings })
     setTraceEnabled(() => settings.traceInterpretation !== false)
