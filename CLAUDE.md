@@ -28,10 +28,15 @@ Read these before doing anything. The user's decisions about the program are in 
 4. **Ask in plain language with full context.** Say what the thing is, where the user sees it and what each
    answer would do. The user: "use better language to ask these questions. I dont even have context".
    Number the questions and keep them short; offer a recommended answer.
-5. **Answer what was asked.** When the user asks for a list or a comparison "nothing else", give only that.
-6. When the user corrects a fact about the game (how contracts end, quits, crashes, sharing), take it as the
+5. **One subject per message, said plainly** (user, 2026-10-14: "dont mix subjects and be explict on what you
+   are tying to tell me. I dont want to infer what is happening"). State facts directly ("It has not been
+   released."), never leave the user to work out the state from a summary.
+   Every question carries its own context: what the thing is, where the user sees it in the app, what it does
+   now, what each answer would do, and your recommendation. Never a bare list of questions.
+6. **Answer what was asked.** When the user asks for a list or a comparison "nothing else", give only that.
+7. When the user corrects a fact about the game (how contracts end, quits, crashes, sharing), take it as the
    spec, write it into STANDALONE.md / DECISIONS.md, and don't argue it back.
-7. Record every new user decision in `docs/DECISIONS.md` in the same batch (superseded ones stay, marked).
+8. Record every new user decision in `docs/DECISIONS.md` in the same batch (superseded ones stay, marked).
 
 ## Privacy
 
@@ -84,6 +89,7 @@ Read these before doing anything. The user's decisions about the program are in 
   commits (`Co-Authored-By: ...` and `Claude-Session: ...`; see `git log -1`).
 - Release notes: each batch commit adds its lines to `release-notes/<next version>.md` (format and release
   steps in `release-notes/README.md`). The release workflow refuses missing, placeholder or repeated notes.
+- Releases are run from the `features` branch, and `main` is updated to match it (user, 2026-10-14).
 - Releases: version line "R1" (e.g. R1 1.0.0; `package.json` stays plain semver), built by the
   "Release Windows (Setup + Portable)" workflow started by hand, published from this fork's repo, never
   upstream. Reference data (ships, places, cargo grids) still comes from the original author's repo.

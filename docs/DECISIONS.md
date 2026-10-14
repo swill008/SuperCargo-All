@@ -175,6 +175,9 @@ Marked **NOT DOING**: decided against, or left out on purpose.
   written prior to release so its used in the release. make sure that is in the workflow" (20:37). Rule: each
   batch commit adds its lines to `release-notes/<next version>.md` (see `release-notes/README.md`).
 
+- Releases run from the `features` branch; `main` is updated to match it ("we run it from Features, and update
+  main to match", 2026-10-14).
+
 ## 9. Reference data (ships, places, cargo grids, contract box sizes)
 
 - Reference data keeps coming from the original author's repo, "since I still use thier program"; the
