@@ -1244,6 +1244,33 @@ const overlayFooter = (port) =>
     })()`
   )
 
+// overlay-from-row: the FROM row (start, pin) and the footer's buttons and brand label, by test id (old code: by text)
+const overlayFromRow = (port) =>
+  cdpEval(
+    port,
+    'overlay',
+    `(() => {
+      const byId = (id) => document.querySelector('[data-testid="' + id + '"]')
+      const btns = [...document.querySelectorAll('button')]
+      const brand = byId('overlay-brand') ?? [...document.querySelectorAll('div,span')].find((x) => x.children.length === 0 && /SUPERCARGO\\s*\\u00b7\\s*OTHER MODE/.test(x.textContent))
+      const footer = byId('overlay-footer') ?? brand?.parentElement
+      const abandon = byId('overlay-btn-abandon') ?? btns.find((b) => b.textContent.trim() === 'ABANDON')
+      const afk = byId('overlay-btn-afk') ?? btns.find((b) => /^AFK$/.test(b.textContent.trim()))
+      const step = byId('overlay-btn-step') ?? (abandon ? btns[btns.indexOf(abandon) - 1] : null)
+      const fromLabel = [...document.querySelectorAll('span')].find((x) => x.children.length === 0 && x.textContent.trim() === 'FROM:')
+      const whereBtn = btns.find((b) => /WHERE AM I/.test(b.textContent))
+      const row = byId('overlay-from-row') ?? (fromLabel ?? whereBtn)?.closest('div')
+      const pin = byId('overlay-where-pin') ?? btns.find((b) => /^Where am I/.test(b.getAttribute('title') ?? '')) ?? (row && whereBtn && row.contains(whereBtn) ? whereBtn : null)
+      const card = byId('overlay-footer')?.parentElement ?? footer?.parentElement
+      const box = (el) => {
+        if (!el) return null
+        const r = el.getBoundingClientRect()
+        return { text: el.textContent.trim().slice(0, 120), l: Math.round(r.left * 10) / 10, r: Math.round(r.right * 10) / 10, t: Math.round(r.top * 10) / 10, b: Math.round(r.bottom * 10) / 10, w: Math.round(r.width * 10) / 10, h: Math.round(r.height * 10) / 10, sw: el.scrollWidth, cw: el.clientWidth }
+      }
+      return { winW: window.innerWidth, ids: !!byId('overlay-from-row'), step: box(step), abandon: box(abandon), afk: box(afk), brand: box(brand), card: box(card), row: box(row), pin: box(pin), rowText: row?.innerText ?? '' }
+    })()`
+  )
+
 const scenarios = {
   // #1 both windows ingest the same accept
   'single-ingest': async () => {
@@ -4053,6 +4080,56 @@ const scenarios = {
       ]
     }
     return (await Promise.all([run(332), run(260)])).flat()
+  },
+  // overlay FROM row at the bottom (user: "put some padding there so I dont accidently click a button instead of the
+  // pin"): buttons, then a gap >= 10 px, then the FROM row, then the brand label; the pin's click area >= 24x24
+  'overlay-from-row': async () => {
+    const START = 'Lorville'
+    const run = async (w, typed) => {
+      const { port, stop } = await memLaunch(`overlay-from-row-${w}${typed ? '' : '-nostart'}`, {
+        jobs: [{ title: 'Scrap Haul', steps: [goStep('s1', 'Port Tressler')] }],
+        typed,
+        settings: { overlayW: w, overlayH: 432, overlayX: 10, overlayY: 10 }
+      })
+      let v = null
+      let err = ''
+      try {
+        const want = typed ? /FROM:/ : /No start/
+        v = await until(() => overlayFromRow(port).then((x) => (x?.abandon && x.afk && x.step && x.brand && x.row && want.test(x.rowText) ? x : null)), 15000)
+      } catch (x) {
+        err = String(x?.message ?? x)
+        v = await overlayFromRow(port).catch(() => null)
+      }
+      await stop()
+      return { v, err }
+    }
+    const where = (x) => (x ? `${x.text.slice(0, 40)}[${x.l}-${x.r} x ${x.t}-${x.b}]` : 'missing')
+    const overlap = (a, b) => a.l < b.r - 0.5 && b.l < a.r - 0.5 && a.t < b.b - 0.5 && b.t < a.b - 0.5
+    const checks = ({ v, err }, w) => {
+      const tag = `${w} px:`
+      const bs = v ? [v.step, v.abandon, v.afk].filter(Boolean) : []
+      const low = bs.length ? Math.max(...bs.map((b) => b.b)) : null
+      const gap = v?.row && low != null ? Math.round((v.row.t - low) * 10) / 10 : null
+      return [
+        [`${tag} FROM row, pin, 3 buttons and brand found`, bs.length === 3 && !!v?.row && !!v.pin && !!v.brand, `ids=${v?.ids} row=${where(v?.row)} pin=${where(v?.pin)} ${err}`],
+        [`${tag} FROM row's top is below every button's bottom`, bs.length === 3 && !!v?.row && bs.every((b) => v.row.t >= b.b - 0.5), `row=${where(v?.row)} buttons=${short(bs.map(where), 300)}`],
+        [`${tag} gap between the lowest button and the FROM row >= 10 px`, gap != null && gap >= 10, `gap=${gap}`],
+        [`${tag} pin click area >= 24x24 px`, !!v?.pin && v.pin.w >= 24 && v.pin.h >= 24, `pin=${v?.pin?.w}x${v?.pin?.h}`],
+        [`${tag} pin overlaps no button`, !!v?.pin && bs.length === 3 && bs.every((b) => !overlap(v.pin, b)), `pin=${where(v?.pin)} buttons=${short(bs.map(where), 300)}`],
+        [`${tag} pin inside the card`, !!v?.pin && !!v.card && v.pin.l >= v.card.l - 0.5 && v.pin.r <= v.card.r + 0.5 && v.pin.t >= v.card.t - 0.5 && v.pin.b <= v.card.b + 0.5, `pin=${where(v?.pin)} card=${where(v?.card)}`],
+        [`${tag} brand label below the FROM row and not clipped`, !!v?.brand && !!v.row && v.brand.t >= v.row.b - 0.5 && v.brand.sw <= v.brand.cw && (!v.card || (v.brand.l >= v.card.l - 0.5 && v.brand.r <= v.card.r + 0.5)), `brand=${where(v?.brand)} sw=${v?.brand?.sw}/${v?.brand?.cw} row=${where(v?.row)}`],
+        [`${tag} FROM row reads "FROM:" and the start name`, /FROM:/.test(v?.rowText ?? '') && new RegExp(reEsc(START)).test(v?.rowText ?? ''), `row=${short(v?.rowText)}`]
+      ]
+    }
+    const [a, b, none] = await Promise.all([run(332, START), run(260, START), run(332, '')])
+    const nb = none.v ? [none.v.step, none.v.abandon, none.v.afk].filter(Boolean) : []
+    const nlow = nb.length ? Math.max(...nb.map((x) => x.b)) : null
+    return [
+      ...checks(a, 332),
+      ...checks(b, 260),
+      ['no start: the row shows "No start"', /No start/.test(none.v?.rowText ?? ''), `row=${short(none.v?.rowText)} ${none.err}`],
+      ['no start: its WHERE AM I button is below the buttons', !!none.v?.pin && /WHERE AM I/.test(none.v.pin.text) && nlow != null && none.v.pin.t >= nlow - 0.5, `where=${where(none.v?.pin)} lowestButton=${nlow}`]
+    ]
   }
 }
 

@@ -201,6 +201,10 @@ Marked **NOT DOING**: decided against, or left out on purpose.
 - Overlay bottom row wraps when narrow (2026-10-14, "option a"): buttons keep size and gap, the label drops to its own
   line first, AFK wraps instead of overlapping ABANDON. Ships in R1 1.0.1.
 
+- Overlay FROM row moves to the bottom, under the buttons with a ~12 px gap, above the label; the 📍 pin gets a
+  24x24 px click area (2026-10-14, "option a": "put some padding there so I dont accidently click a button instead
+  of the pin"). Ships in R1 1.0.1.
+
 ## 9. Reference data (ships, places, cargo grids, contract box sizes)
 
 - Reference data keeps coming from the original author's repo, "since I still use thier program"; the

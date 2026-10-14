@@ -421,45 +421,6 @@ export default function OtherOverlay(): React.ReactElement {
           </button>
         </div>
       </div>
-      <div
-        style={{
-          display: 'flex', alignItems: 'center', gap: 6, marginTop: -6, marginBottom: 6, minWidth: 0,
-          fontSize: 11, color: C.ghost, whiteSpace: 'nowrap', WebkitAppRegion: 'no-drag'
-        } as React.CSSProperties}
-      >
-        <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', minWidth: 0, flex: '0 1 auto' }}>
-          {whereBusy ? (
-            'reading\u2026'
-          ) : whereMsg ? (
-            <span style={{ color: whereMsg === WHERE_FAIL ? C.amber : whereMsg === LIVE_FAIL ? C.ghost : C.acc }}>{whereMsg}</span>
-          ) : startName ? (
-            <span title={startName}>
-              <span style={{ ...hintStyle, letterSpacing: '0.08em' }}>FROM:</span>{' '}
-              <span style={{ color: C.dim }}>{startName}</span>{` (${startWord})`}
-              {startAcc != null ? <span style={{ marginLeft: 6 }}><AccTag score={startAcc} /></span> : null}
-              {origin.match ? <span style={{ marginLeft: 6 }}><MatchTag match={origin.match} /></span> : null}
-            </span>
-          ) : (
-            <>
-              {'No start \u00b7 '}
-              <button type="button" onClick={runWhere} style={{ ...miniBtn, color: C.acc, padding: '1px 6px', fontSize: 10 }}>
-                {'\ud83d\udccd WHERE AM I'}
-              </button>
-              {' or open a station inventory'}
-            </>
-          )}
-        </span>
-        {startName && !whereBusy && !whereMsg ? (
-          <button
-            type="button"
-            onClick={runWhere}
-            title="Where am I? Reads the map screen"
-            style={{ background: 'transparent', border: 0, padding: 0, cursor: 'pointer', fontSize: 11, flex: 'none', lineHeight: 1 }}
-          >
-            {'\ud83d\udccd'}
-          </button>
-        ) : null}
-      </div>
       {showDistance && group && (legMeters != null || noDistanceText) ? (
         <div style={{ marginTop: -6, marginBottom: 6 }}>
           {legMeters != null ? (
@@ -536,7 +497,7 @@ export default function OtherOverlay(): React.ReactElement {
           flex: 'none'
         }}
       >
-        {/* Buttons never shrink; when the row is narrow the brand label wraps first, then AFK. */}
+        {/* Buttons never shrink; when the row is narrow AFK wraps to a new line instead of overlapping. */}
         {current && (
           <>
             <button
@@ -571,21 +532,67 @@ export default function OtherOverlay(): React.ReactElement {
         >
           AFK
         </button>
-        <div
-          data-testid="overlay-brand"
-          style={{
-            marginLeft: 'auto',
-            flex: '1 0 auto',
-            whiteSpace: 'nowrap',
-            fontFamily: F.display,
-            fontSize: 10,
-            letterSpacing: '0.16em',
-            color: C.ghost,
-            textAlign: 'right'
-          }}
-        >
-          SUPERCARGO {'\u00b7'} OTHER MODE
-        </div>
+      </div>
+      {/* FROM row sits under the buttons, above the brand label (user, 2026-10-14, option A). */}
+      <div
+        data-testid="overlay-from-row"
+        style={{
+          display: 'flex', alignItems: 'center', gap: 6, marginTop: 12, minWidth: 0, flex: 'none',
+          fontSize: 11, color: C.ghost, whiteSpace: 'nowrap', WebkitAppRegion: 'no-drag'
+        } as React.CSSProperties}
+      >
+        <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', minWidth: 0, flex: '0 1 auto' }}>
+          {whereBusy ? (
+            'reading\u2026'
+          ) : whereMsg ? (
+            <span style={{ color: whereMsg === WHERE_FAIL ? C.amber : whereMsg === LIVE_FAIL ? C.ghost : C.acc }}>{whereMsg}</span>
+          ) : startName ? (
+            <span title={startName}>
+              <span style={{ ...hintStyle, letterSpacing: '0.08em' }}>FROM:</span>{' '}
+              <span style={{ color: C.dim }}>{startName}</span>{` (${startWord})`}
+              {startAcc != null ? <span style={{ marginLeft: 6 }}><AccTag score={startAcc} /></span> : null}
+              {origin.match ? <span style={{ marginLeft: 6 }}><MatchTag match={origin.match} /></span> : null}
+            </span>
+          ) : (
+            <>
+              {'No start \u00b7 '}
+              <button type="button" onClick={runWhere} style={{ ...miniBtn, color: C.acc, padding: '1px 6px', fontSize: 10 }}>
+                {'\ud83d\udccd WHERE AM I'}
+              </button>
+              {' or open a station inventory'}
+            </>
+          )}
+        </span>
+        {startName && !whereBusy && !whereMsg ? (
+          <button
+            type="button"
+            onClick={runWhere}
+            data-testid="overlay-where-pin"
+            title="Where am I? Reads the map screen"
+            style={{
+              background: 'transparent', border: 0, padding: 0, cursor: 'pointer', fontSize: 11, flex: 'none', lineHeight: 1,
+              minWidth: 24, minHeight: 24, display: 'inline-flex', alignItems: 'center', justifyContent: 'center',
+              WebkitAppRegion: 'no-drag'
+            } as React.CSSProperties}
+          >
+            {'\ud83d\udccd'}
+          </button>
+        ) : null}
+      </div>
+      <div
+        data-testid="overlay-brand"
+        style={{
+          marginTop: 6,
+          flex: 'none',
+          whiteSpace: 'nowrap',
+          fontFamily: F.display,
+          fontSize: 10,
+          letterSpacing: '0.16em',
+          color: C.ghost,
+          textAlign: 'right'
+        }}
+      >
+        SUPERCARGO {'\u00b7'} OTHER MODE
       </div>
     </div>
   )
