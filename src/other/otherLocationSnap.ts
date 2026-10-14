@@ -55,10 +55,14 @@ export function snapOtherLocation(raw: string, locations: Location[]): OtherLoca
   const hitsFor = (cand: string): Location[] => {
     const n = norm(cand)
     if (n.length < 8) return []
+    const esc = cand.trim().replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
+    // "Reclamation and Disposal in Lorville" is a place inside Lorville, not Lorville itself
+    const subPlace = new RegExp(`\\b(in|on|at|near|above|of)\\s+(the\\s+)?${esc}$`, 'i')
     return locations.filter((l) => {
       const ln = norm(l.name)
       const lc = norm(l.code || '')
       if (ln === n || (lc && lc === n)) return true
+      if (ln.length > n.length && ln.includes(n) && subPlace.test(l.name.trim())) return false
       if (ln.length >= 8 && (ln.includes(n) || n.includes(ln))) return true
       if (lc.length >= 6 && (n.includes(lc) || lc.includes(n))) return true
       return false

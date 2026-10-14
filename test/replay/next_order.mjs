@@ -282,6 +282,26 @@ safe('ocr snap', () => {
   check('ocr snap', 'CRU-LS5 Beautiful Glen Station -> CRU-L5 Beautiful Glen Station', name === 'CRU-L5 Beautiful Glen Station', JSON.stringify(got))
 })
 
+// a city name must not snap to a place inside it ("Reclamation and Disposal in Lorville")
+safe('city not snapped to a sub-place', () => {
+  // small roster where the sub-place is the only partial match (the case the old matcher got wrong)
+  const roster = [
+    { name: 'Reclamation and Disposal in Lorville', system: 'Stanton', x: 1, y: 2, z: 3 },
+    { name: 'Reclamation and Disposal on Area18', system: 'Stanton', x: 4, y: 5, z: 6 },
+    { name: 'Port Tressler', system: 'Stanton', x: 7, y: 8, z: 9 }
+  ]
+  for (const raw of ['Lorville', 'Area18']) {
+    const got = S.snapOtherLocation(raw, roster)
+    check('snap', `${raw} stays ${raw}`, got.location === raw, JSON.stringify(got))
+  }
+  // the log-path fixtures still pass
+  if (typeof S.checkOtherLocationSnapFixtures === 'function') {
+    const r = S.checkOtherLocationSnapFixtures(locations)
+    const failed = Array.isArray(r) ? r.filter((x) => x && (x.ok === false || x.pass === false)) : r?.failed ?? []
+    check('snap', 'existing snap fixtures pass', (Array.isArray(failed) ? failed.length : failed) === 0, JSON.stringify(failed).slice(0, 200))
+  }
+})
+
 safe('remainingRoute', () => {
   if (!has('remainingRoute', 'remainingRoute') || typeof N.groupByPlace !== 'function') return
   const groups = N.groupByPlace(N.listOpenStops(groupJobs, START, locations, { listOrder: 'route' }))
