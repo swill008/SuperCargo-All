@@ -1,6 +1,6 @@
 # SuperCargo system map
 
-Snapshot of v0.8.3 (commit 1764380), 2026-10-14. See [AUDIT.md](AUDIT.md) for findings.
+Snapshot of v0.8.3 (commit 1764380), 2026-10-14. See [AUDIT.md](AUDIT.md) for findings and [OTHER-MODE-AUDIT.md](OTHER-MODE-AUDIT.md) for the Other mode on `features`.
 
 Electron 33 + React 18 + zustand + react-three-fiber, built with electron-vite. About 20k lines
 of TypeScript. No test suite; `npm run typecheck` and `npm run build` both pass.
