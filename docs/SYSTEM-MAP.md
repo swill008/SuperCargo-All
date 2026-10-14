@@ -305,3 +305,57 @@ REFRESH button / first start of a new version (main window only)
   ─► result line (~6 s), decide trace 'refresh', debug log; auto run stores refreshedForVersion
 ```
 
+
+## Other mode: pickup distance, bad reads, copy buttons (batch 6, 2026-10-14)
+
+Rules 29-33 in [STANDALONE.md](../src/other/STANDALONE.md#pickup-distance-and-bad-reads-batch-6-user-2026-10-14)
+(re-tie point 18 for the copy buttons); case and audit in
+[OTHER-MODE-AUDIT.md](OTHER-MODE-AUDIT.md#pickup-distance-bad-reads-copy-buttons-batch-6).
+
+| File | Owns (batch 6) | Entry points |
+|---|---|---|
+| `src/other/otherNext.ts` | A1: last lookup tier on folded names with doubled zeros collapsed ("S1DCO06" = "S1DC06"), exact only; A2: an open pickup is never measured from the step's marker (the drop-off on a combined step) | `findRosterLocation()`, `explainPlaceLookup()` (method `folded`), internal `foldZeros()`, `stepPointWithSource()` (marker only when `!stepIsPickup(step)`), `stepIsPickup()` |
+| `src/other/otherWhere.ts` | B1: `knownSystem()` returns '' for unknown names (display info); the map line keeps its title-cased word (internal `systemWord()`, `titleSystem()`); B2: the body is looked up in the read system, then in every system; B3: near a body with a failed body position → `null` with a `position` check, no SolarSystem / Root fallback (that path is for space only) | `knownSystem()`, `resolveDisplayInfo()` |
+| `src/main/diagnostics.ts` (upstream) | C: keeps the last UI export (`path`, `images`, combined picture); stitches the saved pictures into `<base>-all.png` with Electron `nativeImage` (bitmap in, bitmap out, no new packages); the copy handlers | `registerDiagCopy()` (IPC `diag:copyText`, `diag:copyImages`), `copyLastExportText()` → `{ ok, bytes?, error? }`, `copyLastExportImages()` → `{ ok, width?, height?, error? }`; `buildDiagnostics()` → `{ ..., combinedImage? }` |
+| `src/shared/trace.ts`, `src/shared/channels.ts`, `src/preload/index.ts` (upstream) | Types, channels and bridge for the copy buttons; the pure stitcher | `DiagCopyTextResult`, `DiagCopyImagesResult`, `diagCopyTextLine()`, `diagCopyImagesLine()`, `Bitmap`, `stitchBitmaps()`; `IPC.diagCopyText`, `IPC.diagCopyImages`; `window.supercargo.diagCopyText()`, `diagCopyImages()` |
+| `src/renderer/src/pages/SettingsPage.tsx`, `DebugPage.tsx` (upstream, export area) | COPY TEXT / COPY IMAGES next to the result line after a successful export; feedback for ~4 s | — |
+| `test/replay/next_order.mjs`, `where_checks.mjs`, `diag_checks.mjs` | Unit-level checks: the S1DCO06 lookup and the J82 pickup distance; the real Covalex raw reads; stitch sizes, gaps and pixels | `node test/replay/<file>` |
+| `test/replay/replay.mjs` | Scenarios `j82-pickup-here`, `where-covalex-garbled`, `diag-copy-buttons`, `diag-copy-none` (real app path) | `node test/replay/replay.mjs j82-pickup-here where-covalex-garbled diag-copy-buttons diag-copy-none` |
+
+**Data flow (pickup distance).**
+
+```
+listOpenStops(origin) ─► per row stepPointWithSource(step)
+   pickup open (stepIsPickup): findRosterLocation(pickupLocation) ─► exact / contains / folded (doubled zeros) ─► place point
+        not found ─► no distance (no-distance text); step.position (the drop-off marker) is NOT used
+   pickup done / plain step: place point, else step.position (marker) ─► near = nearestRosterPlace (rule 22)
+```
+
+**Data flow (copy buttons).**
+
+```
+EXPORT DIAGNOSTICS ─► buildDiagnostics ─► <file>.txt (+ pictures when ticked)
+   pictures ─► nativeImage.toBitmap ─► stitchBitmaps (side by side, top-aligned, 16 px black gaps) ─► <base>-all.png
+   main keeps the last export { path, images, combined }
+COPY TEXT   ─► diag:copyText   ─► read <file>.txt ─► clipboard.writeText ─► "Text copied · 1.1 MB"
+COPY IMAGES ─► diag:copyImages ─► clipboard.writeImage(<base>-all.png) ─► "Picture copied (3 in one)"
+   no export yet ─► { ok: false, error: 'no export yet' }
+```
+
+Replay scenarios (all fail on the batch-5 build f45af9f): `j82-pickup-here` (J82's real step with the doubled-O
+pickup and the real drop-off marker point, start from the real planet-line read at Covalex: table row ~0.3 km and not
+from the marker, overlay "from you" ~0.3 km with no "near", Next tab the same), `where-covalex-garbled` (the user's
+real "Open space" reads give Covalex S1DC06 ~250-320 m, accuracy 10; the planet-line read is unchanged; the "Rappel"
+read gives no position, says why in `## WHERE AM I HISTORY` and leaves the start alone), `diag-copy-buttons` (export with
+pictures: `<base>-all.png` saved and listed, size = side by side + 16 px gaps; COPY TEXT replaces a sentinel on the
+clipboard with the saved file; COPY IMAGES puts an image of the combined size there), `diag-copy-none` (both buttons
+before an export: "no export yet"). The where reads have their ServerTime line set to the test time (otherwise −3 for
+"maybe stale"); the rest of each text is verbatim.
+
+**Known limits.**
+- The doubled-zero tier is exact-match only; other OCR doublings ("S11DC06") still find nothing.
+- A pickup place that can't be found shows no distance until it is found or the pickup is done.
+- A read near a body whose body can't be placed gives no position at all (the start is kept), even where the
+  star-frame line would have been close.
+- The test seam captures nothing, so in replay `<base>-all.png` holds only the overlay picture; stitching several
+  pictures is checked in `diag_checks.mjs`.

@@ -266,9 +266,10 @@ safe('full panel', () => {
   const items = (f?.checks ?? []).map((c) => `${c.ok ? '+' : '-'}${c.item}`)
   check('full panel', 'checks: zone≈CamPos, radius+alt, index, ServerTime all pass', ['planet zone line ≈ CamPos', '|pos| ≈ radius + altitude', 'player location index agrees with body', 'ServerTime vs PC clock'].every((n) => items.includes(`+${n}`)), items.join(', '))
   // index disagrees (Stanton2 = Crusader) -> near step dropped, SolarSystem line used
+  // batch 6 (B3): near a body the star-frame lines are not used -> null
   const bad = W.parseDisplayInfo(DI_FULL.replace('Stanton1\n', 'Stanton2\n'))
   const wb = W.resolveDisplayInfo(bad, roster, FULL_AT)
-  check('full panel', 'index mismatch -> SolarSystem line, accuracy 9', wb?.accuracy === 9 && bad.checks?.some((c) => c.item === 'player location index agrees with body' && !c.ok), j(bad?.checks))
+  check('full panel', 'index mismatch near a body -> null (no SolarSystem fallback)', wb === null && bad.checks?.some((c) => c.item === 'player location index agrees with body' && !c.ok) && bad.checks.some((c) => c.item === 'position' && !c.ok && /near Hurston but the body position failed/.test(c.why)), j(bad?.checks))
   // altitude over 100 km -> step 2
   const high = W.parseDisplayInfo(DI_FULL.replace('Altitude 7.436596', 'Altitude 250000'))
   const wh = W.resolveDisplayInfo(high, roster, FULL_AT)
@@ -363,6 +364,59 @@ safe('surface arc radius', () => {
   check('surface arc radius', 'table without the body -> mean', t3 && Math.abs(t3.meters - t0.meters) < 1e-6, `${t3?.meters}`)
   const off = G.travel({ ...pa, body: 'Hurston' }, { ...pb, body: 'microTech' }, roster, { bodyRadius: () => 800_000 })
   check('surface arc radius', 'different bodies -> straight line', off && !off.surface && Math.abs(off.meters - chord) < 1e-6, j(off))
+})
+
+// ---- batch 6: real raw zone2 texts from WHERE AM I HISTORY (export 2026-10-14 12:02), at Covalex S1DC06 on Hurston ----
+const HIST = [
+  { at: "2026-10-14T16:58:20.008Z", was: "Rappel · 46.4 km", text: "-17.32m 6.30m\nkm 671.0478Kkm\nkm 671.0478Km\n\n\\     Zone: int s1 dclcvlx s1dco6 Pos: -41.6\nZon   00C Stanton 1 Hurston Pos: 743.1541km 15.55\n862321811808 Pos: 12850766.4244km -675.89\nZone: Root Pos: 12850766.4244km -675.8950km 671.0478km\nFPS 63.7 - 15.8ms [15.5ms]\n\n=                    Phys: 0.0ms Stall: 390.8fs Event: 0.0ms\n&&rver FPS 5.3 [3,8.)7.6] - 186.9ms [131.7..260%], Hitches: 1\nha-4102-12913470-game-178, restarts 0, pop. [shard 483, srv 80]\nNet: ping 42.5ms, loss 0.0% BwIn 93.684kbps, BwOut 38.536kbps\n2a         RL: eptitfies: 53862, tick: 0.06ms,   Sync: 0.28ms\n\n\\   ServerTime: Wed Oct 14   :58:20 2026\n\n|   UniverseTime: Mon Sep 20 05:50:03 2990\n\nWorking Set (0S): 18.08 GiB Committed (0S)#F 41.14 GiB\nender: MT: 15.5ms RT: 3.8msRGPU: 8.4ms\n\n.                     \\                            Graphics Renderer : Vulkan (DLSS-57%)\n\nt player location :  ——— lb=ne siydys (LZ gS ant nl DistributionCentre Covalex S1DC06)\n\n~ Rlanet:00C Stanton 1 Hurston (working) (Load Complete)\nCamPos Planet Zone: 743154.0 5029 15554.289546 671047 .838195\nRadius: 1000000.000000 ElevationUnder am; 1368.875000 Altitude 42.672056\nXYPos: 20930.101407 902972.696592 Page: 0 (4X)\n\\   Virtual Terrain Cache: Disabled\nEntities: 91612, PS: 0, QdBatches: 0, LB: 0, QdFinalize: 0, Net-DeferredFinalize: 0, QdSOC: ©\n                                \\       Component updates:   31242, Events handled:     873\nME                                             Game: 0.00ms\nA\n\nog\n> =\n" },
+  { at: "2026-10-14T16:59:04.290Z", was: "Covalex Distribution Centre S1DC06 · 272 m", text: "Zone: int sl dc_cvlx sldc66 Pos: 31.37m -27.54m 4.98m\n\nZone: 00C Stanton 1 Hurston Pos: 743.1039km 15.5635km 671.1012km\n\nZone: SolarSystem 862321811808 Pos: 12850787.6470km -665.7174km 671.1012km\nZone: Root Pos: 12850787.6470km -665.7174km 671.1012Km\n\nJ                                     FPS 64.6 - 15.6ms [15.1ms]\n\nF                                             Phys: 0.0ms Stall: 227.6ms Event: 0.0ms\nServer EPS 6:90 5:6..7.7] - 145.5ms™i30Ebrrydsvidy Hitches: ©\n\nserver(@h-useio- sc-atpha-102-12913070-game 173, restarts 0, pop. [shard 481, srv 78]\nNet: ping 63.2ms, loss 0.0% BwIn 102.518kbps, BwOut 35.067kbps\n\nJ                      RL: entities: 53862, tick: 0.06ms, MTSync: 0.43ms\n\nNE——                            ServerTime: Wed Oct 14 16:59:05 2026\nUniverseTime: Mon Sep 20 05:54:33 2990\n\nWorking Set (0S): 13.07 GiB Committed (0S): 40.85 GiB\n\nRender: MT: 15.2ms RT: 4.0ms GPU: 9.0ms\n\nGraphics Renderer : Vulkan (DLSS-57%)\n\nt player location : Stantonl DistributionCentre_Covalex S1DCO6 (LZ : Stantonl DistributionCentre_Covalex_ S1DC06)\nPlanet:00C Stanton 1 Hurston (working) (Load Complete)\n\nCamPos Planet Zone: 743103.921488 15563.466321 671101.163797\n\nRadius: 1000000.000000 ElevationUnderCam: 1369.562500 Altitude 40.658970\n\nXYPos: 20943.861843 903105.434379 Page: 0 (+X)\n\nVirtual Terrain Cache: Disabled\n\nEntities: 91612, PS: 0, QdBatches: 0, LB: 0, QdFinalize: 0, Net-DeferredFinalize: ©, QdSOC: ©\nComponent updates:   31879, Events handled:     883\n\nGame: 0.00ms\nJ\n" },
+  { at: "2026-10-14T16:59:52.738Z", was: "Open space", text: "t player location\n\nZone: int sl dc cvlx sldcO6 Pos: 43.91m 120.61m 4.99m\n\nZone: 00C Stanton 1 Hurston Pos: 743.0986km 15.4152km 671.1105km\n\nZone: SolarSystem 862321811808 Pos: 12850808.5268km -654.9255km 671.1105Kkm\nZone: Root Pos: 12850808.5268km -654.9255km 671.1105km\n\n____eesmem                                     EESTA5.5 - 922 25 Z1=6ms |\n\na                                               Phys: 0.0ms Stall: 0.0ms Event: 0.0ms\nServer FPS 10.6 [10.3..10.8] - 94.1ms [92.4..96.9], Hitches: ©\n\nserver@-useio- sc-stpha-4102-12913470-game 178, restarts 0, pop. [shard 478, srv 78]\nNet: ping 55.3ms, loss 0.0% BwIn 158.132kbps, BwOut 34.775kbps\n\n)                      RL: entities: 53862, tick: 0.07ms, MTSync: 3.14ms\nWEm———                            ServerTime: Wed Oct 14 16:59:50 2026\nUniverseTime: Mon Sep 20 05:59:04 2990\n\nWorking Set (0S): 13.11 GiB Committed (0S): 41.38 GiB\n\nRender: MT: 21.6ms RT: 8.9ms GPU: 11.9ms\n\nGraphics Renderer : Vulkan (DLSS-57%)\n\n: Stantonl DistributionCentre_ Covalex S1DCO6 (LZ : Stantonl DistributionCentre_ Covalex S1DC06)\n\nPlanet:00C Stanton 1 Hurston (working) (Load Complete)\n\nCamPos Planet Zone: 743098.607798 15415.178456 671110.471692\n\nRadius: 1000000.000000 ElevationUnderCam: 1380.375000 Altitude 29.847563\n\nXYPos: 20744.459042 903124.343449 Page: 0 (+X)\n\nVirtual Terrain Cache: Disabled\n\nEntities: 91611, PS: 0, QdBatches: 0, LB: 0, QdFinalize: 0, Net-DeferredFinalize: ©, QdSOC: ©\nComponent updates:   31374, Events handled:     988\n\nGame: 0.00ms\n" },
+  { at: "2026-10-14T17:00:36.179Z", was: "Open space", text: "t player location :\n\nZone: 00C Stanton 1 Hurston Pos: 743.1241km 15.3529km 671.0835km\n\nZone: SolarSystem 862321811808 Pos: 12850829.1394km -643.4676km 671.0835km\nZone: Root Pos: 12850829.1394km -643.4676km 671.0835km\n\nEPS OE hms [24 6ms|\n\nEEE                                 Phys: 0,0ms Stall: 176.0ms Event: 0.0ms\n\n‘3                      Servers EERSH Bre ZEn 9B 1155 6ms [[110.9,.122.3], Hitches: ©\n“TH sc-alpha-4102-12913470-game-178, restarts 0, pop. [shard 477, srv 80]\nNet: ping 52.8ms, loss 0.0% BwIn 131.886kbps, BwOut 42.,038kbps\n\nRL: entities: 53837, tick: 0.13ms, MTSync: 1.38ms\n\n|                                   ServerTime: Wed Oct 14 17:00:35 2026\n\nEa                                   UniverseTime: Mon Sep 20 06:03:35 2990\nWorking Set (0S): 13.20 GiB\\ Committed (0S): 41.32 GiB\n\nRender: Mi: 24.7ms RT: 10.7ms GPU: 13.,7ms\n\nGraphics Renderer : Vulkan (DLSS-57%)\n\nStantonl DistributionCentre_ Covalex S1DC06 (LZ : Stantonl DistributionCentre_Covalex S1DCO06)\nPlanet:00C Stanton 1 Hurston (working) (Load Complete)\n\nRadius: 1000000.000000 ElevationUnderCam: 1383.937500 Altitude 26.144423\nXYPos: 20659.993258 903057.146818 Page: 0 (+X)\n\nVirtual Terrain Cache: Disabled\n\nEntities: 91586, PS: 0, QdBatches: 0, LB: 0, QdFinalize: 0, Net-DeferredFinalize: 0, QdSOC: ©\nComponent updates:   32113, Events handled:     941\n\nGame: 0.00ms\n" },
+  { at: "2026-10-14T17:01:16.751Z", was: "Covalex Distribution Centre S1DC06 · 305 m", text: "Zone: 00C Stanton 1 Hurston Pos: 743.1241km 15.3531km 671.0834km\n\nZone: SolarSystem 862321811808 Pos: 12850849.7228km -631.1189km 671.0834km\n\n~~ Zone: Root Pos: 12850849.7228km -631.1189km 671.0834km\n\nEPSESORAR-m hms: [25 1ms:]\n\neam                               Phys: 0.0ms Stall: 1002.5ms Event: 0.0ms\n\n'7i                      Seve ERS BRORIBE Zr Dad = i2r3ms: [97 5m 1224.5], Hitches: ©\nCE er ng as ome restarts 0, pop. [shard 476, srv 81]\n\nNet: ping 49.5ms, loss 0.0% BwIn 63.834kbps, BwOut 23.749Kkbps\nRL: entities: 53837, tick: 0.09ms, MTSync: 2.45ms\n\nServerTime: Wed Oct 14 17:01:21 2026\n\nUniverseTime: Mon Sep 20 06:08:10 2990\n\nPOET           Working Set (0S): 12.82 GiB Committed (0S): 41.33 GiB\n\nARKEUET                 9            Renders Mis 25L Ams Riz OLw/ms GRU 131, 4ms\n\n=                                             Graphics Renderer : Vulkan (DLSS-57%)\n\nt player location : Stantonl DistributionCentre_Covalex S1DCO6 (LZ : Stantonl DistributionCentre Covalex S1DC06)\nPlanet:00C Stanton 1 Hurston (working) (Load Complete)\n\nRadius: 1000000.000000 ElevationUnderCam: 1383.937500 Altitude 26.144513\n\nXYPos: 20660.172216 903056.989349 Page: 0 (+X)\n\nVirtual Terrain Cache: Disabled\n\nEntities: 91586, PS: 0, QdBatches: 0, LB: 0, QdFinalize: 0, Net-DeferredFinalize: 0, QdSOC: ©\n\nComponent updates:   31523, Events handled:    1712\nGame: 0.00ms\n" },
+]
+
+const hist = (k) => HIST.find((h) => h.at.slice(11, 19) === k)
+const covalexM = (w) => (w?.name === 'Covalex Distribution Centre S1DC06' ? Number(/ · (\d+) m$/.exec(w.label)?.[1]) : NaN)
+
+safe('real history (batch 6)', () => {
+  // B1: garbled system words are unknown, not title-cased
+  for (const g of ['Zone', 'Zope', 'Stantepl']) check('real history (batch 6)', `knownSystem(${g}) -> ''`, W.knownSystem(g) === '', j(W.knownSystem(g)))
+  const castra = W.parseMapLine('CASTRA SYSTEM > 1.20° -45.00° 31.62GM')
+  check('real history (batch 6)', 'map line with an unknown system keeps it (title-cased)', castra?.system === 'Castra', j(castra))
+
+  // 16:58:20 "Rappel · 46.4 km": no planet line, CamPos garbled, no body -> null (Root line not used near a body)
+  const r = hist('16:58:20')
+  const ri = W.parseDisplayInfo(r.text)
+  const rw = ri && W.resolveDisplayInfo(ri, roster, r.at)
+  check('real history (batch 6)', '16:58:20 garbled read near a body -> null (was Rappel)', rw === null, j(rw))
+  check('real history (batch 6)', '16:58:20 check says why', ri?.checks?.some((c) => c.item === 'position' && !c.ok && /^near a body but the body position failed: star-frame lines not used on a planet$/.test(c.why)), j(ri?.checks))
+
+  // 16:59:52 and 17:00:36 "Open space": "player location" line read the next "Zone" as the system
+  for (const k of ['16:59:52', '17:00:36']) {
+    const h = hist(k)
+    const i = W.parseDisplayInfo(h.text)
+    check('real history (batch 6)', `${k} system Stanton (not "Zone")`, i?.system === 'Stanton' && i.body === 'Hurston', j({ s: i?.system, b: i?.body }))
+    const w = W.resolveDisplayInfo(i, roster, h.at)
+    const m = covalexM(w)
+    check('real history (batch 6)', `${k} -> Covalex S1DC06 250-320 m, accuracy 10 (was Open space)`, m >= 250 && m <= 320 && w.accuracy === 10 && w.body === 'Hurston' && w.system === 'Stanton', `${w?.label} acc=${w?.accuracy}`)
+  }
+
+  // 17:01:16 already right: unchanged
+  const u = hist('17:01:16')
+  const uw = W.resolveDisplayInfo(W.parseDisplayInfo(u.text), roster, u.at)
+  check('real history (batch 6)', '17:01:16 unchanged: Covalex S1DC06 · 305 m, accuracy 10', uw?.label === 'Covalex Distribution Centre S1DC06 · 305 m' && uw.accuracy === 10, `${uw?.label} acc=${uw?.accuracy}`)
+
+  // B2: system misread as another known system -> the body is found across all systems
+  const g = hist('16:59:04')
+  const gi = W.parseDisplayInfo(g.text)
+  gi.system = 'Pyro'
+  const gw = W.resolveDisplayInfo(gi, roster, g.at)
+  const gm = covalexM(gw)
+  check('real history (batch 6)', '16:59:04 with system misread as Pyro -> Hurston found in Stanton, Covalex 250-320 m', gm >= 250 && gm <= 320 && gw.system === 'Stanton' && gw.accuracy === 10, `${gw?.label} sys=${gw?.system}`)
+
+  // space (not near a body) keeps the SolarSystem path
+  const sp = W.resolveDisplayInfo(W.parseDisplayInfo(REAL_SPACE_TOP3), roster, AT)
+  check('real history (batch 6)', 'space read keeps the SolarSystem line (accuracy 9)', sp?.accuracy === 9 && sp.name === null, j(sp?.label))
 })
 
 let failed = 0

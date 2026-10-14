@@ -4,7 +4,7 @@ import { C, F, GLOW } from '../theme'
 import { Btn } from '../components/ui'
 import CrashGuard from '../components/CrashGuard'
 import { formatEntry, LOG_CATEGORIES, LOG_LEVELS } from '@shared/debugLog'
-import { diagResultLine } from '@shared/trace'
+import { diagCopyImagesLine, diagCopyTextLine, diagResultLine } from '@shared/trace'
 import type { DebugInfo, LogCategory, LogEntry, LogLevel, LogSource } from '@shared/debugLog'
 
 const MAX_ROWS = 5000
@@ -81,6 +81,7 @@ const PERIODS: { id: string; label: string; hours?: number }[] = [
 
 const NOTE_MAX = 2000
 const IMAGES_LABEL = "Include images (OCR crops and an overlay picture). Pictures can't be cleaned of names."
+const COPY_FEEDBACK_MS = 4000
 
 function DiagExportBar(): React.ReactElement {
   const [period, setPeriod] = useState('session')
@@ -91,12 +92,42 @@ function DiagExportBar(): React.ReactElement {
   const [asking, setAsking] = useState(false)
   const [note, setNote] = useState('')
   const [includeImages, setIncludeImages] = useState(false)
+  const [done, setDone] = useState(false)
+  const [combined, setCombined] = useState(false)
+  const [copyMsg, setCopyMsg] = useState<{ text: string; err: boolean } | null>(null)
+  const copyTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
+  useEffect(() => () => { if (copyTimer.current) clearTimeout(copyTimer.current) }, [])
+
+  const showCopy = (text: string, err: boolean): void => {
+    if (copyTimer.current) clearTimeout(copyTimer.current)
+    setCopyMsg({ text, err })
+    copyTimer.current = setTimeout(() => setCopyMsg(null), COPY_FEEDBACK_MS)
+  }
+  const copyText = async (): Promise<void> => {
+    try {
+      const r = await window.supercargo.diagCopyText()
+      showCopy(diagCopyTextLine(r), !r.ok)
+    } catch (e) {
+      showCopy(e instanceof Error ? e.message : String(e), true)
+    }
+  }
+  const copyImages = async (): Promise<void> => {
+    try {
+      const r = await window.supercargo.diagCopyImages()
+      showCopy(diagCopyImagesLine(r, images.length), !r.ok)
+    } catch (e) {
+      showCopy(e instanceof Error ? e.message : String(e), true)
+    }
+  }
 
   const run = async (): Promise<void> => {
     if (busy) return
     setAsking(false)
     setBusy(true)
     setImages([])
+    setDone(false)
+    setCombined(false)
+    setCopyMsg(null)
     setMsg({ text: 'saving…', err: false })
     try {
       const hours = PERIODS.find((p) => p.id === period)?.hours
@@ -105,6 +136,8 @@ function DiagExportBar(): React.ReactElement {
       if (r.ok) {
         setMsg({ text: diagResultLine(r), err: false })
         setImages(r.images ?? [])
+        setDone(true)
+        setCombined(!!r.combinedImage)
         setNote('')
       } else setMsg({ text: r.error || 'export failed', err: true })
     } catch (e) {
@@ -130,6 +163,11 @@ function DiagExportBar(): React.ReactElement {
         <span style={{ flex: '1 1 200px', fontFamily: F.mono, fontSize: 11, color: msg?.err ? C.red : msg ? C.acc : C.ghost, wordBreak: 'break-all' }}>
           {msg?.text ?? 'Everything Claude needs to review the program; player names and ids are removed.'}
         </span>
+        {done && <ActBtn onClick={() => void copyText()}>COPY TEXT</ActBtn>}
+        {done && combined && <ActBtn onClick={() => void copyImages()}>COPY IMAGES</ActBtn>}
+        {copyMsg && (
+          <span style={{ fontFamily: F.mono, fontSize: 11, color: copyMsg.err ? C.red : C.acc }}>{copyMsg.text}</span>
+        )}
       </div>
       {images.length > 0 && (
         <div style={{ display: 'flex', flexDirection: 'column', gap: 2, padding: '0 14px 8px' }}>

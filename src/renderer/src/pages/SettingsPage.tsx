@@ -1,7 +1,7 @@
-import React, { useEffect, useState } from 'react'
+import React, { useEffect, useRef, useState } from 'react'
 import { useStore } from '../state/store'
 import { trace } from '../state/trace'
-import { diagResultLine } from '@shared/trace'
+import { diagCopyImagesLine, diagCopyTextLine, diagResultLine } from '@shared/trace'
 import type { AppSettings } from '@shared/types'
 import { C, F, GLOW, ZOOM_MIN, ZOOM_MAX, ZOOM_STEP, ZOOM_DEFAULT, clampZoom } from '../theme'
 import PageHeader, { PAGE_PADDING } from '../components/PageHeader'
@@ -665,28 +665,54 @@ export default function SettingsPage(): React.ReactElement {
 
 const NOTE_MAX = 2000
 const IMAGES_LABEL = "Include images (OCR crops and an overlay picture). Pictures can't be cleaned of names."
+const COPY_FEEDBACK_MS = 4000
 
 function DiagExportRow(): React.ReactElement {
-  const [state, setState] = useState<{ busy: boolean; msg: string; err: boolean; images: string[] }>({
-    busy: false, msg: '', err: false, images: []
+  const [state, setState] = useState<{ busy: boolean; msg: string; err: boolean; images: string[]; done: boolean; combined: boolean }>({
+    busy: false, msg: '', err: false, images: [], done: false, combined: false
   })
   const [asking, setAsking] = useState(false)
   const [note, setNote] = useState('')
   const [includeImages, setIncludeImages] = useState(false)
+  const [copyMsg, setCopyMsg] = useState<{ text: string; err: boolean } | null>(null)
+  const copyTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
+  useEffect(() => () => { if (copyTimer.current) clearTimeout(copyTimer.current) }, [])
+  const showCopy = (text: string, err: boolean): void => {
+    if (copyTimer.current) clearTimeout(copyTimer.current)
+    setCopyMsg({ text, err })
+    copyTimer.current = setTimeout(() => setCopyMsg(null), COPY_FEEDBACK_MS)
+  }
+  const copyText = async (): Promise<void> => {
+    try {
+      const r = await window.supercargo.diagCopyText()
+      showCopy(diagCopyTextLine(r), !r.ok)
+    } catch (e) {
+      showCopy(e instanceof Error ? e.message : String(e), true)
+    }
+  }
+  const copyImages = async (): Promise<void> => {
+    try {
+      const r = await window.supercargo.diagCopyImages()
+      showCopy(diagCopyImagesLine(r, state.images.length), !r.ok)
+    } catch (e) {
+      showCopy(e instanceof Error ? e.message : String(e), true)
+    }
+  }
   const run = async (): Promise<void> => {
     setAsking(false)
-    setState({ busy: true, msg: 'saving…', err: false, images: [] })
+    setCopyMsg(null)
+    setState({ busy: true, msg: 'saving…', err: false, images: [], done: false, combined: false })
     try {
       const opts = { includeLogExcerpt: true, note: note.trim() || undefined, includeImages }
       const r = await window.supercargo.diagExport(opts)
       if (r.ok) {
         setState({
-          busy: false, msg: diagResultLine(r), err: false, images: r.images ?? []
+          busy: false, msg: diagResultLine(r), err: false, images: r.images ?? [], done: true, combined: !!r.combinedImage
         })
         setNote('')
-      } else setState({ busy: false, msg: r.error || 'export failed', err: true, images: [] })
+      } else setState({ busy: false, msg: r.error || 'export failed', err: true, images: [], done: false, combined: false })
     } catch (e) {
-      setState({ busy: false, msg: e instanceof Error ? e.message : String(e), err: true, images: [] })
+      setState({ busy: false, msg: e instanceof Error ? e.message : String(e), err: true, images: [], done: false, combined: false })
     }
   }
   return (
@@ -696,6 +722,11 @@ function DiagExportRow(): React.ReactElement {
         <span style={{ fontFamily: F.mono, fontSize: 12, color: state.err ? C.red : C.dim, wordBreak: 'break-all' }}>
           {state.msg || 'this game session, with log excerpt; player names and ids are removed'}
         </span>
+        {state.done && <SmallBtn onClick={() => void copyText()}>COPY TEXT</SmallBtn>}
+        {state.done && state.combined && <SmallBtn onClick={() => void copyImages()}>COPY IMAGES</SmallBtn>}
+        {copyMsg && (
+          <span style={{ fontFamily: F.mono, fontSize: 12, color: copyMsg.err ? C.red : C.acc }}>{copyMsg.text}</span>
+        )}
       </div>
       {state.images.map((p) => (
         <span key={p} style={{ fontFamily: F.mono, fontSize: 12, color: C.dim, wordBreak: 'break-all' }}>

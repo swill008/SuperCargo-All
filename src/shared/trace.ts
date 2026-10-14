@@ -40,6 +40,21 @@ export interface DiagExportResult {
   error?: string
   images?: string[] // PNGs saved next to the export (only when includeImages)
   copied?: boolean // UI export: true = the saved text is on the clipboard, false = the copy failed
+  combinedImage?: string // <base>-all.png: every saved picture side by side (only when images were saved)
+}
+
+// COPY TEXT / COPY IMAGES buttons: copy the last export again (main reads it back from disk)
+export interface DiagCopyTextResult {
+  ok: boolean
+  bytes?: number
+  error?: string
+}
+
+export interface DiagCopyImagesResult {
+  ok: boolean
+  width?: number
+  height?: number
+  error?: string
 }
 
 export function fmtDiagBytes(n: number): string {
@@ -56,4 +71,40 @@ export function diagResultLine(r: DiagExportResult): string {
   const parts = [head, ...(r.bytes != null ? [fmtDiagBytes(r.bytes)] : []), ...(r.path ? [r.path] : [])]
   const large = r.copied === true && r.bytes != null && r.bytes > LARGE_EXPORT ? ' (large: attaching the file may work better)' : ''
   return parts.join(' · ') + large
+}
+
+// feedback next to the COPY buttons, e.g. "Text copied · 1.1 MB" / "Picture copied (3 in one)"
+export function diagCopyTextLine(r: DiagCopyTextResult): string {
+  if (!r.ok) return r.error || 'copy failed'
+  return r.bytes != null ? `Text copied · ${fmtDiagBytes(r.bytes)}` : 'Text copied'
+}
+
+export function diagCopyImagesLine(r: DiagCopyImagesResult, count: number): string {
+  if (!r.ok) return r.error || 'copy failed'
+  return count > 1 ? `Picture copied (${count} in one)` : 'Picture copied'
+}
+
+// raw 4-byte-per-pixel bitmap (Electron's toBitmap order is BGRA; stitching doesn't care)
+export interface Bitmap {
+  width: number
+  height: number
+  bgra: Uint8Array
+}
+
+export const STITCH_GAP = 16
+
+// pictures side by side, top-aligned, unscaled, STITCH_GAP px apart, on opaque black
+export function stitchBitmaps(list: Bitmap[], gap = STITCH_GAP): Bitmap {
+  const pics = list.filter((b) => b.width > 0 && b.height > 0 && b.bgra.length >= b.width * b.height * 4)
+  const width = pics.reduce((w, b) => w + b.width, 0) + gap * Math.max(0, pics.length - 1)
+  const height = pics.reduce((h, b) => Math.max(h, b.height), 0)
+  const bgra = new Uint8Array(width * height * 4)
+  for (let i = 3; i < bgra.length; i += 4) bgra[i] = 255
+  let x0 = 0
+  for (const b of pics) {
+    const row = b.width * 4
+    for (let y = 0; y < b.height; y++) bgra.set(b.bgra.subarray(y * row, y * row + row), (y * width + x0) * 4)
+    x0 += b.width + gap
+  }
+  return { width, height, bgra }
 }

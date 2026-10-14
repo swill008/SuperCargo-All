@@ -1,6 +1,6 @@
 import { contextBridge, ipcRenderer, webFrame } from 'electron'
 import type { LogEntry, DebugInfo } from '@shared/debugLog'
-import type { TraceRecord, DiagExportOptions, DiagExportResult } from '@shared/trace'
+import type { TraceRecord, DiagExportOptions, DiagExportResult, DiagCopyTextResult, DiagCopyImagesResult } from '@shared/trace'
 import { IPC } from '@shared/channels'
 import type {
   AppSettings,
@@ -210,6 +210,8 @@ const api = {
   onDebugEntries: (cb: (entries: LogEntry[]) => void): Unsubscribe => on(IPC.evtDebugEntries, cb),
   traceRecords: (recs: TraceRecord[]): void => ipcRenderer.send(IPC.traceRecords, recs),
   diagExport: (opts?: DiagExportOptions): Promise<DiagExportResult> => ipcRenderer.invoke(IPC.diagExport, opts),
+  diagCopyText: (): Promise<DiagCopyTextResult> => ipcRenderer.invoke(IPC.diagCopyText),
+  diagCopyImages: (): Promise<DiagCopyImagesResult> => ipcRenderer.invoke(IPC.diagCopyImages),
   onDiagSnapshotRequest: (cb: (reqId: string) => void): Unsubscribe => on(IPC.diagSnapshotRequest, cb),
   diagSnapshotReply: (reqId: string, snapshot: Record<string, unknown>): void => ipcRenderer.send(IPC.diagSnapshotReply, reqId, snapshot)
 }

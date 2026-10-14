@@ -63,7 +63,7 @@ export function foldPlaceName(s: string): string {
     .join(' ')
 }
 
-/** fallback match on folded names (exact, then one contains the other); prefers the address's system */
+/** fallback match on folded names (exact, then one contains the other, then doubled zeros); prefers the address's system */
 function findFolded(raw: string, locations: Location[]): Location | undefined {
   const { name, systemHint } = splitLogAddress(raw)
   const key = foldPlaceName(name)
@@ -76,12 +76,22 @@ function findFolded(raw: string, locations: Location[]): Location | undefined {
   }
   const exact = locations.filter((l) => foldPlaceName(l.name) === key)
   if (exact.length) return pick(exact)
-  return pick(
-    locations.filter((l) => {
-      const n = foldPlaceName(l.name)
-      return n.length >= 4 && /\d/.test(n) && (n.includes(key) || key.includes(n))
-    })
-  )
+  const contains = locations.filter((l) => {
+    const n = foldPlaceName(l.name)
+    return n.length >= 4 && /\d/.test(n) && (n.includes(key) || key.includes(n))
+  })
+  if (contains.length) return pick(contains)
+  // last: OCR doubled zeros ("S1DCO06" = "S1DC06"), exact match only
+  const zk = foldZeros(key)
+  return pick(locations.filter((l) => foldZeros(foldPlaceName(l.name)) === zk))
+}
+
+/** folded key with runs of zeros collapsed to one inside words that carry a digit ("s1dc006" -> "s1dc06") */
+function foldZeros(key: string): string {
+  return key
+    .split(' ')
+    .map((w) => (/\d/.test(w) ? w.replace(/0{2,}/g, '0') : w))
+    .join(' ')
 }
 
 export function findRosterLocation(raw: string, locations: Location[]): Location | undefined {
@@ -142,7 +152,7 @@ export function explainPlaceLookup(raw: string, locations: Location[]): PlaceLoo
     const fk = foldPlaceName(splitLogAddress(trimmed).name)
     const pool = locations.filter((l) => {
       const n = foldPlaceName(l.name)
-      return n === fk || (n.length >= 4 && /\d/.test(n) && (n.includes(fk) || fk.includes(n)))
+      return n === fk || (n.length >= 4 && /\d/.test(n) && (n.includes(fk) || fk.includes(n))) || foldZeros(n) === foldZeros(fk)
     })
     // the chosen one first
     return out('folded', resolved, folded, [folded, ...pool.filter((l) => l !== folded)])
@@ -605,7 +615,10 @@ function sortJobsByFirstStep(
 
 type BaseRow = { job: OtherJob; step: OtherStep }
 
-/** step position plus where it came from */
+/**
+ * step position plus where it came from. Before pickup the marker is not used: on a combined
+ * step it sits on the delivery place, not the pickup.
+ */
 function stepPointWithSource(
   step: OtherStep,
   locations: Location[],
@@ -613,7 +626,7 @@ function stepPointWithSource(
 ): { point: GeoPoint; source: 'uex' | 'marker' } | undefined {
   const named = locationPoint(findRosterLocation(stepActivePlace(step), locations))
   if (named) return { point: named, source: 'uex' }
-  if (useMarker && hasCoords(step.position)) return { point: withNearBody(markerPoint(step.position!), locations), source: 'marker' }
+  if (useMarker && !stepIsPickup(step) && hasCoords(step.position)) return { point: withNearBody(markerPoint(step.position!), locations), source: 'marker' }
   return undefined
 }
 

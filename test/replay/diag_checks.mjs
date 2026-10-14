@@ -28,6 +28,7 @@ async function bundle(rel) {
 }
 const N = await bundle('src/other/otherNext.ts')
 const G = await bundle('src/other/otherGeo.ts')
+const T = await bundle('src/shared/trace.ts')
 
 const locations = JSON.parse(fs.readFileSync(path.join(root, 'data/uex/locations.json'), 'utf8')).locations
 const positions = JSON.parse(fs.readFileSync(path.join(root, 'data/uex/other-positions.json'), 'utf8')).places
@@ -94,6 +95,39 @@ safe('travel', () => {
   check('travel', 'Lyria The Pit -> Wheeler\'s: surface, body Lyria, meters = travel()', s.surface === true && /lyria/i.test(s.body ?? '') && near(s.meters, ts.meters), JSON.stringify(s))
   const nop = G.explainTravel(undefined, N.locationPoint(b), locations)
   check('travel', "missing point -> why 'no point'", nop.meters === null && nop.why === 'no point', JSON.stringify(nop))
+})
+
+safe('stitch', () => {
+  // solid-colour test pictures: 4 bytes per pixel, BGRA
+  const pic = (width, height, b, g, r) => {
+    const bgra = new Uint8Array(width * height * 4)
+    for (let i = 0; i < bgra.length; i += 4) bgra.set([b, g, r, 255], i)
+    return { width, height, bgra }
+  }
+  const px = (bm, x, y) => Array.from(bm.bgra.subarray((y * bm.width + x) * 4, (y * bm.width + x) * 4 + 4)).join(',')
+  const a = pic(3, 2, 10, 20, 30)
+  const b = pic(2, 5, 40, 50, 60)
+  const c = pic(4, 1, 70, 80, 90)
+  const s = T.stitchBitmaps([a, b, c])
+  check('stitch', 'size: widths + 2 gaps of 16, tallest height', s.width === 3 + 2 + 4 + 2 * 16 && s.height === 5 && s.bgra.length === s.width * s.height * 4, `${s.width}x${s.height}`)
+  check('stitch', 'gap is 16 (default)', T.STITCH_GAP === 16, String(T.STITCH_GAP))
+  check('stitch', 'first picture top-left, unscaled', px(s, 0, 0) === '10,20,30,255' && px(s, 2, 1) === '10,20,30,255', `${px(s, 0, 0)} ${px(s, 2, 1)}`)
+  check('stitch', 'below a short picture is opaque black', px(s, 0, 2) === '0,0,0,255' && px(s, 2, 4) === '0,0,0,255', `${px(s, 0, 2)} ${px(s, 2, 4)}`)
+  check('stitch', 'gap columns are black', px(s, 3, 0) === '0,0,0,255' && px(s, 18, 0) === '0,0,0,255' && px(s, 10, 3) === '0,0,0,255', `${px(s, 3, 0)} ${px(s, 18, 0)}`)
+  check('stitch', 'second picture at x 19, top-aligned, full height', px(s, 19, 0) === '40,50,60,255' && px(s, 20, 4) === '40,50,60,255' && px(s, 21, 0) === '0,0,0,255', `${px(s, 19, 0)} ${px(s, 20, 4)} ${px(s, 21, 0)}`)
+  check('stitch', 'third picture at x 37, one row only', px(s, 37, 0) === '70,80,90,255' && px(s, 40, 0) === '70,80,90,255' && px(s, 37, 1) === '0,0,0,255', `${px(s, 37, 0)} ${px(s, 40, 0)} ${px(s, 37, 1)}`)
+  const one = T.stitchBitmaps([a])
+  check('stitch', 'one picture -> same size and pixels, no gap', one.width === 3 && one.height === 2 && Buffer.from(one.bgra).equals(Buffer.from(a.bgra)), `${one.width}x${one.height}`)
+  const none = T.stitchBitmaps([])
+  check('stitch', 'no pictures -> 0x0', none.width === 0 && none.height === 0 && none.bgra.length === 0, `${none.width}x${none.height}`)
+  const bad = T.stitchBitmaps([a, { width: 5, height: 5, bgra: new Uint8Array(4) }])
+  check('stitch', 'short buffer is skipped', bad.width === 3 && bad.height === 2, `${bad.width}x${bad.height}`)
+})
+
+safe('copy lines', () => {
+  check('copy lines', 'text: "Text copied · 1.1 MB"', T.diagCopyTextLine({ ok: true, bytes: 1.1 * 1024 * 1024 }) === 'Text copied · 1.1 MB', T.diagCopyTextLine({ ok: true, bytes: 1.1 * 1024 * 1024 }))
+  check('copy lines', 'images: "Picture copied (3 in one)"', T.diagCopyImagesLine({ ok: true, width: 10, height: 5 }, 3) === 'Picture copied (3 in one)', T.diagCopyImagesLine({ ok: true }, 3))
+  check('copy lines', 'error shown as is', T.diagCopyTextLine({ ok: false, error: 'no export yet' }) === 'no export yet' && T.diagCopyImagesLine({ ok: false, error: 'no export yet' }, 0) === 'no export yet', '')
 })
 
 fs.rmSync(tmp, { recursive: true, force: true })

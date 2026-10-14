@@ -96,10 +96,18 @@ const SYSTEMS = ["Stanton", "Pyro", "Nyx"] as const;
 
 /**
  * System name from any OCR form: "Stantonl" / "Stanton1" / "Stanton 1a" / "StantonSolarSystem" / "STANTON SYSTEM"
- * -> "Stanton". Unknown names are title-cased; '' when nothing is left.
+ * -> "Stanton". Unknown names (garbled reads: "Zone", "Zope", "Stantepl") -> ''.
  */
 export function knownSystem(raw: string | null | undefined): string {
-  if (!raw) return "";
+  return systemWord(raw).known;
+}
+
+/** the known system and the cleaned last word (title-cased) it came from */
+function systemWord(raw: string | null | undefined): {
+  known: string;
+  word: string;
+} {
+  if (!raw) return { known: "", word: "" };
   const w = raw
     .replace(/[_\s]*solar[_\s]*system\w*$/i, "")
     .replace(/[_\s]*system$/i, "")
@@ -107,17 +115,21 @@ export function knownSystem(raw: string | null | undefined): string {
   const words = w.split(/[\s_]+/).filter((s) => /[A-Za-z]/.test(s));
   const last = (words.pop() ?? "").replace(/[^A-Za-z0-9|]/g, "");
   const lower = last.toLowerCase();
-  for (const s of SYSTEMS) if (lower.startsWith(s.toLowerCase())) return s;
   const core = last.replace(/[0-9|]+[a-z]?$/, "");
+  const word = core ? core[0].toUpperCase() + core.slice(1).toLowerCase() : "";
+  for (const s of SYSTEMS)
+    if (lower.startsWith(s.toLowerCase())) return { known: s, word };
   if (core.length >= 4)
     for (const s of SYSTEMS)
-      if (s.toLowerCase().startsWith(core.toLowerCase())) return s;
-  return core ? core[0].toUpperCase() + core.slice(1).toLowerCase() : "";
+      if (s.toLowerCase().startsWith(core.toLowerCase()))
+        return { known: s, word };
+  return { known: "", word };
 }
 
-/** "STANTON SYSTEM" / "stanton" / "StantonSolarSystem" -> "Stanton" */
+/** map line system: "STANTON SYSTEM" / "StantonSolarSystem" -> "Stanton"; an unknown name stays, title-cased */
 function titleSystem(raw: string): string {
-  return knownSystem(raw);
+  const { known, word } = systemWord(raw);
+  return known || word;
 }
 
 /** OCR number: '-'/'–'/'−' minus, ',' read for '.', stray space after the sign */
@@ -380,7 +392,7 @@ type Pt = { x: number; y: number; z: number };
 type Placed = Location & Pt;
 
 const sameSystem = (a: string | undefined | null, b: string | null): boolean =>
-  !b || !a || knownSystem(a).toLowerCase() === knownSystem(b).toLowerCase();
+  !b || !a || titleSystem(a).toLowerCase() === titleSystem(b).toLowerCase();
 
 function placed(locations: Location[], system: string | null): Placed[] {
   return locations.filter(
@@ -543,7 +555,9 @@ function formatUp(m: number): string {
  * CONTRACT: whole-panel resolve, best first, each step only if its sense checks pass (recorded in info.checks):
  * 1. near a body: planet zone line / CamPos + body centre (km line ≈ CamPos within 1 km, |pos| ≈ radius + altitude
  *    within 5 km, player-location index agrees with the body; altitude over 100 km skips this step);
- * 2. SolarSystem line (== Root within 1 km when Root is there), else Root alone.
+ *    near a body but step 1 fails -> null (the star-frame lines turn with the planet; not used there);
+ *    the body is looked up in the read system, then in every system (a misread system name);
+ * 2. in space only: SolarSystem line (== Root within 1 km when Root is there), else Root alone.
  * null = nothing usable (the caller falls back to the map line). ServerTime > 2 min off `at` = maybe stale (accuracy −3).
  * opts.bodyRadius = planet table (otherBodies) for the "N km up" label when the panel's "Radius:" line is cut off;
  * without it (or when it doesn't know the body) the roster estimate (otherMarkers.bodyRadius) is used.
@@ -556,8 +570,8 @@ export function resolveDisplayInfo(
 ): Where | null {
   const checks: NonNullable<DisplayInfo["checks"]> = [];
   info.checks = checks;
-  const system = info.system ? knownSystem(info.system) || null : null;
-  const pool = placed(locations, system);
+  let system = info.system ? knownSystem(info.system) || null : null;
+  let pool = placed(locations, system);
   const km = (m: number): string => `${(m / 1000).toFixed(1)} km`;
 
   let p: Pt | null = null;
@@ -596,6 +610,15 @@ export function resolveDisplayInfo(
   }
   if (near) {
     nearLoc = bodyLabel ? snap(bodyLabel, pool) : null;
+    if (!nearLoc && bodyLabel && system) {
+      // system read wrong: the body may be in another system's pool
+      const any = snap(bodyLabel, placed(locations, null));
+      if (any) {
+        nearLoc = any;
+        system = knownSystem(any.system) || null;
+        pool = placed(locations, system);
+      }
+    }
     let ok = !!nearLoc;
     if (!nearLoc)
       checks.push({
@@ -659,10 +682,18 @@ export function resolveDisplayInfo(
         item: `used: ${cam && pos === cam ? "CamPos" : "planet zone line"} + ${nearLoc.name} centre`,
         ok: true,
       });
-    } else nearLoc = null;
+    } else {
+      // the SolarSystem / Root lines turn with the planet here and don't match roster places
+      checks.push({
+        item: "position",
+        ok: false,
+        why: `near ${bodyLabel || "a body"} but the body position failed: star-frame lines not used on a planet`,
+      });
+      return null;
+    }
   }
 
-  // 2. SolarSystem line / Root
+  // 2. SolarSystem line / Root (space only)
   if (!p) {
     const s = info.solarPos;
     const root = info.rootPos;

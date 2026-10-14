@@ -29,7 +29,7 @@ import { openDebugWindow, attachDebugHotkey, buildReport, setReportSource } from
 import { LOG_CATEGORIES, LOG_LEVELS, type DebugInfo, type LogEntry, type LogSource } from '@shared/debugLog'
 import type { DiagExportOptions, TraceArea, TraceRecord } from '@shared/trace'
 import { trace, writeTrace, setTraceEnabled, isTraceOn, startPerfSampler, flushTrace } from './trace'
-import { buildDiagnostics, setDiagSource, registerDiagSnapshotReply } from './diagnostics'
+import { buildDiagnostics, setDiagSource, registerDiagSnapshotReply, registerDiagCopy } from './diagnostics'
 import { resolveWorkMode } from '@other/workMode'
 
 // first, so a throw while loading the rest still gets logged
@@ -725,6 +725,7 @@ function registerIpc(): void {
     return buildDiagnostics({ ...clean, copyToClipboard: true })
   })
   registerDiagSnapshotReply()
+  registerDiagCopy()
 
   ipcMain.handle(IPC.settingsGet, () => settings)
 

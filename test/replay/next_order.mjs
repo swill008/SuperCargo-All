@@ -552,6 +552,40 @@ safe('near label', () => {
   check('near label', 'no roster place within 25 km: no near', fr && !fr.near, JSON.stringify(fr?.near))
 })
 
+// J82 (export 2026-10-14): combined step, pickup "S1DCO06" (OCR doubled O) not yet collected, marker on the
+// Security Compound drop-off ~4 km away; start = display-info read at Covalex S1DC06
+safe('pickup doubled zero', () => {
+  const roster = [...locations, ...otherPositions.filter((p) => !byName(p.name))]
+  const want = 'Covalex Distribution Centre S1DC06'
+  const raw = 'Covalex Distribution Center S1DCO06 on Hurston'
+  const hit = N.findRosterLocation(raw, roster)
+  check('pickup doubled zero', 'S1DCO06 resolves to Centre S1DC06 with coords', hit?.name === want && hit?.x != null, hit?.name)
+  const ex = N.explainPlaceLookup(raw, roster)
+  check('pickup doubled zero', "explainPlaceLookup method 'folded'", ex.method === 'folded' && ex.match === want && ex.hasCoords, `${ex.method} ${ex.match}`)
+  check('pickup doubled zero', 'S1DC006 also folds to S1DC06', N.findRosterLocation('Covalex Distribution Centre S1DC006', roster)?.name === want, '')
+  check('pickup doubled zero', 'S1DC6 (zero dropped) not matched', N.findRosterLocation('Covalex Distribution Centre S1DC6', roster)?.name !== want, N.findRosterLocation('Covalex Distribution Centre S1DC6', roster)?.name)
+  const origin = { x: 12851200217, y: 15353, z: 671084, system: 'Stanton', body: 'Hurston' }
+  const position = { x: 12851198309.646416, y: 18566.685364, z: 672945.839535 }
+  const step = (o) => ({ id: 's82', kind: 'turnin', label: `Collect Scrap from ${o.pickupLocation}. Deliver Scrap to Security Compound`,
+    location: 'Security Compound', item: 'Scrap', have: 0, need: 1, done: false, position, pickedUp: false, ...o })
+  const j82 = (st) => ({ id: 'j82', ref: 'J82', title: 'Scrap', kind: 'delivery', reward: 33000, status: 'active', createdAt: 1, steps: [st] })
+  const rows = (st) => N.listOpenStops([j82(st)], '', roster, { listOrder: 'distance', origin })
+  // unresolvable pickup name: no distance, never the drop-off marker's ~4 km
+  const lost = rows(step({ pickupLocation: 'Covalex Distribution Center S1DCQQ6 on Hurston' }))[0]
+  check('pickup doubled zero', 'unresolvable pickup: no distance (not the 4 km marker)', lost && lost.distance == null && lost.noDistance === true, `${lost?.distance} ${lost?.distanceSource}`)
+  check('pickup doubled zero', 'unresolvable pickup: no near label', lost && !lost.near, JSON.stringify(lost?.near))
+  check('pickup doubled zero', 'unresolvable pickup: why not-in-uex', lost?.noDistanceWhy === 'not-in-uex', lost?.noDistanceWhy)
+  const lostT = N.stepDistanceFromStart('Covalex Distribution Centre S1DC06', step({ pickupLocation: 'Nowhere S9QQ9' }), roster)
+  check('pickup doubled zero', 'stepDistanceFromStart: no marker before pickup', lostT == null, String(lostT))
+  // the real name: ~0.3 km from the start at Covalex
+  const ok = rows(step({ pickupLocation: raw }))[0]
+  check('pickup doubled zero', 'S1DCO06 pickup: ~0.3 km from start', ok?.distanceSource === 'uex' && ok.distance > 200 && ok.distance < 400, `${ok?.distance} ${ok?.distanceSource}`)
+  check('pickup doubled zero', 'S1DCO06 pickup: no near label', ok && !ok.near, JSON.stringify(ok?.near))
+  // after pickup the place is Security Compound (not in the roster): the marker gives ~4 km
+  const after = rows(step({ pickupLocation: raw, pickedUp: true }))[0]
+  check('pickup doubled zero', 'after pickup: marker ~4 km', after?.distanceSource === 'marker' && after.distance > 3500 && after.distance < 4600, `${after?.distance} ${after?.distanceSource}`)
+})
+
 fs.rmSync(tmp, { recursive: true, force: true })
 let failed = 0
 for (const { name, what, ok, detail } of results) {

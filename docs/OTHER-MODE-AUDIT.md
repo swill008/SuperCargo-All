@@ -184,7 +184,7 @@ A display-info read whose ServerTime is more than 2 min off the PC clock is "may
 **OCR tolerance** (from the user's real reads): OOC / 00C / 0OC / O0C, spaces for underscores, a unit per number
 (m, km, Km, the "Kkm" typo), stray commas (`12849498.,1180km`), leading junk (`~~`), a `Pos:` whose numbers wrap to the
 next line; system names by prefix (Stanton, Pyro, Nyx) ignoring trailing digits / l / I / | and "SolarSystem";
-place names fold O→0 and I/l→1 inside tokens with a digit (`S1DCO6` = `S1DC06`). An unknown or missing system
+place names fold O→0 and I/l→1 inside tokens with a digit (`S1DCO6` = `S1DC06`; doubled zeros `S1DCO06` = `S1DC06` since batch 6). An unknown or missing system
 on either side counts as the same system for distances (the real near-Hurston read gave "Stantonl" and every stop
 showed "No jump route" before this).
 
@@ -313,6 +313,50 @@ that start once, printing `RETRY ... app never became ready`. A check that runs 
   sessions ago keeps "Not found in UEX" if its marker line is older than that.
 - Markers of ended jobs are not read, so their (history) steps are not re-placed.
 - The automatic run compares version + commit; a local rebuild without a new commit doesn't run it again.
+
+## Pickup distance, bad reads, copy buttons (batch 6)
+
+Added 2026-10-14, user-approved (CONTRACT7 A, B, C). Rules 29-33 in
+[STANDALONE.md](../src/other/STANDALONE.md#pickup-distance-and-bad-reads-batch-6-user-2026-10-14); files and data flow
+in [SYSTEM-MAP.md](SYSTEM-MAP.md#other-mode-pickup-distance-bad-reads-copy-buttons-batch-6-2026-10-14).
+
+**The case (the user's 12:02 export).** The user stood at Covalex Distribution Centre S1DC06 on Hurston (start
+"Covalex Distribution Centre S1DC06 · 305 m", accuracy 10). Job J82's first step is a combined one: pickupLocation
+"Covalex Distribution Center S1DCO06 on Hurston" (OCR doubled O), location "Security Compound", not picked up, and
+`position` = the drop-off marker (Security Compound, ~4 km away). The lookup found nothing (method `none`), so the row
+fell back to `step.position`: the distance table said 4175 m from the marker, the overlay said "≈4 km surface from
+you" and the header "Covalex Distribution Center S1DCO06 on Hurston · near Covalex Distribution Centre S1DC06
+(4 km)", for a pickup the user was standing on. In `## WHERE AM I HISTORY`, two reads at the same spot (16:59:52,
+17:00:36) came out "Open space": the system word was garbled, `knownSystem()` title-cased it into a made-up system,
+the body lookup in that system's pool failed ("Hurston not in the roster"), and the SolarSystem line was used, which
+on a planet turns with the body and matches no roster place. A third read (16:58:20, the body line cut off) came out
+"Rappel · 46.4 km" from the Root line.
+
+| # | Fix | Owner | Test (fails on f45af9f) |
+|---|---|---|---|
+| A1 | Last lookup tier: folded names with runs of 2+ zeros collapsed to one inside words that carry a digit, exact match only, same pick rules; reported as method `folded` | `otherNext.ts` `findRosterLocation()`, `explainPlaceLookup()` | `next_order.mjs`; replay `j82-pickup-here` |
+| A2 | While a step's pickup is open, `stepPointWithSource()` never uses `step.position` (the drop-off marker on a combined step); no pickup place → no distance. After pickup the marker works as before | `otherNext.ts` | `next_order.mjs` (unresolvable pickup: no distance, not 4 km; resolvable: ≈0.3 km; after pickup: ≈4 km); replay `j82-pickup-here` |
+| B1 | `knownSystem()` returns '' for unknown names, so a garbled read has no system; the map line keeps its title-cased word | `otherWhere.ts` | `where_checks.mjs` |
+| B2 | Near a body, look the body up in the read system's places, then in every system | `otherWhere.ts` `resolveDisplayInfo()` | `where_checks.mjs`; replay `where-covalex-garbled` (both "Open space" reads → Covalex S1DC06 ~250-320 m, accuracy 10) |
+| B3 | Near a body but the body position fails → no position; check `position: near <body> but the body position failed: star-frame lines not used on a planet`; the start is kept. Space keeps the SolarSystem / Root path | `otherWhere.ts` `resolveDisplayInfo()` | `where_checks.mjs`; replay `where-covalex-garbled` (the Rappel read: no position, the check in `## WHERE AM I HISTORY`, start unchanged) |
+| C | COPY TEXT / COPY IMAGES after a UI export; all saved pictures stitched into `<base>-all.png` (side by side, top-aligned, 16 px black gaps, unscaled, `nativeImage` only), listed in `## IMAGES` and returned as `combinedImage`; IPC `diag:copyText` / `diag:copyImages`; "no export yet" before an export | `diagnostics.ts`, `trace.ts` (`stitchBitmaps`), `channels.ts`, preload, `index.ts` re-tie, Settings / Debug export areas | `diag_checks.mjs` (sizes, gaps, pixels); replay `diag-copy-buttons`, `diag-copy-none` |
+
+The replays use the export's real texts: J82's step label, pickup name and drop-off marker point verbatim, and the
+four raw zone 2 texts verbatim except the ServerTime line, set to the test time so the read is not "maybe stale"
+(−3). `diag-copy-buttons` first puts a sentinel on the clipboard, since the export already copies the text by itself.
+
+Old build results (f45af9f, `REPLAY_ROOT` copy of `out/`): `j82-pickup-here` 5 of 7 checks fail (table 4175 m from
+the marker, overlay "≈4 km surface from you" and "near Covalex Distribution Centre S1DC06 (4 km)", Next "≈4 km";
+the start read and "Next has no near" pass); `where-covalex-garbled` fails on both "Open space" reads (system "Zone",
+accuracy 9) and on all three Rappel checks (start became "Rappel · 46.4 km"); the planet-line read passes (unchanged
+behaviour); `diag-copy-buttons` and `diag-copy-none` fail (no `combinedImage`, no copy IPC).
+
+**Known limits.**
+- The doubled-zero tier is exact-match only; other OCR doublings still find nothing.
+- A pickup place that can't be found now shows no distance (before: the drop-off's distance, which was wrong).
+- A read near a body whose body can't be placed gives no position, even where the star-frame line would have been
+  close; the start is kept and the read's checks say why.
+- The replay seam captures nothing, so the replay's `<base>-all.png` holds only the overlay picture.
 
 ## Suggested order
 

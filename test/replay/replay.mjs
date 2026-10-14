@@ -388,6 +388,26 @@ const OCR_SPACE_TOP3 = [
   '',
   'FPS 111.3 - 9.0ms [8.8ms]'
 ].join('\n')
+// CONTRACT7: the user's real r_DisplayInfo reads at Covalex S1DC06 on Hurston (WHERE AM I HISTORY of the 12:02 export,
+// verbatim OCR text, junk included; no player names in them). Before batch 6: RAPPEL read as "Rappel · 46.4 km",
+// OPEN1/OPEN2 as "Open space" (body lookup failed, star-frame lines used), PLANET as Covalex 305 m.
+const COVALEX_READS = {
+  rappel: "-17.32m 6.30m\nkm 671.0478Kkm\nkm 671.0478Km\n\n\\     Zone: int s1 dclcvlx s1dco6 Pos: -41.6\nZon   00C Stanton 1 Hurston Pos: 743.1541km 15.55\n862321811808 Pos: 12850766.4244km -675.89\nZone: Root Pos: 12850766.4244km -675.8950km 671.0478km\nFPS 63.7 - 15.8ms [15.5ms]\n\n=                    Phys: 0.0ms Stall: 390.8fs Event: 0.0ms\n&&rver FPS 5.3 [3,8.)7.6] - 186.9ms [131.7..260%], Hitches: 1\nha-4102-12913470-game-178, restarts 0, pop. [shard 483, srv 80]\nNet: ping 42.5ms, loss 0.0% BwIn 93.684kbps, BwOut 38.536kbps\n2a         RL: eptitfies: 53862, tick: 0.06ms,   Sync: 0.28ms\n\n\\   ServerTime: Wed Oct 14   :58:20 2026\n\n|   UniverseTime: Mon Sep 20 05:50:03 2990\n\nWorking Set (0S): 18.08 GiB Committed (0S)#F 41.14 GiB\nender: MT: 15.5ms RT: 3.8msRGPU: 8.4ms\n\n.                     \\                            Graphics Renderer : Vulkan (DLSS-57%)\n\nt player location :  ——— lb=ne siydys (LZ gS ant nl DistributionCentre Covalex S1DC06)\n\n~ Rlanet:00C Stanton 1 Hurston (working) (Load Complete)\nCamPos Planet Zone: 743154.0 5029 15554.289546 671047 .838195\nRadius: 1000000.000000 ElevationUnder am; 1368.875000 Altitude 42.672056\nXYPos: 20930.101407 902972.696592 Page: 0 (4X)\n\\   Virtual Terrain Cache: Disabled\nEntities: 91612, PS: 0, QdBatches: 0, LB: 0, QdFinalize: 0, Net-DeferredFinalize: 0, QdSOC: ©\n                                \\       Component updates:   31242, Events handled:     873\nME                                             Game: 0.00ms\nA\n\nog\n> =\n",
+  open1: "t player location\n\nZone: int sl dc cvlx sldcO6 Pos: 43.91m 120.61m 4.99m\n\nZone: 00C Stanton 1 Hurston Pos: 743.0986km 15.4152km 671.1105km\n\nZone: SolarSystem 862321811808 Pos: 12850808.5268km -654.9255km 671.1105Kkm\nZone: Root Pos: 12850808.5268km -654.9255km 671.1105km\n\n____eesmem                                     EESTA5.5 - 922 25 Z1=6ms |\n\na                                               Phys: 0.0ms Stall: 0.0ms Event: 0.0ms\nServer FPS 10.6 [10.3..10.8] - 94.1ms [92.4..96.9], Hitches: ©\n\nserver@-useio- sc-stpha-4102-12913470-game 178, restarts 0, pop. [shard 478, srv 78]\nNet: ping 55.3ms, loss 0.0% BwIn 158.132kbps, BwOut 34.775kbps\n\n)                      RL: entities: 53862, tick: 0.07ms, MTSync: 3.14ms\nWEm———                            ServerTime: Wed Oct 14 16:59:50 2026\nUniverseTime: Mon Sep 20 05:59:04 2990\n\nWorking Set (0S): 13.11 GiB Committed (0S): 41.38 GiB\n\nRender: MT: 21.6ms RT: 8.9ms GPU: 11.9ms\n\nGraphics Renderer : Vulkan (DLSS-57%)\n\n: Stantonl DistributionCentre_ Covalex S1DCO6 (LZ : Stantonl DistributionCentre_ Covalex S1DC06)\n\nPlanet:00C Stanton 1 Hurston (working) (Load Complete)\n\nCamPos Planet Zone: 743098.607798 15415.178456 671110.471692\n\nRadius: 1000000.000000 ElevationUnderCam: 1380.375000 Altitude 29.847563\n\nXYPos: 20744.459042 903124.343449 Page: 0 (+X)\n\nVirtual Terrain Cache: Disabled\n\nEntities: 91611, PS: 0, QdBatches: 0, LB: 0, QdFinalize: 0, Net-DeferredFinalize: ©, QdSOC: ©\nComponent updates:   31374, Events handled:     988\n\nGame: 0.00ms\n",
+  open2: "t player location :\n\nZone: 00C Stanton 1 Hurston Pos: 743.1241km 15.3529km 671.0835km\n\nZone: SolarSystem 862321811808 Pos: 12850829.1394km -643.4676km 671.0835km\nZone: Root Pos: 12850829.1394km -643.4676km 671.0835km\n\nEPS OE hms [24 6ms|\n\nEEE                                 Phys: 0,0ms Stall: 176.0ms Event: 0.0ms\n\n‘3                      Servers EERSH Bre ZEn 9B 1155 6ms [[110.9,.122.3], Hitches: ©\n“TH sc-alpha-4102-12913470-game-178, restarts 0, pop. [shard 477, srv 80]\nNet: ping 52.8ms, loss 0.0% BwIn 131.886kbps, BwOut 42.,038kbps\n\nRL: entities: 53837, tick: 0.13ms, MTSync: 1.38ms\n\n|                                   ServerTime: Wed Oct 14 17:00:35 2026\n\nEa                                   UniverseTime: Mon Sep 20 06:03:35 2990\nWorking Set (0S): 13.20 GiB\\ Committed (0S): 41.32 GiB\n\nRender: Mi: 24.7ms RT: 10.7ms GPU: 13.,7ms\n\nGraphics Renderer : Vulkan (DLSS-57%)\n\nStantonl DistributionCentre_ Covalex S1DC06 (LZ : Stantonl DistributionCentre_Covalex S1DCO06)\nPlanet:00C Stanton 1 Hurston (working) (Load Complete)\n\nRadius: 1000000.000000 ElevationUnderCam: 1383.937500 Altitude 26.144423\nXYPos: 20659.993258 903057.146818 Page: 0 (+X)\n\nVirtual Terrain Cache: Disabled\n\nEntities: 91586, PS: 0, QdBatches: 0, LB: 0, QdFinalize: 0, Net-DeferredFinalize: 0, QdSOC: ©\nComponent updates:   32113, Events handled:     941\n\nGame: 0.00ms\n",
+  planet: "Zone: 00C Stanton 1 Hurston Pos: 743.1241km 15.3531km 671.0834km\n\nZone: SolarSystem 862321811808 Pos: 12850849.7228km -631.1189km 671.0834km\n\n~~ Zone: Root Pos: 12850849.7228km -631.1189km 671.0834km\n\nEPSESORAR-m hms: [25 1ms:]\n\neam                               Phys: 0.0ms Stall: 1002.5ms Event: 0.0ms\n\n'7i                      Seve ERS BRORIBE Zr Dad = i2r3ms: [97 5m 1224.5], Hitches: ©\nCE er ng as ome restarts 0, pop. [shard 476, srv 81]\n\nNet: ping 49.5ms, loss 0.0% BwIn 63.834kbps, BwOut 23.749Kkbps\nRL: entities: 53837, tick: 0.09ms, MTSync: 2.45ms\n\nServerTime: Wed Oct 14 17:01:21 2026\n\nUniverseTime: Mon Sep 20 06:08:10 2990\n\nPOET           Working Set (0S): 12.82 GiB Committed (0S): 41.33 GiB\n\nARKEUET                 9            Renders Mis 25L Ams Riz OLw/ms GRU 131, 4ms\n\n=                                             Graphics Renderer : Vulkan (DLSS-57%)\n\nt player location : Stantonl DistributionCentre_Covalex S1DCO6 (LZ : Stantonl DistributionCentre Covalex S1DC06)\nPlanet:00C Stanton 1 Hurston (working) (Load Complete)\n\nRadius: 1000000.000000 ElevationUnderCam: 1383.937500 Altitude 26.144513\n\nXYPos: 20660.172216 903056.989349 Page: 0 (+X)\n\nVirtual Terrain Cache: Disabled\n\nEntities: 91586, PS: 0, QdBatches: 0, LB: 0, QdFinalize: 0, Net-DeferredFinalize: 0, QdSOC: ©\n\nComponent updates:   31523, Events handled:    1712\nGame: 0.00ms\n"
+}
+const COVALEX = 'Covalex Distribution Centre S1DC06'
+// the reads' ServerTime is hours old by test time (accuracy -3, "maybe stale"): set that one line to now, like a live read
+const serverTimeNow = (text) => {
+  const [wd, day, mon, year, time] = new Date().toUTCString().replace(',', '').split(' ')
+  return text.replace(/ServerTime: \w{3} \w{3} +\d{1,2} \d{2}:\d{2}:\d{2} \d{4}/, `ServerTime: ${wd} ${mon} ${Number(day)} ${time} ${year}`)
+}
+// metres in a "Name · 305 m" / "· 1.2 km" label (null when none)
+const labelMeters = (label) => {
+  const m = /·\s*([\d.]+)\s*(m|km)\b/.exec(label ?? '')
+  return m ? Number(m[1]) * (m[2] === 'km' ? 1000 : 1) : null
+}
 
 // --export-diagnostics <file>: the app writes it ~6 s after the main window loads
 const DIAG_SECTIONS = ['SUMMARY', 'SETTINGS', 'SNAPSHOT', 'UNKNOWN LINES', 'DECISIONS', 'PERF', 'USAGE', 'ERRORS', 'DEBUG LOG', 'LOG EXCERPT']
@@ -1800,6 +1820,208 @@ const scenarios = {
       ['diagnostics file written within 20 s', text != null, `file=${out}`],
       ['no Contract Shared/Complete/Failed in UNKNOWN LINES', text != null && bad.length === 0, `found=${bad.join(',')}`],
       ['UNKNOWN LINES still lists a really unknown line', /Mission Bonus Unlocked/.test(unknown), `unknown=${JSON.stringify(unknown.slice(0, 200))}`]
+    ]
+  },
+
+  // CONTRACT7 A (case J82): standing at Covalex S1DC06, a combined pickup+delivery step whose pickup name has the OCR
+  // doubled O ("S1DCO06") and whose position is the DROP-OFF marker (Security Compound, ~4 km away). The pickup is the
+  // next stop, so its distance is from the pickup (~0.3 km), never the drop-off marker's ~4 km, and no "near" suffix.
+  'j82-pickup-here': async () => {
+    const step = {
+      id: 's1',
+      kind: 'turnin',
+      label: 'Collect Scrap from Covalex Distribution Center S1DCO06 on Hurston. Deliver Scrap to Security Compound',
+      location: 'Security Compound',
+      pickupLocation: 'Covalex Distribution Center S1DCO06 on Hurston',
+      pickedUp: false,
+      item: 'Scrap',
+      have: 0,
+      need: 1,
+      done: false,
+      // the real drop-off marker point (star frame) from the export, ~4.2 km from where the user stands
+      position: { x: 12851198309.646416, y: 18566.685364, z: 672945.839535 }
+    }
+    const e = setup('j82-pickup-here', { otherStartMode: 'auto' }, {
+      jobs: [logJob(mission(), { ref: 'J82', title: 'Med. Distance Covalex Delivery Stanton', steps: [step] })],
+      history: [],
+      listOrder: 'distance'
+    })
+    const textFile = path.join(e.home, 'where-text.json')
+    fs.writeFileSync(textFile, JSON.stringify({ zone2: serverTimeNow(COVALEX_READS.planet), zone1: '' }))
+    const port = await freePort()
+    const iport = await freePort()
+    const stop = await launch(e, [...cdpArgs(port), ...inspectArgs(iport)], { SC_WHERE_TEXT_FILE: textFile })
+    let w
+    let overlay = ''
+    let next = ''
+    let snap = null
+    let err = ''
+    try {
+      await cdpEval(port, 'main', 'window.supercargo.otherWhereRun()')
+      w = await until(() => (e.jobs()?.where?.name === COVALEX ? e.jobs().where : null))
+      const startShown = (t) => /covalex distribution centre s1dc06/i.test(t) && /from you/i.test(t)
+      overlay = (await until(() => windowText(port, 'overlay').then((t) => (startShown(t) ? t : '')), 10000)) || (await windowText(port, 'overlay'))
+      await clickButton(port, 'main', /^NEXT$/)
+      next = (await until(() => windowText(port, 'main').then((t) => (/S1DCO06/i.test(t) ? t : '')), 8000)) || (await windowText(port, 'main'))
+      const out = path.join(e.data, 'j82.txt')
+      await stubSaveDialog(iport, out)
+      const res = await cdpEval(port, 'main', `window.supercargo.diagExport({ note: '', includeImages: false })`, 40000)
+      snap = snapshotJson(fs.readFileSync(res?.path ?? out, 'utf8'))
+    } catch (x) {
+      err = String(x?.message ?? x)
+    }
+    await stop()
+    const row = (snap?.other?.distanceTable?.distance ?? []).find((r) => /S1DCO06/i.test(String(r.place)))
+    const fromYou = lineWith(overlay, /from you/i)
+    // the start label also says "· 305 m": take it out before looking for the row's own sub-km figure
+    const nextRows = (next ?? '').replace(new RegExp(`${COVALEX}\\s*·\\s*\\d+\\s*m`, 'gi'), '')
+    const subKm = /≈?\s*[1-4]\d\d\s*m\b|≈?\s*0\.[1-4]\s*km/
+    const fourKm = /\b4(\.\d)?\s*km\b/
+    return [
+      ['start read at Covalex S1DC06', w?.name === COVALEX, `where=${JSON.stringify(w)?.slice(0, 300)} ${err}`],
+      ['table row: pickup distance ~0.3 km (not the 4 km drop-off marker)', row?.distance > 100 && row.distance < 500, `row=${JSON.stringify(row)?.slice(0, 400)}`],
+      ['table row: distance not from the drop-off marker', !!row && row.distanceSource !== 'marker', `distanceSource=${row?.distanceSource} lookup=${JSON.stringify(row?.lookup?.method)}`],
+      ['overlay: "from you" line is ~0.3 km', subKm.test(fromYou) && !fourKm.test(fromYou), `line=${JSON.stringify(fromYou)} ${err}`],
+      ['overlay: no "near" suffix on the pickup', overlay.length > 0 && !/near covalex/i.test(overlay), `overlay=${JSON.stringify(lineWith(overlay, /S1DC|near/i).slice(0, 400))}`],
+      ['Next tab: ~0.3 km, no 4 km', subKm.test(nextRows) && !fourKm.test(lineWith(nextRows, /S1DCO06|from you|km/i)), `next=${JSON.stringify(lineWith(next, /S1DC|km|\d m\b/i).slice(0, 400))}`],
+      ['Next tab: no "near" suffix', next.length > 0 && !/near covalex/i.test(next), `next=${JSON.stringify(lineWith(next, /near/i).slice(0, 300))}`]
+    ]
+  },
+
+  // CONTRACT7 B: the user's real reads at Covalex. The two "Open space" reads (garbled system/body lines) now place the
+  // user at Covalex S1DC06 ~250-320 m, accuracy 10; the planet-line read is unchanged; the "Rappel" read (body line cut
+  // off, star-frame lines would be used on a planet) gives no position, so the start stays at Covalex.
+  'where-covalex-garbled': async () => {
+    const step = { id: 's1', kind: 'go', label: 'Go to Lorville', location: 'Lorville', have: 0, need: 1, done: false }
+    const e = setup('where-covalex-garbled', { otherStartMode: 'auto' }, { jobs: [logJob(mission(), { steps: [step] })], history: [] })
+    const textFile = path.join(e.home, 'where-text.json')
+    const port = await freePort()
+    const iport = await freePort()
+    const stop = await launch(e, [...cdpArgs(port), ...inspectArgs(iport)], { SC_WHERE_TEXT_FILE: textFile })
+    const reads = {}
+    let overlay = ''
+    let err = ''
+    let rappel
+    let before
+    let after
+    let hist = null
+    try {
+      for (const k of ['open1', 'open2', 'planet']) {
+        const prev = e.jobs()?.where?.at
+        fs.writeFileSync(textFile, JSON.stringify({ zone2: serverTimeNow(COVALEX_READS[k]), zone1: '' }))
+        const r = await cdpEval(port, 'main', 'window.supercargo.otherWhereRun()')
+        const w = await until(() => (e.jobs()?.where && e.jobs().where.at !== prev ? e.jobs().where : null), 8000)
+        reads[k] = { r, w }
+        if (k === 'open1') overlay = (await until(() => windowText(port, 'overlay').then((t) => (/covalex/i.test(t) ? t : '')), 6000)) || (await windowText(port, 'overlay'))
+      }
+      before = e.jobs()?.where
+      fs.writeFileSync(textFile, JSON.stringify({ zone2: serverTimeNow(COVALEX_READS.rappel), zone1: '' }))
+      rappel = await cdpEval(port, 'main', 'window.supercargo.otherWhereRun()')
+      await sleep(2500)
+      after = e.jobs()?.where
+      // the read's checks reach the user through ## WHERE AM I HISTORY
+      const out = path.join(e.data, 'where-covalex.txt')
+      await stubSaveDialog(iport, out)
+      const res = await cdpEval(port, 'main', `window.supercargo.diagExport({ note: '', includeImages: false })`, 40000)
+      hist = sectionJson(diagSections(fs.readFileSync(res?.path ?? out, 'utf8'))['WHERE AM I HISTORY'])
+    } catch (x) {
+      err = String(x?.message ?? x)
+    }
+    await stop()
+    const histReads = Array.isArray(hist) ? hist : findKey(hist, /history|reads|entries/i)
+    const lastRead = Array.isArray(histReads) ? histReads[histReads.length - 1] : null
+    const at = (k) => {
+      const w = reads[k]?.w
+      const m = labelMeters(w?.label)
+      return [
+        [`${k}: start is Covalex S1DC06, not Open space`, w?.name === COVALEX && !/open space/i.test(w?.label ?? ''), `where=${JSON.stringify(w)?.slice(0, 300)} ${err}`],
+        [`${k}: ~250-320 m from it`, m != null && m >= 200 && m <= 400, `label=${w?.label}`],
+        [`${k}: accuracy 10`, w?.accuracy === 10, `accuracy=${w?.accuracy} checks=${JSON.stringify(reads[k]?.r?.info?.checks)?.slice(0, 300)}`]
+      ]
+    }
+    return [
+      ...at('open1'),
+      ['overlay start shows Covalex, not Open space', /covalex/i.test(overlay) && !/open space/i.test(overlay), `overlay=${JSON.stringify(overlay.slice(0, 300))}`],
+      ...at('open2'),
+      ...at('planet'),
+      ['Rappel read gives no position', !rappel?.where?.point && !/rappel/i.test(rappel?.where?.label ?? rappel?.where?.name ?? ''), `result=${JSON.stringify(rappel)?.slice(0, 400)}`],
+      ['Rappel read: a failed position check says why', /star-frame lines not used/i.test(JSON.stringify(lastRead?.checks ?? rappel?.info?.checks ?? null)), `checks=${JSON.stringify(lastRead?.checks ?? rappel?.info?.checks)?.slice(0, 400)}`],
+      ['Rappel read: start unchanged', !!before && after?.name === COVALEX && after?.at === before.at, `before=${before?.label}@${before?.at} after=${after?.label}@${after?.at}`]
+    ]
+  },
+
+  // CONTRACT7 C: after an export with pictures, COPY TEXT puts the saved text back on the clipboard and COPY IMAGES
+  // puts the one stitched picture (<base>-all.png: side by side, 16 px gaps, top-aligned) there
+  'diag-copy-buttons': async () => {
+    const r = await diagExportRun('diag-copy-buttons', { note: '', includeImages: true }, async ({ port, iport }) => {
+      const o = {}
+      const step = async (k, f) => {
+        try {
+          o[k] = await f()
+        } catch (x) {
+          o[`${k}Err`] = String(x?.message ?? x)
+        }
+      }
+      await step('sentinel', () => mainEval(iport, `(() => { const { clipboard } = require('electron'); clipboard.writeText('sentinel-before-copy'); return clipboard.readText() })()`))
+      await step('copyText', () => cdpEval(port, 'main', 'window.supercargo.diagCopyText()'))
+      await step('clipText', () => mainEval(iport, `require('electron').clipboard.readText()`))
+      await step('cleared', () => mainEval(iport, `(() => { const { clipboard } = require('electron'); clipboard.clear(); return clipboard.readImage().isEmpty() })()`))
+      await step('copyImages', () => cdpEval(port, 'main', 'window.supercargo.diagCopyImages()'))
+      await step('clipSize', () => mainEval(iport, `require('electron').clipboard.readImage().getSize()`))
+      return o
+    })
+    const x = r.extra ?? {}
+    // PNG width/height from the IHDR chunk
+    const pngSize = (f) => {
+      try {
+        const b = fs.readFileSync(f)
+        return { width: b.readUInt32BE(16), height: b.readUInt32BE(20) }
+      } catch {
+        return null
+      }
+    }
+    const parts = (r.res?.images ?? []).filter((f) => !/-all\.png$/.test(f)).map(pngSize).filter(Boolean)
+    const want = parts.length ? { width: parts.reduce((s, p) => s + p.width, 0) + 16 * (parts.length - 1), height: Math.max(...parts.map((p) => p.height)) } : null
+    const all = r.res?.combinedImage
+    const allSize = all ? pngSize(all) : null
+    let bytes = null
+    try {
+      bytes = fs.statSync(r.res.path).size
+    } catch {
+      // checked below
+    }
+    const same = (a, b) => !!a && !!b && a.width === b.width && a.height === b.height
+    return [
+      ['export written with pictures', r.res?.ok === true && r.text != null && parts.length > 0, `result=${JSON.stringify(r.res)?.slice(0, 300)} ${r.err}`],
+      ['combined picture <base>-all.png saved', !!all && path.basename(all) === path.basename(r.res.path).replace(/\.txt$/, '') + '-all.png' && !!allSize, `combinedImage=${all}`],
+      ['combined size = side by side + 16 px gaps, tallest height', same(allSize, want), `all=${JSON.stringify(allSize)} want=${JSON.stringify(want)} parts=${JSON.stringify(parts)}`],
+      ['IMAGES lists the combined picture', !!all && (r.text ?? '').includes(path.basename(all)) && /all pictures in one/i.test(r.sec['IMAGES'] ?? ''), `images=${JSON.stringify((r.sec['IMAGES'] ?? '(missing)').slice(0, 300))}`],
+      ['clipboard set to a sentinel before COPY TEXT', x.sentinel === 'sentinel-before-copy', `sentinel=${x.sentinel} ${x.sentinelErr ?? ''}`],
+      ['diagCopyText ok with the file size', x.copyText?.ok === true && x.copyText?.bytes === bytes, `result=${JSON.stringify(x.copyText)} file=${bytes} ${x.copyTextErr ?? ''}`],
+      ['clipboard text equals the saved file', r.text != null && x.clipText === r.text, `clipboard=${String(x.clipText ?? '').length} chars file=${r.text?.length ?? null} chars`],
+      ['diagCopyImages ok with the combined size', x.copyImages?.ok === true && same(x.copyImages, allSize), `result=${JSON.stringify(x.copyImages)} all=${JSON.stringify(allSize)} ${x.copyImagesErr ?? ''}`],
+      ['clipboard image has the combined size', x.cleared === true && same(x.clipSize, allSize), `cleared=${x.cleared} clipboard=${JSON.stringify(x.clipSize)} all=${JSON.stringify(allSize)}`]
+    ]
+  },
+
+  // CONTRACT7 C: the copy buttons before any export answer "no export yet"
+  'diag-copy-none': async () => {
+    const e = setup('diag-copy-none')
+    const port = await freePort()
+    const stop = await launch(e, cdpArgs(port))
+    let t
+    let i
+    let err = ''
+    try {
+      t = await cdpEval(port, 'main', 'window.supercargo.diagCopyText()')
+      i = await cdpEval(port, 'main', 'window.supercargo.diagCopyImages()')
+    } catch (x) {
+      err = String(x?.message ?? x)
+    }
+    await stop()
+    return [
+      ['diagCopyText: no export yet', t?.ok === false && t?.error === 'no export yet', `result=${JSON.stringify(t)} ${err}`],
+      ['diagCopyImages: no export yet', i?.ok === false && i?.error === 'no export yet', `result=${JSON.stringify(i)} ${err}`]
     ]
   }
 }

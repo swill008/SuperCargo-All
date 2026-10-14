@@ -5,7 +5,7 @@
  */
 import type { Location } from '@shared/types'
 import type { ListOrder, OtherHistoryEntry, OtherJob, OtherStep } from '@other/otherJob'
-import { explainPlaceLookup, findRosterLocation, listOpenStops, locationPoint, resolveOrigin, stepActivePlace } from '@other/otherNext'
+import { explainPlaceLookup, findRosterLocation, listOpenStops, locationPoint, resolveOrigin, stepActivePlace, stepIsPickup } from '@other/otherNext'
 import { explainTravel, systemKey, type GeoPoint } from '@other/otherGeo'
 import { accuracyWord, whereAccuracy, type DisplayInfo, type Where } from '@other/otherWhere'
 import { isRootFrame, isSmallZone, type MarkerPos } from '@other/otherMarkers'
@@ -149,6 +149,8 @@ function noDistanceWhy(
   const named = findRosterLocation(place, locations)
   if (named && !hasCoords(named)) return 'place in UEX without coords'
   const why = named ? '' : 'place not in UEX'
+  // a combined step's marker is the drop-off's: never used before the pickup (otherNext stepPointWithSource)
+  if (!named && stepIsPickup(step)) return 'pickup place not found (drop-off marker not used before pickup)'
   if (!useMarker) return `${why || 'no coords'}; marker distance off`
   const raw = missionId && step.objectiveId ? otherMissionMarkers().get(missionId)?.get(step.objectiveId) : undefined
   if (!raw) return `${why}; no marker for objective${step.objectiveId ? '' : ' (no objectiveId)'}`

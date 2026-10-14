@@ -1,14 +1,14 @@
 // EXPORT DIAGNOSTICS: one readable, cleaned .txt for Claude to review how the app read the game,
 // what it decided and how it performed. Sections in a fixed order; see buildDiagnostics.
 
-import { app, BrowserWindow, clipboard, dialog, ipcMain } from 'electron'
+import { app, BrowserWindow, clipboard, dialog, ipcMain, nativeImage } from 'electron'
 import * as fs from 'node:fs'
 import * as path from 'node:path'
 import { randomUUID } from 'node:crypto'
 import { IPC } from '@shared/channels'
 import { formatEntry, type DebugInfo } from '@shared/debugLog'
 import type { AppSettings } from '@shared/types'
-import type { DiagExportOptions, DiagExportResult, TraceArea, TraceRecord } from '@shared/trace'
+import { stitchBitmaps, type Bitmap, type DiagCopyImagesResult, type DiagCopyTextResult, type DiagExportOptions, type DiagExportResult, type TraceArea, type TraceRecord } from '@shared/trace'
 import { getProblems, getRecent, logger } from './logger'
 import { flushTrace, getTraceRing, isTraceOn, traceFiles } from './trace'
 import { learnIdentity, makeSanitizer, sanitizeDeep } from './sanitize'
@@ -44,6 +44,53 @@ let otherSource: OtherDiagSource | null = null
 
 export function setOtherDiagSource(s: OtherDiagSource): void {
   otherSource = s
+}
+
+// the last successful export, for COPY TEXT / COPY IMAGES
+let lastExport: { path: string; images: string[]; combined?: string } | null = null
+
+export function copyLastExportText(): DiagCopyTextResult {
+  if (!lastExport) return { ok: false, error: 'no export yet' }
+  try {
+    const text = fs.readFileSync(lastExport.path, 'utf8')
+    clipboard.writeText(text)
+    return { ok: true, bytes: Buffer.byteLength(text) }
+  } catch (e) {
+    return { ok: false, error: (e as Error).message }
+  }
+}
+
+export function copyLastExportImages(): DiagCopyImagesResult {
+  if (!lastExport) return { ok: false, error: 'no export yet' }
+  if (!lastExport.combined) return { ok: false, error: 'no pictures in the last export' }
+  try {
+    const img = nativeImage.createFromPath(lastExport.combined)
+    if (img.isEmpty()) return { ok: false, error: `could not read ${path.basename(lastExport.combined)}` }
+    clipboard.writeImage(img)
+    const { width, height } = img.getSize()
+    return { ok: true, width, height }
+  } catch (e) {
+    return { ok: false, error: (e as Error).message }
+  }
+}
+
+export function registerDiagCopy(): void {
+  ipcMain.handle(IPC.diagCopyText, () => copyLastExportText())
+  ipcMain.handle(IPC.diagCopyImages, () => copyLastExportImages())
+}
+
+// every saved picture side by side in one PNG (see stitchBitmaps); null if none decode
+function combinePngs(files: string[]): Buffer | null {
+  const bitmaps: Bitmap[] = []
+  for (const f of files) {
+    const img = nativeImage.createFromPath(f)
+    if (img.isEmpty()) continue
+    const { width, height } = img.getSize()
+    bitmaps.push({ width, height, bgra: img.toBitmap() })
+  }
+  if (!bitmaps.length) return null
+  const all = stitchBitmaps(bitmaps)
+  return nativeImage.createFromBitmap(Buffer.from(all.bgra.buffer, all.bgra.byteOffset, all.bgra.byteLength), { width: all.width, height: all.height }).toPNG()
 }
 
 // main window answers IPC.diagSnapshotRequest here
@@ -437,6 +484,7 @@ export async function buildDiagnostics(opts: DiagExportOptions = {}, savePath?: 
     // pictures can't be cleaned of names, so only when asked; saved as <base>-<name>.png next to the export
     const images: string[] = []
     const imageNotes: string[] = []
+    let combined: string | undefined
     if (opts.includeImages) {
       const base = dest.replace(/\.[^./\\]+$/, '')
       const pics: { name: string; png: Buffer }[] = []
@@ -458,9 +506,25 @@ export async function buildDiagnostics(opts: DiagExportOptions = {}, savePath?: 
           imageNotes.push(`${name}: save failed: ${(e as Error).message}`)
         }
       }
+      if (images.length) {
+        const file = `${base}-all.png`
+        try {
+          const png = combinePngs(images)
+          if (png) {
+            fs.writeFileSync(file, png)
+            combined = file
+          } else imageNotes.push('all pictures in one: no picture could be read back')
+        } catch (e) {
+          imageNotes.push(`all pictures in one: failed: ${(e as Error).message}`)
+        }
+      }
     }
     const imagesBody = opts.includeImages
-      ? [...(images.length ? images.map((f) => `saved: ${path.basename(f)}`) : ['(no images available)']), ...imageNotes]
+      ? [
+          ...(images.length ? images.map((f) => `saved: ${path.basename(f)}`) : ['(no images available)']),
+          ...(combined ? [`saved: ${path.basename(combined)} (all pictures in one)`] : []),
+          ...imageNotes
+        ]
       : ['(not included; tick "Include images" to save OCR crops and an overlay picture)']
     const out = cleaned.replace(IMAGES_MARK, imagesBody.map((l) => clean(l)).join('\n'))
 
@@ -477,8 +541,16 @@ export async function buildDiagnostics(opts: DiagExportOptions = {}, savePath?: 
         logger.warn('app', 'diagnostics clipboard copy failed', { error: (e as Error).message })
       }
     }
-    logger.info('app', 'diagnostics exported', { path: dest, bytes, records: recs.length, images: images.length, copied })
-    return { ok: true, path: dest, bytes, ...(opts.includeImages ? { images } : {}), ...(copied !== undefined ? { copied } : {}) }
+    lastExport = { path: dest, images, ...(combined ? { combined } : {}) }
+    logger.info('app', 'diagnostics exported', { path: dest, bytes, records: recs.length, images: images.length, combined: !!combined, copied })
+    return {
+      ok: true,
+      path: dest,
+      bytes,
+      ...(opts.includeImages ? { images } : {}),
+      ...(combined ? { combinedImage: combined } : {}),
+      ...(copied !== undefined ? { copied } : {})
+    }
   } catch (e) {
     logger.error('app', 'diagnostics export failed', { error: (e as Error).message })
     return { ok: false, error: (e as Error).message }
