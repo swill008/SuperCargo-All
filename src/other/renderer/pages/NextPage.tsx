@@ -20,6 +20,7 @@ import { MatchTag, candidatesLine, stopPlaceText } from '../components/MatchTag'
 import type { StopPlace } from '@other/otherResolve'
 import { memoryKey } from '@other/otherMemory'
 import { useMemoryLookup } from '../state/otherMemoryStore'
+import { stopIssue, worstIssue, issueRowStyle } from '../stopIssue'
 
 type OpenStop = OpenStopRow
 
@@ -240,6 +241,8 @@ export default function NextPage(): React.ReactElement {
     const snapped = g.place
       ? rows.some((r) => (r.pickup ? r.step.pickupLocationSnapped : r.step.locationSnapped))
       : rows.some((r) => r.step.locationSnapped)
+    // place grouping: the heading carries the worst problem of its stops (shared rule, stopIssue.ts)
+    const groupIssue = g.place ? worstIssue(rows.map((r) => stopIssue(r.match, { location: r.place }))) : null
     const why = g.distance == null && g.noDistanceWhy && !(near && g.noDistanceWhy === 'not-in-uex') ? NO_DISTANCE_TEXT[g.noDistanceWhy] : null
     return (
         <div
@@ -281,7 +284,10 @@ export default function NextPage(): React.ReactElement {
             cursor: listOrder === 'manual' && groupBy === 'job' ? 'grab' : 'default'
           }}
         >
-          <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 8 }}>
+          <div
+            data-issue={groupIssue?.level}
+            style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 8, ...(groupIssue ? issueRowStyle(groupIssue.level) : {}) }}
+          >
             <span style={{
               width: 22, height: 22, borderRadius: '50%', border: `1px solid ${C.acc}`, color: C.acc,
               fontFamily: F.display, fontSize: 12, display: 'inline-flex', alignItems: 'center', justifyContent: 'center', flex: 'none'
@@ -320,8 +326,17 @@ export default function NextPage(): React.ReactElement {
               </span>
             ) : null}
           </div>
-          {rows.map(({ job, step, distance, distanceSource, jumps, surface, near, pickup, match }) => (
-            <div key={step.id} style={{ display: 'grid', gridTemplateColumns: '1fr auto', gap: 12, alignItems: 'center', padding: '6px 0 2px 32px' }}>
+          {rows.map(({ job, step, distance, distanceSource, jumps, surface, near, pickup, match, place }) => {
+            const issue = stopIssue(match, { location: place })
+            return (
+            <div
+              key={step.id}
+              data-issue={issue?.level}
+              style={{
+                display: 'grid', gridTemplateColumns: '1fr auto', gap: 12, alignItems: 'center', padding: '6px 0 2px 32px',
+                ...(issue ? issueRowStyle(issue.level) : {})
+              }}
+            >
               <div>
                 <div style={{ fontFamily: F.body, fontSize: 14, color: C.textBody }}>{step.label}</div>
                 {step.location ? (
@@ -354,7 +369,8 @@ export default function NextPage(): React.ReactElement {
                 fontFamily: F.display, fontSize: 11, fontWeight: 700, letterSpacing: '0.12em', padding: '8px 14px', cursor: 'pointer'
               }}>{stepActionLabel(step)}</Btn>
             </div>
-          ))}
+            )
+          })}
           {withdrawn.map(({ job, step }) => (
             <div key={step.id} style={{ display: 'grid', gridTemplateColumns: '1fr auto', gap: 12, alignItems: 'center', padding: '6px 0 2px 32px', opacity: 0.5 }}>
               <div>

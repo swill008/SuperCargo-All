@@ -13,6 +13,7 @@ import { useMemoryLookup } from '../state/otherMemoryStore'
 import { OTHER_KIND_LABEL, type OtherJob } from '@other/otherJob'
 import type { Location } from '@shared/types'
 import { EditForm } from './JobsPartsUi'
+import { stopIssue, worstIssue, issueRowStyle, issueColor } from '../stopIssue'
 import { miniBtn, tagStyle, otherView, shownSteps, JobTags } from './JobsPartsStyles'
 export { AddForm, miniBtn, outlineBtn } from './JobsPartsStyles'
 
@@ -73,15 +74,29 @@ export function JobRow({ job, uex, expanded, editing, onToggle, onEdit, onCancel
   const steps = shownSteps(job.steps, view)
   const roster = useMergedLocations()
   const memory = useMemoryLookup()
-  // how sure each open step's next place is (same resolver as the Next tab and overlay)
-  const matchOf = (step: OtherJob['steps'][number]): StopPlace | null =>
-    job.status === 'active' && !step.done && !step.withdrawn && expanded && !editing
-      ? resolveStopPlace(step, { locations: roster, useMarker, memory }, job)
-      : null
+  // how sure each open step's next place is (same resolver as the Next tab and overlay); open steps of active jobs only
+  const matches = new Map<string, StopPlace | null>()
+  const matchOf = (step: OtherJob['steps'][number]): StopPlace | null => {
+    if (job.status !== 'active' || step.done || step.withdrawn) return null
+    if (!matches.has(step.id)) matches.set(step.id, resolveStopPlace(step, { locations: roster, useMarker, memory }, job))
+    return matches.get(step.id) ?? null
+  }
+  // problem stops (shared rule in stopIssue.ts): the header shows the worst of the open steps
+  const jobIssue = worstIssue(job.steps.map((s) => stopIssue(matchOf(s), s)))
+  const redCount = job.steps.filter((s) => stopIssue(matchOf(s), s)?.level === 'red').length
+  const chipText = jobIssue
+    ? jobIssue.level === 'red'
+      ? `\u2717 ${redCount} step${redCount === 1 ? '' : 's'} need${redCount === 1 ? 's' : ''} a place`
+      : `? ${jobIssue.count} step${jobIssue.count === 1 ? '' : 's'} to check`
+    : ''
   const statusColor = job.status === 'active' ? C.green : job.status === 'complete' ? C.dim : C.amber
   return (
     <div style={{ borderBottom: `1px solid ${C.lineSoft}` }}>
-      <Btn onClick={onToggle} style={{ width: '100%', textAlign: 'left', background: 'transparent', border: 0, padding: '14px 0', cursor: 'pointer', display: 'grid', gridTemplateColumns: '70px 1fr 140px 130px 90px 40px', gap: 12, alignItems: 'center' }}>
+      <Btn
+        onClick={onToggle}
+        data-issue={jobIssue?.level}
+        style={{ width: '100%', textAlign: 'left', background: 'transparent', border: 0, padding: jobIssue ? '14px 0 14px 8px' : '14px 0', cursor: 'pointer', display: 'grid', gridTemplateColumns: '70px 1fr 140px 130px 90px 40px', gap: 12, alignItems: 'center', ...(jobIssue ? issueRowStyle(jobIssue.level) : null) }}
+      >
         <span style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
           <span style={{ fontFamily: F.display, fontSize: 16, color: C.acc }}>{job.ref}</span>
           {(() => {
@@ -92,7 +107,22 @@ export function JobRow({ job, uex, expanded, editing, onToggle, onEdit, onCancel
           })()}
         </span>
         <div>
-          <div style={{ fontFamily: F.body, fontSize: 15, color: C.text }}>{job.title}</div>
+          <div style={{ display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap' }}>
+            <span style={{ fontFamily: F.body, fontSize: 15, color: C.text }}>{job.title}</span>
+            {jobIssue ? (
+              <span
+                data-testid="issue-chip"
+                data-issue={jobIssue.level}
+                onClick={(e) => {
+                  e.stopPropagation()
+                  if (!expanded) onToggle()
+                }}
+                style={{ fontFamily: F.display, fontSize: 10, letterSpacing: '0.08em', color: issueColor(jobIssue.level), border: `1px solid ${issueColor(jobIssue.level)}`, padding: '1px 6px', cursor: 'pointer' }}
+              >
+                {chipText}
+              </span>
+            ) : null}
+          </div>
           <div style={{ display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap' }}>
             <span style={{ fontFamily: F.body, fontSize: 12, color: C.dim }}>{done}/{total} objectives</span>
             <JobTags rep={job.rep} repMax={job.repMax} sharedBy={job.sharedBy} view={view} />
@@ -115,9 +145,10 @@ export function JobRow({ job, uex, expanded, editing, onToggle, onEdit, onCancel
           )}
           {steps.map((step) => {
             const match = matchOf(step)
+            const issue = stopIssue(match, step)
             const pickupActive = stepIsPickup(step)
             return (
-            <div key={step.id} style={{ display: 'flex', alignItems: 'center', gap: 12, padding: '7px 0', borderBottom: `1px dotted ${C.lineFaint}`, opacity: step.withdrawn ? 0.5 : 1 }}>
+            <div key={step.id} data-issue={issue?.level} style={{ display: 'flex', alignItems: 'center', gap: 12, padding: issue ? '7px 0 7px 8px' : '7px 0', borderBottom: `1px dotted ${C.lineFaint}`, opacity: step.withdrawn ? 0.5 : 1, ...(issue ? issueRowStyle(issue.level) : null) }}>
               <span style={{ color: step.withdrawn ? C.ghost : step.done ? C.green : C.acc }}>{step.done ? '\u25c6' : '\u25c7'}</span>
               <span style={{ flex: 1, minWidth: 0 }}>
                 <span style={{ display: 'block', fontFamily: F.body, fontSize: 14, color: step.done || step.withdrawn ? C.dim : C.textBody, textDecoration: step.withdrawn ? 'line-through' : undefined }}>{step.label}</span>

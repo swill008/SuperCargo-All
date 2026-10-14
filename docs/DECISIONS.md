@@ -119,6 +119,10 @@ Marked **NOT DOING**: decided against, or left out on purpose.
   Data"" (18:53). (superseded 18:53: a LEARNED PLACES tab inside Settings, 18:50.) With Places, Sites and
   Planets sections and suggestions S1-S4 and S7; Data Sources stays in Settings; shown only in Other mode
   ("lets do what you suggested", 18:54, batch 11, commit `ab1edb7`).
+- Problem stops are highlighted with one shared rule (`stopIssue.ts`): not found / no place red, guess / not sure /
+  mismatch amber. Lists (Jobs, Next, Learned Data "Needs your eye") tint the row with a left stripe; the overlay
+  tints only the words. "i just want the words of the mission with the tint, not the entire row"; the user agreed
+  to rows for the list screens (2026-10-14, STANDALONE rule 38).
 - **NOT DOING:** S5 bulk clean-up and S6 export/import of learned places (not picked, 18:54).
 
 ## 6. Settings

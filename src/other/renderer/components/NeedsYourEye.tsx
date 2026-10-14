@@ -7,14 +7,12 @@ import React, { useMemo } from 'react'
 import { C, F } from '@renderer/theme'
 import { useStore } from '@renderer/state/store'
 import { listOpenStops, resolveOrigin, type OpenStopRow } from '@other/otherNext'
-import type { StopPlace } from '@other/otherResolve'
 import { otherSetting } from '@other/workMode'
 import { useOtherJobs } from '../state/otherJobs'
 import { useMergedLocations } from '../state/otherPlaces'
 import { useMemoryLookup } from '../state/otherMemoryStore'
 import { MatchTag, candidatesLine } from './MatchTag'
-
-const NEEDS = new Set<StopPlace['status']>(['unsure', 'guess', 'mismatch', 'none'])
+import { stopIssue, issueRowStyle } from '../stopIssue'
 
 /** open stops needing a look, one per job + stop text */
 export function useNeedsYourEye(): OpenStopRow[] {
@@ -46,7 +44,7 @@ export function useNeedsYourEye(): OpenStopRow[] {
     const out: OpenStopRow[] = []
     for (const r of rows) {
       const m = r.match
-      if (!NEEDS.has(m.status) || !m.text.trim()) continue
+      if (!stopIssue(m, r.step) || !m.text.trim()) continue
       const k = `${r.job.id}|${m.memoryKey ?? m.text}`
       if (seen.has(k)) continue
       seen.add(k)
@@ -83,12 +81,17 @@ export default function NeedsYourEye({ highlight = false }: { highlight?: boolea
           const m = r.match
           const maybe = candidatesLine(m)
           const guess = m.status === 'guess' ? m.match?.name ?? m.site?.name : undefined
+          const issue = stopIssue(m, r.step)
           return (
             <div
               key={`${r.job.id}|${m.memoryKey ?? m.text}`}
               data-testid="learned-needs-row"
               data-key={m.memoryKey ?? ''}
-              style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '6px 0', borderTop: `1px dotted ${C.lineFaint}`, fontSize: 13 }}
+              data-issue={issue?.level}
+              style={{
+                display: 'flex', alignItems: 'center', gap: 10, padding: '6px 0', borderTop: `1px dotted ${C.lineFaint}`, fontSize: 13,
+                ...(issue ? issueRowStyle(issue.level) : null)
+              }}
             >
               <span style={{ flex: 1, minWidth: 0, wordBreak: 'break-word' }}>
                 <span style={{ color: C.text }}>{m.text}</span>

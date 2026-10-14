@@ -672,6 +672,20 @@ LearnedDataPage
 Run (after `npm run build`): `node test/replay/replay.mjs learned-data-tab memory-undo settings-tabs`; pure:
 `node test/replay/memory_checks.mjs`.
 
+## Other mode: problem stops highlighted (2026-10-14)
+
+Rule 38 in [STANDALONE.md](../src/other/STANDALONE.md); decision in [DECISIONS.md](DECISIONS.md) section 5. One rule
+says which stops have a place problem; every list screen tints those rows, the overlay tints only the words.
+
+| File | Owns | Entry points |
+|---|---|---|
+| `src/other/renderer/stopIssue.ts` (new) | The shared rule: status `none` red ("no place" / "not found"), `guess` / `unsure` / `mismatch` amber; worst of several (red beats amber, with a count); row style (light tint + 3 px left stripe) and overlay word colour | `stopIssue(match, step?)`, `worstIssue(issues)`, `issueColor(level)`, `issueRowStyle(level)`, `issueTextStyle(level)`; types `IssueLevel`, `StopIssue` |
+| `src/other/renderer/pages/JobsParts.tsx`, `pages/NextPage.tsx`, `components/NeedsYourEye.tsx`, `components/OtherOverlay.tsx` | Use the rule: Jobs step rows and the collapsed job row (chip "✗ N step(s) need a place" / "? N step(s) to check"), Next rows/groups, Needs your eye rows tinted; overlay place name and objective text tinted; `MatchTag` unchanged (chip, opens `MatchFix`) | |
+| `test/replay/stopissue_checks.mjs` (new) | Pure checks of `stopIssue` / `worstIssue` for every match status | `node test/replay/stopissue_checks.mjs` |
+| `test/replay/replay.mjs` | Scenario `issue-tint` (real app path: tinted rows on the list screens, words only on the overlay) | `node test/replay/replay.mjs issue-tint` |
+
+Run (after `npm run build`): `node test/replay/replay.mjs issue-tint`; pure: `node test/replay/stopissue_checks.mjs`.
+
 ## Data folder and releases (batch 12, 2026-10-14)
 
 Rules 81-85 in [STANDALONE.md](../src/other/STANDALONE.md#data-folder-and-releases-batch-12-user-2026-10-14); audit in

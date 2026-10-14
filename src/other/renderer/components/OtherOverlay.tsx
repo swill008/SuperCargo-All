@@ -19,6 +19,7 @@ import type { WhereRunResult, WhereSource } from '@other/otherWhere'
 import { miniBtn, otherView, withoutWithdrawn, JobTags } from '../pages/JobsPartsStyles'
 import { AccTag, TrackedTag } from './AccuracyMeter'
 import { MatchTag, stopPlaceText } from './MatchTag'
+import { stopIssue, issueTextStyle } from '../stopIssue'
 import { useMemoryLookup } from '../state/otherMemoryStore'
 import { setOverlayDiag, overlayDiag } from '../state/otherOverlayDiag'
 
@@ -274,6 +275,8 @@ export default function OtherOverlay(): React.ReactElement {
   const distanceShown = showDistance && group && legMeters != null ? `${travelText(legMeters, legJumps, legSurface, legApprox)} ${legFrom}` : null
   // the stop's resolved place (otherResolve): its label and near place, else the raw text
   const match = group?.match
+  // only the words are tinted on the overlay (user, 2026-10-14)
+  const issue = current ? stopIssue(match, current.step) : null
   const placeShown = group && current
     ? match
       ? stopPlaceText(match, group.place || stepActivePlace(current.step) || current.step.label, locations)
@@ -342,6 +345,7 @@ export default function OtherOverlay(): React.ReactElement {
           <div data-testid="overlay-stop-header" style={{ display: 'flex', flexDirection: 'column', minWidth: 0, flex: 1 }}>
             <div
               data-testid="overlay-stop-name"
+              data-issue={issue?.level}
               title={placeTip}
               style={{
                 fontFamily: F.display,
@@ -354,7 +358,8 @@ export default function OtherOverlay(): React.ReactElement {
                 lineHeight: `${HEAD_LINE1}px`,
                 whiteSpace: 'nowrap',
                 overflow: 'hidden',
-                textOverflow: 'ellipsis'
+                textOverflow: 'ellipsis',
+                ...(issue ? issueTextStyle(issue.level) : null)
               }}
             >
               {placeHead ?? 'NO OPEN STOP'}
@@ -439,7 +444,9 @@ export default function OtherOverlay(): React.ReactElement {
       {current ? (
         <div style={{ fontSize: 14, lineHeight: 1.45 }}>
           {current.job.reward > 0 ? `${current.job.reward.toLocaleString()} aUEC \u00b7 ` : ''}
-          {current.step.label}
+          <span data-testid="overlay-stop-objective" data-issue={issue?.level} style={issue ? issueTextStyle(issue.level) : undefined}>
+            {current.step.label}
+          </span>
           {(view.showRep && current.job.rep) || (view.sharedBadge && current.job.sharedBy) ? (
             <span style={{ marginLeft: 8 }}><JobTags rep={current.job.rep} repMax={current.job.repMax} sharedBy={current.job.sharedBy} view={view} /></span>
           ) : null}

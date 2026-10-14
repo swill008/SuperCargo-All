@@ -4130,6 +4130,155 @@ const scenarios = {
       ['no start: the row shows "No start"', /No start/.test(none.v?.rowText ?? ''), `row=${short(none.v?.rowText)} ${none.err}`],
       ['no start: its WHERE AM I button is below the buttons', !!none.v?.pin && /WHERE AM I/.test(none.v.pin.text) && nlow != null && none.v.pin.t >= nlow - 0.5, `where=${where(none.v?.pin)} lowestButton=${nlow}`]
     ]
+  },
+
+  // problem stops (shared rule src/other/renderer/stopIssue.ts, user 2026-10-14): place not found -> red; guess /
+  // not sure / mismatch -> amber. Lists tint the row (data-issue="red|amber"; the Jobs header also an issue-chip);
+  // the overlay tints only the words (overlay-stop-name / objective carry data-issue, the card does not)
+  'issue-tint': async () => {
+    const BAD = 'Qzxv Brellin Outpost CR-9'
+    const T = { bad: 'Bad Place Run', none: 'No Place Run', unsure: 'Unsure Place Run', good: 'Good Place Run' }
+    const NOPLACE = 'Deliver Prescription Medications'
+    const jobs = [
+      { ref: 'J81', title: T.bad, steps: [goStep('s1', BAD)] },
+      { ref: 'J82', title: T.none, steps: [{ id: 's1', kind: 'go', label: NOPLACE, location: '', have: 0, need: 1, done: false }] },
+      { ref: 'J83', title: T.unsure, steps: [goStep('s1', SHUBIN)] },
+      { ref: 'J84', title: T.good, steps: [goStep('s1', 'Port Tressler')] }
+    ]
+    // for each text: every visible element holding it -> the nearest [data-issue] (level, whether it is the job's
+    // whole block, i.e. also holds the title) and the job wrapper's issue-chip
+    const probe = (port, which, texts, titles = []) =>
+      cdpEval(
+        port,
+        which,
+        `(() => {
+          const vis = (el) => !!(el.offsetWidth || el.offsetHeight || el.getClientRects().length)
+          const titles = ${JSON.stringify(titles)}
+          const out = {}
+          for (const t of ${JSON.stringify(texts)}) {
+            const w = document.createTreeWalker(document.body, NodeFilter.SHOW_TEXT)
+            const hits = []
+            while (w.nextNode()) {
+              const el = w.currentNode.parentElement
+              if (!el || !vis(el) || !w.currentNode.textContent.includes(t)) continue
+              const i = el.closest('[data-issue]')
+              const wrap = el.closest('button')?.parentElement ?? null
+              hits.push({
+                level: i?.getAttribute('data-issue') ?? null,
+                holdsTitle: !!i && titles.some((x) => x !== t && i.textContent.includes(x)),
+                chip: !!wrap?.querySelector('[data-testid="issue-chip"]')
+              })
+            }
+            out[t] = hits
+          }
+          return out
+        })()`
+      )
+    const lvl = (hits) => (hits ?? []).map((h) => h.level).find(Boolean) ?? null
+    const main = async () => {
+      const { port, stop } = await memLaunch('issue-tint', { jobs })
+      const r = { err: '' }
+      try {
+        r.nextText = await nextText(port, /Port Tressler/)
+        await sleep(800)
+        r.next = await probe(port, 'main', [BAD, NOPLACE, SHUBIN, 'Port Tressler'])
+        await clickButton(port, 'main', /^JOBS$/)
+        await until(() => windowText(port, 'main').then((t) => (t.includes(T.good) ? true : null)), 8000)
+        await sleep(500)
+        r.jobs = await probe(port, 'main', Object.values(T))
+        // expand the bad job: its step row is tinted on its own; its tag opens MatchFix
+        await cdpEval(port, 'main', `(() => { const b = [...document.querySelectorAll('button')].find((x) => x.textContent.includes(${JSON.stringify(T.bad)})); b?.click(); return !!b })()`)
+        await until(() => windowText(port, 'main').then((t) => (t.includes(`Deliver Scrap to ${BAD}`) ? true : null)), 8000)
+        await sleep(500)
+        r.step = await probe(port, 'main', [`Deliver Scrap to ${BAD}`], Object.values(T))
+        r.fix = await cdpEval(
+          port,
+          'main',
+          `(async () => {
+            const vis = (el) => !!(el.offsetWidth || el.offsetHeight || el.getClientRects().length)
+            const tag = [...document.querySelectorAll('button, [role="button"]')].filter((x) => vis(x) && ${TAG.none}.test(x.textContent.trim())).sort((a, b) => a.textContent.length - b.textContent.length)[0]
+            if (!tag) return { tag: false }
+            tag.click()
+            await new Promise((res) => setTimeout(res, 500))
+            return { tag: true, dialog: !!document.querySelector('[role="dialog"][aria-label="Fix this match"]') }
+          })()`
+        )
+        // Needs your eye: filled from the seen reporter (debounced ~5 s)
+        await until(() => memGet(port).then((d) => ((d?.entries ?? []).length >= 2 ? true : null)), 15000)
+        await cdpEval(port, 'main', `document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }))`)
+        r.learned = (await openLearnedData(port)).text
+        await sleep(500)
+        r.needs = await cdpEval(
+          port,
+          'main',
+          `[...document.querySelectorAll('[data-testid="learned-needs-row"]')].map((x) => ({ text: x.textContent.slice(0, 80), level: x.getAttribute('data-issue') ?? x.querySelector('[data-issue]')?.getAttribute('data-issue') ?? null }))`
+        )
+      } catch (x) {
+        r.err = String(x?.message ?? x)
+      }
+      await stop()
+      return r
+    }
+    // the overlay shows one current stop: one run per kind of stop
+    const overlay = async (kind, step) => {
+      const { port, stop } = await memLaunch(`issue-tint-overlay-${kind}`, { jobs: [{ ref: 'J85', title: 'Overlay Run', steps: [step] }] })
+      let v = null
+      let err = ''
+      const read = () =>
+        cdpEval(
+          port,
+          'overlay',
+          `(() => {
+            const n = document.querySelector('[data-testid="overlay-stop-name"]')
+            if (!n) return null
+            return {
+              name: n.textContent,
+              level: n.getAttribute('data-issue'),
+              aboveName: n.parentElement?.closest('[data-issue]') ? n.parentElement.closest('[data-issue]').getAttribute('data-testid') || n.parentElement.closest('[data-issue]').tagName : null,
+              all: [...document.querySelectorAll('[data-issue]')].map((x) => (x.getAttribute('data-testid') || x.tagName) + '=' + x.getAttribute('data-issue'))
+            }
+          })()`
+        )
+      try {
+        v = await until(() => read().then((x) => (x?.name ? x : null)), 15000)
+        await sleep(800)
+        v = (await read()) ?? v
+      } catch (x) {
+        err = String(x?.message ?? x)
+      }
+      await stop()
+      return { v, err }
+    }
+    const [m, oBad, oUnsure, oGood] = await Promise.all([
+      main(),
+      overlay('bad', goStep('s1', BAD)),
+      overlay('unsure', goStep('s1', SHUBIN)),
+      overlay('good', goStep('s1', 'Port Tressler'))
+    ])
+    const j = m.jobs ?? {}
+    const hdr = (t) => (j[t] ?? [])[0] ?? null
+    const n = m.next ?? {}
+    const stepHits = (m.step ?? {})[`Deliver Scrap to ${BAD}`] ?? []
+    const needs = m.needs ?? []
+    const okOnlyWords = (o) => !o.v?.aboveName && (o.v?.all ?? []).every((x) => /^overlay-stop-(name|objective)=/.test(x))
+    return [
+      ['Jobs: not-found job header red + issue-chip', hdr(T.bad)?.level === 'red' && hdr(T.bad)?.chip, `hit=${short(hdr(T.bad))} ${m.err}`],
+      ['Jobs: no-place job header red + issue-chip', hdr(T.none)?.level === 'red' && hdr(T.none)?.chip, `hit=${short(hdr(T.none))}`],
+      ['Jobs: not-sure job header amber + issue-chip', hdr(T.unsure)?.level === 'amber' && hdr(T.unsure)?.chip, `hit=${short(hdr(T.unsure))}`],
+      ['Jobs: exact job header has no data-issue and no chip', !!hdr(T.good) && !hdr(T.good).level && !hdr(T.good).chip, `hit=${short(hdr(T.good))}`],
+      ['Jobs: expanded bad job, its step row has its own data-issue red', stepHits.some((h) => h.level === 'red' && !h.holdsTitle), `hits=${short(stepHits)}`],
+      ['Jobs: clicking the step\'s "✗ not found" tag opens MatchFix', !!m.fix?.tag && !!m.fix.dialog, `fix=${short(m.fix)}`],
+      ['Next: not-found stop row red', lvl(n[BAD]) === 'red', `hits=${short(n[BAD])} next=${short(lineWith(m.nextText, /Qzxv|not found/i))}`],
+      ['Next: no-place stop row red', lvl(n[NOPLACE]) === 'red', `hits=${short(n[NOPLACE])} next=${short(lineWith(m.nextText, /Prescription/i))}`],
+      ['Next: not-sure stop row amber', lvl(n[SHUBIN]) === 'amber', `hits=${short(n[SHUBIN])}`],
+      ['Next: exact stop (Port Tressler) has no data-issue', (n['Port Tressler'] ?? []).length > 0 && !lvl(n['Port Tressler']), `hits=${short(n['Port Tressler'])}`],
+      ['Learned Data: Needs your eye rows all carry data-issue', needs.length >= 2 && needs.every((x) => x.level === 'red' || x.level === 'amber'), `needs=${short(needs, 600)}`],
+      ['Learned Data: not-found row red, not-sure row amber', needs.find((x) => /Qzxv/.test(x.text))?.level === 'red' && needs.find((x) => /Shubin/.test(x.text))?.level === 'amber', `needs=${short(needs, 600)}`],
+      ['Overlay: not-found stop name red', oBad.v?.level === 'red', `v=${short(oBad.v)} ${oBad.err}`],
+      ['Overlay: not-found, only the words carry data-issue (not the card)', !!oBad.v?.level && okOnlyWords(oBad), `v=${short(oBad.v)}`],
+      ['Overlay: not-sure stop name amber, only the words', oUnsure.v?.level === 'amber' && okOnlyWords(oUnsure), `v=${short(oUnsure.v)} ${oUnsure.err}`],
+      ['Overlay: exact stop has no data-issue anywhere', !!oGood.v?.name && !oGood.v.level && (oGood.v.all ?? []).length === 0, `v=${short(oGood.v)} ${oGood.err}`]
+    ]
   }
 }
 
