@@ -1,5 +1,6 @@
 /**
- * Other-only Settings rows. Re-tie: render after haul OCR Capture delay.
+ * Settings → OTHER MODE tab: every Other-only setting, grouped in five sections with large headings
+ * and a jump list. Re-tie: SettingsPage renders this as its OTHER MODE tab.
  */
 import React, { useEffect, useState } from 'react'
 import { Btn } from '@renderer/components/ui'
@@ -17,16 +18,33 @@ type BoolKey = {
   [K in keyof typeof OTHER_SETTING_DEFAULTS]: (typeof OTHER_SETTING_DEFAULTS)[K] extends boolean ? K : never
 }[keyof typeof OTHER_SETTING_DEFAULTS]
 
+type ToggleDef = { key: BoolKey; label: string; hint: string }
+
 const hintStyle: React.CSSProperties = { display: 'block', fontFamily: F.body, fontSize: 12, color: C.dim, marginTop: 2 }
 
-const sectionStyle: React.CSSProperties = {
+/** large section heading: clearly bigger than the GENERAL tab's 11px section titles */
+const headingStyle: React.CSSProperties = {
   fontFamily: F.display,
-  fontSize: 11,
-  letterSpacing: '0.2em',
+  fontSize: 20,
+  fontWeight: 600,
+  letterSpacing: '0.12em',
   color: C.acc,
-  paddingBottom: 9,
+  paddingBottom: 8,
+  borderBottom: `2px solid ${C.accBorder}`,
+  margin: '38px 0 0',
+  scrollMarginTop: 12
+}
+
+const descStyle: React.CSSProperties = { fontFamily: F.body, fontSize: 13, color: C.dim, margin: '8px 0 4px' }
+
+const subHeadingStyle: React.CSSProperties = {
+  fontFamily: F.display,
+  fontSize: 14,
+  letterSpacing: '0.16em',
+  color: C.text,
+  paddingBottom: 7,
   borderBottom: `1px solid ${C.lineStrong}`,
-  margin: '30px 0 6px'
+  margin: '22px 0 4px'
 }
 
 const numStyle: React.CSSProperties = {
@@ -38,6 +56,8 @@ const numStyle: React.CSSProperties = {
   fontSize: 13,
   padding: '6px 8px'
 }
+
+const selectStyle: React.CSSProperties = { ...numStyle, width: 110 }
 
 /** upstream debug-window hotkey (fixed) */
 const DEBUG_HOTKEY = 'CommandOrControl+Shift+D'
@@ -51,20 +71,58 @@ const AFK_KEYS: string[] = [
   'Tab'
 ]
 
-const selectStyle: React.CSSProperties = { ...numStyle, width: 110 }
+/** section ids, headings, one-line descriptions and jump-list labels, in page order */
+const SECTIONS = [
+  { id: 'jobs', jump: 'Jobs', title: 'Jobs & Objectives', desc: 'How contracts from the game log show up as jobs and get ticked off.' },
+  { id: 'distances', jump: 'Distances', title: 'Distances & Route', desc: 'How far away each stop is, and where the route is measured from.' },
+  {
+    id: 'where',
+    jump: 'Where Am I',
+    title: 'Where Am I (position reading)',
+    desc: 'Reads your position from the game screen, so distances start from where you really are.'
+  },
+  { id: 'places', jump: 'Places', title: 'Places & Matching', desc: 'Where place names come from, and what game text has been matched to which place.' },
+  { id: 'afk', jump: 'AFK', title: 'AFK', desc: 'Presses a key in the game at a set interval while you are away.' }
+] as const
 
-const TOGGLES: { key: BoolKey; label: string; hint: string }[] = [
-  { key: 'otherAutoTickObjectives', label: 'Auto-tick objectives', hint: 'Tick a step when the log says Objective Complete.' },
-  { key: 'otherCrashNotice', label: 'Crash notice', hint: 'On start-up, say when the game did not quit cleanly and jobs were kept.' },
-  { key: 'otherContractLimitToast', label: 'Contract-limit toast', hint: 'Show a toast when the game refuses a contract because you are at the limit.' },
-  { key: 'otherShowRep', label: 'Show reputation', hint: 'Show the reputation from the contract title on each job.' },
-  { key: 'otherSharedBadge', label: 'Shared badge', hint: 'Mark contracts a party member shared with you.' },
-  { key: 'otherSessionSummary', label: 'Session summary', hint: 'Group History by game session with a per-session summary.' },
-  { key: 'otherMarkerDistance', label: 'Distance from mission markers', hint: 'For a step with no named place, use its mission marker from the game log for the distance.' },
-  { key: 'otherOverlayDistance', label: 'Distances on the overlay', hint: 'Show how far the current and next stop are on the overlay card.' }
+type SectionId = (typeof SECTIONS)[number]['id']
+
+const sectionDomId = (id: SectionId): string => `other-settings-${id}`
+
+const JOB_TOGGLES_A: ToggleDef[] = [
+  { key: 'otherAutoTickObjectives', label: 'Auto-tick objectives', hint: 'Tick off a step when the game says Objective Complete for it.' }
 ]
 
-export default function OtherSettingsBlock({
+const JOB_TOGGLES_B: ToggleDef[] = [
+  {
+    key: 'otherCrashNotice',
+    label: 'Crash notice',
+    hint: 'If the game crashed or closed without quitting, say so on the next start and that your jobs were kept.'
+  },
+  {
+    key: 'otherContractLimitToast',
+    label: 'Contract-limit toast',
+    hint: 'Pop up a message when the game refuses a contract because you already hold the most you can.'
+  },
+  { key: 'otherShowRep', label: 'Show reputation', hint: 'Show the reputation named in the contract title on each job.' },
+  { key: 'otherSharedBadge', label: 'Shared badge', hint: 'Mark contracts that a party member shared with you.' },
+  { key: 'otherSessionSummary', label: 'Session summary', hint: 'In History, group jobs by game session with a summary for each session.' }
+]
+
+const DISTANCE_TOGGLES: ToggleDef[] = [
+  {
+    key: 'otherMarkerDistance',
+    label: 'Distance from mission markers',
+    hint: 'When a step names no place, use its mission marker from the game log to work out the distance.'
+  },
+  {
+    key: 'otherOverlayDistance',
+    label: 'Distances on the overlay',
+    hint: 'Show how far the current and next stop are on the in-game overlay card.'
+  }
+]
+
+export default function OtherSettingsPage({
   rowStyle,
   keyStyle,
   Toggle
@@ -72,7 +130,7 @@ export default function OtherSettingsBlock({
   rowStyle: React.CSSProperties
   keyStyle: React.CSSProperties
   Toggle: (props: { on: boolean; onClick: () => void }) => React.ReactElement
-}): React.ReactElement | null {
+}): React.ReactElement {
   const settings = useStore((s) => s.settings)
   const updateSettings = useStore((s) => s.updateSettings)
   const whereHotkeySaved = otherSetting(settings, 'otherWhereHotkey')
@@ -85,7 +143,7 @@ export default function OtherSettingsBlock({
     window.addEventListener('keydown', onKey)
     return () => window.removeEventListener('keydown', onKey)
   }, [zonesOpen])
-  if (resolveWorkMode(settings.workMode) !== 'other') return null
+  const isOther = resolveWorkMode(settings.workMode) === 'other'
 
   const set = (patch: Partial<AppSettings>): void => {
     dlog.info('other', 'setting changed by user', patch as Record<string, unknown>)
@@ -107,6 +165,9 @@ export default function OtherSettingsBlock({
     const v = Math.min(max, Math.max(min, n))
     if (v !== otherSetting(settings, key)) set({ [key]: v })
   }
+  const jumpTo = (id: SectionId): void => {
+    document.getElementById(sectionDomId(id))?.scrollIntoView({ block: 'start' })
+  }
   const whereLive = otherSetting(settings, 'otherWhereLive')
   const afkWhereRead = otherSetting(settings, 'otherAfkWhereRead')
   const withdrawn = otherSetting(settings, 'otherWithdrawnSteps')
@@ -114,17 +175,61 @@ export default function OtherSettingsBlock({
   const startMode = otherSetting(settings, 'otherStartMode')
   const useZone2 = otherSetting(settings, 'otherWhereUseZone2')
   // ✓ = a box the user placed; otherwise the default box is used
-  const zoneMark = (key: 'otherWhereZone1' | 'otherWhereZone2'): string => (settings[key] ? '\u2713' : 'default')
-  const zoneStatus = `zone 1 ${zoneMark('otherWhereZone1')} \u00b7 zone 2 ${useZone2 ? zoneMark('otherWhereZone2') : 'off'}`
+  const zoneMark = (key: 'otherWhereZone1' | 'otherWhereZone2'): string => (settings[key] ? '✓' : 'default')
+  const zoneStatus = `zone 1 ${zoneMark('otherWhereZone1')} · zone 2 ${useZone2 ? zoneMark('otherWhereZone2') : 'off'}`
 
   return (
     <>
-      <div style={sectionStyle}>OTHER MODE</div>
+      {!isOther && (
+        <div
+          data-other-settings-note
+          style={{
+            fontFamily: F.body,
+            fontSize: 13,
+            color: C.text,
+            padding: '10px 14px',
+            margin: '18px 0 0',
+            border: `1px solid ${C.accBorder}`,
+            background: C.accFill
+          }}
+        >
+          These settings apply when Work mode is Other.
+        </div>
+      )}
+      <nav
+        data-other-settings-jump
+        style={{ display: 'flex', flexWrap: 'wrap', alignItems: 'center', gap: 6, margin: '18px 0 0' }}
+      >
+        {SECTIONS.map((s, i) => (
+          <React.Fragment key={s.id}>
+            {i > 0 && <span style={{ color: C.dim, fontFamily: F.display, fontSize: 13 }}>{'·'}</span>}
+            <Btn
+              onClick={() => jumpTo(s.id)}
+              style={{
+                padding: '4px 8px',
+                border: '1px solid transparent',
+                background: 'transparent',
+                color: C.dim,
+                fontFamily: F.display,
+                fontSize: 13,
+                letterSpacing: '0.08em',
+                cursor: 'pointer'
+              }}
+              hoverStyle={{ border: `1px solid ${C.acc}`, color: C.text }}
+            >
+              {s.jump}
+            </Btn>
+          </React.Fragment>
+        ))}
+      </nav>
+
+      {renderHeading('jobs')}
       <div style={rowStyle}>
         <span style={keyStyle}>
           Include aUEC
           <span style={hintStyle}>
-            On a log job that already has steps, auto-capture writes Reward only when the amount is greater than 0.
+            When a job from the game log already has its steps, the automatic contract scan still fills in its aUEC reward
+            (if the job has none yet and the scan finds an amount above 0).
           </span>
         </span>
         <Toggle
@@ -132,29 +237,22 @@ export default function OtherSettingsBlock({
           onClick={() => set({ otherOcrIncludeAuec: !settings.otherOcrIncludeAuec })}
         />
       </div>
-      {TOGGLES.slice(0, 1).map((t) => renderToggle(t))}
+      {JOB_TOGGLES_A.map((t) => renderToggle(t))}
       <div style={rowStyle}>
         <span style={keyStyle}>
           Withdrawn steps
-          <span style={hintStyle}>A step the game withdrew: grey it out or hide it.</span>
+          <span style={hintStyle}>When the game withdraws a step from a contract: GREY shows it faded, HIDE removes it.</span>
         </span>
         {renderChoice(['grey', 'hide'] as const, withdrawn, (v) => set({ otherWithdrawnSteps: v }))}
       </div>
-      {TOGGLES.slice(1).map((t) => renderToggle(t))}
-      <div style={rowStyle}>
-        <span style={keyStyle}>
-          Start mode
-          <span style={hintStyle}>
-            AUTO starts from what you type, then follows the newest location clue (ticks, objectives, inventory, WHERE AM I).
-            FIXED always uses what you typed.
-          </span>
-        </span>
-        {renderChoice(['auto', 'fixed'] as const, startMode, (v) => set({ otherStartMode: v }))}
-      </div>
+      {JOB_TOGGLES_B.map((t) => renderToggle(t))}
       <div style={rowStyle}>
         <span style={keyStyle}>
           Hide short accept/drop loops
-          <span style={hintStyle}>Hide abandoned jobs that lasted less than this many seconds. 0 = show all.</span>
+          <span style={hintStyle}>
+            Hide abandoned jobs you accepted and dropped within this many seconds (e.g. while looking for a good contract). 0 =
+            show all.
+          </span>
         </span>
         <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
           <input
@@ -170,7 +268,9 @@ export default function OtherSettingsBlock({
       <div style={rowStyle}>
         <span style={keyStyle}>
           Haul-switch prompt
-          <span style={hintStyle}>Offer to switch to Haul mode when a hauling contract at or above this SCU is accepted.</span>
+          <span style={hintStyle}>
+            When you accept a hauling contract of at least this many SCU, offer to switch to Haul mode.
+          </span>
         </span>
         <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
           <Toggle on={haulPrompt} onClick={() => set({ otherHaulSwitchPrompt: !haulPrompt })} />
@@ -185,15 +285,25 @@ export default function OtherSettingsBlock({
           <span style={{ fontFamily: F.mono, fontSize: 13, color: C.body }}>SCU min</span>
         </div>
       </div>
-      <div style={sectionStyle}>DATA SOURCES</div>
-      <DataSources rowStyle={rowStyle} keyStyle={keyStyle} Toggle={Toggle} />
-      <div style={sectionStyle}>LEARNED PLACES</div>
-      <LearnedPlaces />
-      <div style={sectionStyle}>WHERE AM I (MAP)</div>
+
+      {renderHeading('distances')}
+      <div style={rowStyle}>
+        <span style={keyStyle}>
+          Start mode
+          <span style={hintStyle}>
+            Where distances are measured from. AUTO starts from the place you type, then follows your newest known position
+            (ticked steps, objectives, inventory, WHERE AM I). FIXED always uses the place you typed.
+          </span>
+        </span>
+        {renderChoice(['auto', 'fixed'] as const, startMode, (v) => set({ otherStartMode: v }))}
+      </div>
+      {DISTANCE_TOGGLES.map((t) => renderToggle(t))}
+
+      {renderHeading('where')}
       <div style={rowStyle}>
         <span style={keyStyle}>
           Hotkey
-          <span style={hintStyle}>Reads your location from the map screen.</span>
+          <span style={hintStyle}>Press this in game with the map screen open to read where you are.</span>
         </span>
         <HotkeyRecorder
           value={whereHotkeySaved}
@@ -205,27 +315,10 @@ export default function OtherSettingsBlock({
       </div>
       <div style={rowStyle}>
         <span style={keyStyle}>
-          Use zone 2
-          <span style={hintStyle}>r_DisplayInfo text, upper right of the map screen</span>
-        </span>
-        <Toggle on={useZone2} onClick={() => set({ otherWhereUseZone2: !useZone2 })} />
-      </div>
-      <div style={rowStyle}>
-        <span style={keyStyle}>
-          Live position
-          <span style={hintStyle}>
-            Re-read the r_DisplayInfo panel every N s while it&apos;s on screen (about 5 s of OCR each time)
-          </span>
-        </span>
-        <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
-          <Toggle on={whereLive} onClick={() => set({ otherWhereLive: !whereLive })} />
-          {renderNum('otherWhereLiveSec', 30, 120, 's', !whereLive)}
-        </div>
-      </div>
-      <div style={rowStyle}>
-        <span style={keyStyle}>
           Zones
-          <span style={hintStyle}>Where on the map screen each text is read.</span>
+          <span style={hintStyle}>
+            Choose where on the map screen each piece of text is read. Default boxes are used until you set your own.
+          </span>
         </span>
         <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
           <Btn onClick={() => setZonesOpen(true)} style={choiceStyle(false)} hoverStyle={{ border: `1px solid ${C.acc}`, color: C.text }}>
@@ -234,7 +327,34 @@ export default function OtherSettingsBlock({
           <span style={{ fontFamily: F.mono, fontSize: 12, color: C.body }}>{zoneStatus}</span>
         </div>
       </div>
-      <div style={sectionStyle}>AFK</div>
+      <div style={rowStyle}>
+        <span style={keyStyle}>
+          Use zone 2
+          <span style={hintStyle}>Also read the r_DisplayInfo text in the upper right of the map screen.</span>
+        </span>
+        <Toggle on={useZone2} onClick={() => set({ otherWhereUseZone2: !useZone2 })} />
+      </div>
+      <div style={rowStyle}>
+        <span style={keyStyle}>
+          Live position
+          <span style={hintStyle}>
+            While the r_DisplayInfo text is on screen, re-read your position every N seconds (each read takes about 5 s).
+          </span>
+        </span>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
+          <Toggle on={whereLive} onClick={() => set({ otherWhereLive: !whereLive })} />
+          {renderNum('otherWhereLiveSec', 30, 120, 's', !whereLive)}
+        </div>
+      </div>
+
+      {renderHeading('places')}
+      <div style={subHeadingStyle}>Data Sources</div>
+      <div style={descStyle}>Turn each list of place names on or off.</div>
+      <DataSources rowStyle={rowStyle} keyStyle={keyStyle} Toggle={Toggle} />
+      <div style={subHeadingStyle}>Learned Places</div>
+      <LearnedPlaces />
+
+      {renderHeading('afk')}
       <div style={rowStyle}>
         <span style={keyStyle}>
           AFK key presser
@@ -248,35 +368,35 @@ export default function OtherSettingsBlock({
       <div style={rowStyle}>
         <span style={keyStyle}>
           Interval
-          <span style={hintStyle}>Seconds between key presses (5{'\u2013'}120).</span>
+          <span style={hintStyle}>Seconds between key presses (5{'–'}120).</span>
         </span>
         {renderNum('otherAfkIntervalSec', 5, 120, 's')}
       </div>
       <div style={rowStyle}>
         <span style={keyStyle}>
           First key
-          <span style={hintStyle}>Pressed on the first cycle (F2 = map).</span>
+          <span style={hintStyle}>Key pressed on the first cycle (F2 opens the map).</span>
         </span>
         {renderKey('otherAfkFirstKey')}
       </div>
       <div style={rowStyle}>
         <span style={keyStyle}>
           Cycle key
-          <span style={hintStyle}>Pressed on every later cycle.</span>
+          <span style={hintStyle}>Key pressed on every cycle after the first.</span>
         </span>
         {renderKey('otherAfkCycleKey')}
       </div>
       <div style={rowStyle}>
         <span style={keyStyle}>
           Time limit
-          <span style={hintStyle}>Stop AFK after this many minutes. 0 = no limit.</span>
+          <span style={hintStyle}>Stop pressing keys after this many minutes. 0 = no limit.</span>
         </span>
         {renderNum('otherAfkMaxMin', 0, 1440, 'min')}
       </div>
       <div style={rowStyle}>
         <span style={keyStyle}>
           Read position while AFK
-          <span style={hintStyle}>About once a minute, run a quiet WHERE AM I read after a key press.</span>
+          <span style={hintStyle}>About once a minute, after a key press, quietly run a WHERE AM I read.</span>
         </span>
         <Toggle on={afkWhereRead} onClick={() => set({ otherAfkWhereRead: !afkWhereRead })} />
       </div>
@@ -314,7 +434,7 @@ export default function OtherSettingsBlock({
               }}
             >
               <div style={{ fontFamily: F.display, fontSize: 16, letterSpacing: '0.08em', color: C.text }}>
-                WHERE AM I {'\u00b7'} ZONES
+                WHERE AM I {'·'} ZONES
               </div>
               <Btn onClick={() => setZonesOpen(false)} style={{ ...choiceStyle(false), border: 0 }}>
                 CLOSE
@@ -328,6 +448,18 @@ export default function OtherSettingsBlock({
       )}
     </>
   )
+
+  function renderHeading(id: SectionId): React.ReactElement {
+    const s = SECTIONS.find((x) => x.id === id)!
+    return (
+      <>
+        <h2 id={sectionDomId(id)} data-other-section={id} style={headingStyle}>
+          {s.title}
+        </h2>
+        <div style={descStyle}>{s.desc}</div>
+      </>
+    )
+  }
 
   function choiceStyle(on: boolean): React.CSSProperties {
     return {
@@ -396,7 +528,7 @@ export default function OtherSettingsBlock({
     )
   }
 
-  function renderToggle(t: { key: BoolKey; label: string; hint: string }): React.ReactElement {
+  function renderToggle(t: ToggleDef): React.ReactElement {
     const on = otherSetting(settings, t.key)
     return (
       <div key={t.key} style={rowStyle}>

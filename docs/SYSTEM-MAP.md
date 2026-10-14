@@ -102,7 +102,8 @@ The compact overlay is the same renderer bundle at `#compact`, in a second alway
   `store.view` (manifest, contracts, grid, history, settings); there is no router.
 - **State.** `state/store.ts` is a single zustand store holding UI state, the persisted manifest, the
   derived `route`, history, settings, UEX rosters and OCR state. `persist()` sends the full manifest to
-  main on every change. Main writes it and broadcasts to the other window. No localStorage is used.
+  main on every change. Main writes it and broadcasts to the other window. No localStorage is used (the remembered
+  Settings tab is in settings.json, `otherSettingsTab`, batch 10).
 - **Event flow.**
   1. The main process emits an `evt:contract:*` event.
   2. A store listener runs `commit()`, then `persist()`.
@@ -138,12 +139,12 @@ facts are in [OTHER-MODE-AUDIT.md](OTHER-MODE-AUDIT.md#where-am-i-and-start-mode
 | `src/other/otherGeo.ts` | Travel distance between two star-frame points: same system, other system via gateways (`jumps`), or over a body's surface | `travel()`, `compareTravel()`, `formatTravel()`; `explainTravel(a, b, locations)` (diagnostics: aSystem, bSystem, sameSystem, gatewayOut/In, surface, body, meters, jumps; type `TravelExplain`); types `GeoPoint`, `Travel` |
 | `src/other/otherWhere.ts` | The `Where` model and its sources; parsing and resolving the map bottom line and the r_DisplayInfo text against the location roster | `parseMapLine()`, `parseDisplayInfo()` (whole panel: zones, positions, radius/altitude, player location, ServerTime, tracked mission, `checks`), `resolveMapLine()`, `resolveDisplayInfo()`, `ACCURACY`, `whereAccuracy()` (fades 1 per 5 min, min 1), `accuracyWord()`; types `Where`, `WhereSource`, `MapLine`, `DisplayInfo`, `WhereRunResult` |
 | `src/other/main/whereAmI.ts` | Main side of WHERE AM I: global hotkey, one screen capture, OCR of zone 2 then zone 1, parse/resolve, broadcast; calibration preview and per-zone test; test seam `SC_WHERE_TEXT_FILE` (JSON `{zone1?, zone2?}` used instead of capture + OCR) | `registerOtherWhereHotkey(getSettings)` (re-exported by `main/register.ts`, called from upstream `registerHotkey()`); `registerOtherWhereIpc(getSettings)` (called by `registerOther()`) for IPC `otherWhere:run`, `otherWhere:calPreview`, `otherWhere:calTest`; `runWhere()` (a second run while one is running returns `error: 'busy'`, not broadcast); sends `evt:other:where`; `WHERE_FAIL_MESSAGE`; `getRecentWhereRuns()` for diagnostics; `getWhereDiag()` (`{ history, capture, live, hotkeys }`: last 10 reads with per-read `timings`, last capture details, live stats, hotkey state) and `getWhereImages()` (last zone 1 / zone 2 crops, unscaled PNG, kept in memory) for the export |
-| `src/other/renderer/components/OtherMapCalibrator.tsx` | Settings UI (shown in `renderer/settingsBlock.tsx`, Other block) to set the two capture zones (`otherWhereZone1`, `otherWhereZone2`) on a preview grab and test each | `window.supercargo.otherWhereCalPreview()`, `otherWhereCalTest(zone)` |
+| `src/other/renderer/components/OtherMapCalibrator.tsx` | Settings UI (Settings → OTHER MODE → Where Am I; batch 10) to set the two capture zones (`otherWhereZone1`, `otherWhereZone2`) on a preview grab and test each | `window.supercargo.otherWhereCalPreview()`, `otherWhereCalTest(zone)` |
 | `test/replay/where_checks.mjs` | Parse/resolve checks for `otherWhere.ts`: map bottom lines and r_DisplayInfo 3 blocks transcribed from real screenshots, OCR-noisy variants and garbage, against the roster `data/uex/other-positions.json` | `node test/replay/where_checks.mjs` (bundles with esbuild; no build needed; separate from `run_all.mjs`) |
 | `src/other/otherAfk.ts` | AFK button shared state and pure cycle: `AfkState`, key names → scan codes, which key each press sends, start / press / skip / stop steps, limits (`AFK_LAST_KEYS_MAX` 5, interval 5-600 s, a WHERE AM I read about once a minute ~2 s after a press) | `afkConfig()`, `afkStart()`, `afkPressed()`, `afkSkipped()`, `afkStopReason()`, `afkStopped()`, `afkKeyForPress()`, `afkScanCode()`, `normaliseAfkKey()`; type `AfkState` |
 | `src/other/main/afk.ts` | Main side of AFK: timer, bring the Star Citizen window to the front, press the key through a persistent PowerShell child running an Add-Type C# helper (SendInput with scan codes); Windows only (other systems: `lastError: 'Windows only'`); test seam `SC_AFK_DRYRUN=1` (no focus, no keys, presses recorded; `SC_AFK_INTERVAL_MS` sets the interval) | `registerOtherAfkIpc(getSettings)` (called by `registerOther()`) for IPC `otherAfk:start`, `otherAfk:stop`, `otherAfk:get`; broadcasts `evt:other:afk`; `stopOtherAfk()` (on `will-quit`); `getAfkState()`; `getAfkDiag()` (`{ state, presses[] (last 50), stderr[] (last 20), startupMs, restarts }`) for the export |
 | `src/other/renderer/components/AccuracyMeter.tsx` | Position accuracy as colour: red (0) → amber (5) → green (10) from the theme; number and word always shown | `AccTag` (overlay `ACC n` tag + 10-segment bar), `AccSlider` (Next tab, under STARTING AT), `TrackedTag`, `accuracyColor()` |
-| `src/other/renderer/components/HotkeyRecorder.tsx` | Click-to-record hotkey field producing an Electron accelerator ('' = off); pauses all app global hotkeys while recording; warns on clashes; shows "in use by another app" after a failed registration | default `HotkeyRecorder({ value, onChange, conflicts })`; helpers `keyFromCode()`, `accelFromEvent()`, `normAccel()`; uses `otherHotkeysPause()`, `otherHotkeysResume()`, `otherHotkeyCheck(accel)`. Used for WHERE AM I (Other settings block) and for the upstream OCR hotkey (`SettingsPage.tsx`, re-tie 14) |
+| `src/other/renderer/components/HotkeyRecorder.tsx` | Click-to-record hotkey field producing an Electron accelerator ('' = off); pauses all app global hotkeys while recording; warns on clashes; shows "in use by another app" after a failed registration | default `HotkeyRecorder({ value, onChange, conflicts })`; helpers `keyFromCode()`, `accelFromEvent()`, `normAccel()`; uses `otherHotkeysPause()`, `otherHotkeysResume()`, `otherHotkeyCheck(accel)`. Used for WHERE AM I (Settings → OTHER MODE → Where Am I) and for the upstream OCR hotkey (`SettingsPage.tsx`, re-tie 14) |
 | `test/replay/afk_checks.mjs` | Checks the AFK pure cycle (`otherAfk.ts`) with a fake clock and sanity-checks the PowerShell / C# helper text in `main/afk.ts` (it can only run on Windows) | `node test/replay/afk_checks.mjs` (bundles with esbuild; no build needed) |
 | `src/other/otherNext.ts` (diagnostics addition) | Explains how a step's place text was matched to the roster | `explainPlaceLookup(raw, locations)` → `{ raw, cleaned, method: 'exact' \| 'contains' \| 'address' \| 'folded' \| 'none', match?, hasCoords, candidates (≤5) }` (type `PlaceLookupExplain`) |
 | `src/other/renderer/state/otherJobs.ts` (diagnostics addition) | Ring of the last 30 `where` changes (applied, older ignored, cleared) | `whereHistory()`; type `WhereHistoryEntry` |
@@ -415,7 +416,7 @@ of past matches: what it saw, what the game proved (Objective Complete + a fresh
 | `src/other/renderer/state/otherMemoryStore.ts` (new) | Renderer copy of the doc; the main-window-only "seen" reporter (debounced 5 s) | `startOtherMemory()`, `memoryDoc()`, `memoryLookup()`, `useMemory()`, `useMemoryLookup()`, `startMemorySeenReporter()` |
 | `src/other/renderer/state/otherJobs.ts` | Game proof on Objective Complete, read before `where` moves to the step (main window only) | the `objective` case |
 | `src/other/renderer/state/otherDiag.ts` | Memory passed to `listOpenStops`; SNAPSHOT memory counts (entries, user, learned, disputed) | |
-| `src/other/renderer/components/MatchTag.tsx`, `MatchFix.tsx` (new), `LearnedPlaces.tsx` (new), `src/other/renderer/settingsBlock.tsx` | Tag as a button opening the fix panel (✓ Right / ✗ Wrong → pick / Forget); LEARNED PLACES table, filter, search, Change / Forget, Recent changes with Undo | `MatchFix`, `LearnedPlaces` |
+| `src/other/renderer/components/MatchTag.tsx`, `MatchFix.tsx` (new), `LearnedPlaces.tsx` (new), `src/other/renderer/OtherSettingsPage.tsx` (was settingsBlock.tsx, removed in batch 10) | Tag as a button opening the fix panel (✓ Right / ✗ Wrong → pick / Forget); LEARNED PLACES table, filter, search, Change / Forget, Recent changes with Undo | `MatchFix`, `LearnedPlaces` |
 | `OtherOverlay.tsx`, `pages/NextPage.tsx`, `pages/JobsParts.tsx` | Pass `memory: useMemoryLookup()` into the resolver | |
 | `test/replay/memory_checks.mjs` (new) | Pure checks of every `otherMemory` function, caps, undo, disputed and learned thresholds | `node test/replay/memory_checks.mjs` |
 | `test/replay/replay.mjs` | Scenarios `memory-wrong-pick`, `memory-undo`, `memory-proof-learned`, `memory-disputed`, `memory-diag-section`; helpers `memLaunch()`, `memRead()`, `memSetVia()`, `uiWrongPick()`, `memFile()`; `MATCH MEMORY` added to the required export sections | see the command below |
@@ -452,7 +453,7 @@ source: the roster is still UEX plus the bundled starmap file, now tagged by sou
 | `src/other/main/uex.ts` | Sets the tags: `fillFromPositions` -> `coordsFrom: 'starmap'`, `addStarmapPlaces` -> `source: 'starmap'` | `loadOtherPlaces()`, `refreshOtherPlaces()` |
 | `src/other/workMode.ts` | Setting `otherSourceStarmap` (default on) in `OTHER_SETTING_DEFAULTS` | `otherSetting()` |
 | `src/other/renderer/state/otherPlaces.ts` | Off: drops starmap-only places and strips starmap-filled coordinates (and the body that came with them); `useMergedLocations` re-computes on the setting. Body fill: a place with coordinates but no body takes the body of the same place (same name or Center/Centre spelling) within 1 km | `mergeLocations()`, `useMergedLocations()` |
-| `src/other/renderer/components/DataSources.tsx` (new), `src/other/renderer/settingsBlock.tsx` | Settings → OTHER MODE → DATA SOURCES: one row per source with counts and its switch (UEX: "base list", always on) | `DataSources` |
+| `src/other/renderer/components/DataSources.tsx` (new), `src/other/renderer/OtherSettingsPage.tsx` (was settingsBlock.tsx, removed in batch 10) | Settings → OTHER MODE → DATA SOURCES: one row per source with counts and its switch (UEX: "base list", always on) | `DataSources` |
 | `src/other/renderer/components/LearnedPlaces.tsx` | "(place's source is off)" on entries whose place isn't in the active sources | `LearnedPlaces` |
 | `src/other/renderer/state/otherDiag.ts` | `placeSource` uses the tags; SNAPSHOT shows the enabled sources | |
 | `src/other/otherResolve.ts` | Confusion-folded keys (`corrected` +5); weighted Damerau-Levenshtein "close spelling" (+4 / +3); code words must fold equal; "· from starmap data" on starmap candidates | `resolveStopPlace()`, `placeKey()` |
@@ -580,3 +581,28 @@ resolver-memory-everywhere`; pure: `node test/replay/resolve_checks.mjs`, `node 
 |---|---|
 | `test/replay/resolver_guard.mjs` (new) | The guard: name matching outside the allowlist fails, each allowlist entry with its reason |
 | `test/replay/replay.mjs` | `resolver-scan-fix`, `resolver-log-no-rename`, `resolver-typed-start`, `resolver-memory-everywhere`; helpers `stubOcr()` (test seam: main's `ocr:run` / `ocr:preview` IPC answered with a fixed text), `scanToConfirm()`; `matchRun()` / `memLaunch()` take `typed` |
+
+## Other mode: OTHER MODE settings tab (batch 10, 2026-10-14)
+
+Rules 69-73 in [STANDALONE.md](../src/other/STANDALONE.md#other-mode-settings-tab-batch-10-user-2026-10-14); audit in
+[OTHER-MODE-AUDIT.md](OTHER-MODE-AUDIT.md#other-mode-settings-tab-batch-10). Settings is split into a tab bar
+GENERAL | OTHER MODE. No setting key or behaviour changed; only where the rows sit and how they read.
+
+| File | Owns (batch 10) | Entry points |
+|---|---|---|
+| `src/renderer/src/pages/SettingsPage.tsx` (upstream, re-tie 4) | Tab bar GENERAL / OTHER MODE, remembered tab (settings.json `otherSettingsTab`, default GENERAL); GENERAL = the upstream sections with no Other rows (OCR hotkey recorder, re-tie 14, stays) | renders `<OtherSettingsPage rowStyle keyStyle Toggle />` on OTHER MODE |
+| `src/other/renderer/OtherSettingsPage.tsx` (new) | The OTHER MODE tab: Haul-mode note, jump list (Jobs · Distances · Where Am I · Places · AFK), five sections with large headings and one-line descriptions: Jobs & Objectives, Distances & Route, Where Am I (position reading), Places & Matching (Data Sources, Learned Places), AFK | default `OtherSettingsPage({ rowStyle, keyStyle, Toggle })` |
+| `src/other/renderer/OtherSettingsPage.tsx` (was settingsBlock.tsx, removed in batch 10) | The Other setting rows (one copy of each control), used by the page | as split by the batch (section components or a re-export) |
+| `src/other/renderer/components/DataSources.tsx`, `LearnedPlaces.tsx`, `OtherMapCalibrator.tsx`, `HotkeyRecorder.tsx` | Unchanged controls, now under Places & Matching / Where Am I | |
+| `test/replay/replay.mjs` | Scenario `settings-tabs`; helpers `openSettingsTab(port, tab)` (SETTINGS, then the tab button), `settingsProbe()` (tab buttons, GENERAL title and Other heading font sizes and positions, stored tab), `afkView()`, `clickJumpAfk()`, `clickRowToggle(port, labelRe)`; `sourcesText()` and `memory-undo` now open Settings → OTHER MODE | see the command below |
+
+**Data flow.**
+
+```
+SETTINGS ─► tab bar ─► settings.json otherSettingsTab (general | other)
+  GENERAL    ─► upstream sections (settings:set as before)
+  OTHER MODE ─► OtherSettingsPage ─► section rows ─► updateSettings(patch) ─► settings:set ─► settings.json (same keys)
+  jump list  ─► scrollIntoView(section)
+```
+
+Run (after `npm run build`): `node test/replay/replay.mjs settings-tabs sources-starmap-off memory-undo`.

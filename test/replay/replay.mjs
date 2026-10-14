@@ -172,12 +172,19 @@ async function launch(env, extraArgs = [], extraEnv = {}) {
   // a fixed wait was flaky with several apps starting at once
   const logFile = path.join(env.data, 'logs', 'supercargo.log')
   const readyRe = /\[main\] (startup scan|init loaded)/
+  // a restart on the same data folder: only this run's lines count (the earlier run's ready line is already there)
+  let logStart = 0
+  try {
+    logStart = fs.statSync(logFile).size
+  } catch {
+    // no log yet
+  }
   let ready = false
   const t0 = Date.now()
   while (Date.now() - t0 < 45000) {
     let text = ''
     try {
-      text = fs.readFileSync(logFile, 'utf8')
+      text = fs.readFileSync(logFile).subarray(logStart).toString('utf8')
     } catch {
       // not written yet
     }
@@ -637,7 +644,7 @@ const NON_EXACT_TAG = /≈\s*corrected|📍\s*game marker|\?\s*guess|⚠\s*misma
 
 // CONTRACT9 (match memory, M1-M8). The app keeps userData/other-matches.json ({entries, changes}); the main window
 // reports non-exact stops ("seen", debounced 5 s), Objective Complete with a fresh read near it is a game proof, the
-// tag on a stop opens MatchFix (✓ Right / ✗ Wrong → pick / Forget), Settings → LEARNED PLACES lists entries + Undo.
+// tag on a stop opens MatchFix (✓ Right / ✗ Wrong → pick / Forget), Settings → OTHER MODE → LEARNED PLACES lists entries + Undo.
 const SHUBIN = 'Shubin Mining Facility on Lyria'
 const SAL2 = 'Shubin Mining Facility SAL-2'
 const memFile = (e) => {
@@ -747,9 +754,17 @@ const J82_PICKUP_STEP = {
   position: { x: 12851198309.646416, y: 18566.685364, z: 672945.839535 }
 }
 const settingsGet = (port) => cdpEval(port, 'main', 'window.supercargo.getSettings()')
-// Settings tab text once DATA SOURCES shows
+// CONTRACT11: Settings has a tab bar GENERAL | OTHER MODE; every Other-only row (DATA SOURCES, LEARNED PLACES, zones,
+// hotkey, AFK) lives on OTHER MODE. Opens the Settings page, then that tab; returns which clicks found their button.
+async function openSettingsTab(port, tab = 'OTHER MODE') {
+  const page = await clickButton(port, 'main', /^SETTINGS$/)
+  const re = new RegExp(`^${reEsc(tab)}$`)
+  const tabOk = !!(await until(() => clickButton(port, 'main', re).then((ok) => ok || null), 8000))
+  return { page, tab: tabOk }
+}
+// Settings -> OTHER MODE tab text once DATA SOURCES shows
 async function sourcesText(port) {
-  await clickButton(port, 'main', /^SETTINGS$/)
+  await openSettingsTab(port, 'OTHER MODE')
   return (await until(() => windowText(port, 'main').then((t) => (/DATA SOURCES/i.test(t) && /starmap/i.test(t) ? t : '')), 10000)) || (await windowText(port, 'main'))
 }
 // click the switch in the DATA SOURCES row for the starmap positions (the smallest element naming "Starmap" that holds
@@ -823,6 +838,73 @@ const startPart = (t) => {
 }
 const MICROTECH_LOOKALIKE = 'Covalex Distribution Center S1DC06 on microTech'
 const SCAN_COVALEX = 'Covalex Distribution Center S1DCO6 on Hurston'
+
+// CONTRACT11 settings-tabs: what the open Settings tab shows. Headings are found by their own text (not a button's),
+// so a heading with its one-line description inside still matches; size = computed font-size in px; top = page y.
+const OTHER_HEADINGS = [/^jobs\s*&\s*objectives$/i, /^distances\s*&\s*route$/i, /^where am i\b/i, /^places\s*&\s*matching$/i, /^afk$/i]
+const settingsProbe = (port) =>
+  cdpEval(
+    port,
+    'main',
+    `(() => {
+      const vis = (el) => !!(el.offsetWidth || el.offsetHeight || el.getClientRects().length)
+      const own = (el) => [...el.childNodes].filter((n) => n.nodeType === 3).map((n) => n.textContent).join('').trim()
+      const heads = [${OTHER_HEADINGS.join(', ')}]
+      const els = [...document.querySelectorAll('body *')].filter((el) => vis(el) && !el.closest('button') && own(el))
+      const at = (el) => (el ? { text: own(el), size: parseFloat(getComputedStyle(el).fontSize), top: el.getBoundingClientRect().top + window.scrollY } : null)
+      // the biggest match wins (a hint row naming AFK is smaller than the AFK heading); the page's own heading
+      // (h2[data-other-section]) is preferred when its text matches
+      const best = (re) => at([...document.querySelectorAll('h2[data-other-section]')].find((h) => vis(h) && re.test(own(h))) ?? els.filter((el) => re.test(own(el))).sort((a, b) => parseFloat(getComputedStyle(b).fontSize) - parseFloat(getComputedStyle(a).fontSize))[0])
+      const tabs = [...document.querySelectorAll('button')].filter(vis).map((b) => b.textContent.trim()).filter((t) => /^(GENERAL|OTHER MODE)$/.test(t))
+      const ids = [...document.querySelectorAll('[data-other-section]')].filter(vis).map((h) => h.getAttribute('data-other-section'))
+      const note = [...document.querySelectorAll('[data-other-settings-note]')].filter(vis).map((n) => n.textContent.trim())
+      return { tabs, ids, note, game: best(/^GAME$/), about: best(/^ABOUT$/), headings: heads.map(best), stored: null }
+    })()`
+  )
+// where the AFK heading sits in the window (top/bottom vs innerHeight) and the scrolled amount of every scroller
+const afkView = (port) =>
+  cdpEval(
+    port,
+    'main',
+    `(() => {
+      const own = (el) => [...el.childNodes].filter((n) => n.nodeType === 3).map((n) => n.textContent).join('').trim()
+      const h = document.querySelector('h2[data-other-section="afk"]') ?? [...document.querySelectorAll('body *')].filter((el) => !el.closest('button') && /^afk$/i.test(own(el))).sort((a, b) => parseFloat(getComputedStyle(b).fontSize) - parseFloat(getComputedStyle(a).fontSize))[0]
+      if (!h) return null
+      const r = h.getBoundingClientRect()
+      const scrolled = [document.scrollingElement, ...document.querySelectorAll('body *')].filter((el) => el && el.scrollTop > 0).reduce((n, el) => n + el.scrollTop, 0)
+      return { top: Math.round(r.top), bottom: Math.round(r.bottom), height: window.innerHeight, inView: r.top >= 0 && r.bottom <= window.innerHeight, scrolled }
+    })()`
+  )
+// the jump list's AFK button (nav[data-other-settings-jump]; else the AFK button whose row also names Distances)
+const clickJumpAfk = (port) =>
+  cdpEval(
+    port,
+    'main',
+    `(() => {
+      const nav = document.querySelector('nav[data-other-settings-jump]')
+      const b = [...(nav ?? document).querySelectorAll('button')].find((x) => /^afk$/i.test(x.textContent.trim()) && (nav || /distances/i.test(x.parentElement?.textContent ?? '')))
+      b?.click()
+      return !!b
+    })()`
+  )
+// click the Toggle in the setting row whose label matches `label` (a RegExp; Toggle is a clickable div, not a button)
+const clickRowToggle = (port, label) =>
+  cdpEval(
+    port,
+    'main',
+    `(() => {
+      const own = (el) => [...el.childNodes].filter((n) => n.nodeType === 3).map((n) => n.textContent).join('').trim()
+      const lab = [...document.querySelectorAll('span, label, div')].find((el) => ${label}.test(own(el)))
+      let row = lab
+      for (let i = 0; row && i < 4 && ![...row.querySelectorAll('div')].some((d) => d.style.cursor === 'pointer'); i++) row = row.parentElement
+      const t = row && [...row.querySelectorAll('div')].find((d) => d.style.cursor === 'pointer')
+      t?.click()
+      return { label: !!lab, toggle: !!t }
+    })()`
+  )
+// whole-line matches: the GENERAL About text mentions "Community data sources"
+const OTHER_ROWS = /^(Show reputation|Auto-tick objectives|Data Sources|Learned Places|SET UP ZONES|AFK key presser|Withdrawn steps)\b/im
+const GENERAL_SECTIONS = ['GAME', 'DATA', 'DISPLAY', 'OVERLAY', 'OCR CAPTURE', 'UPDATES', 'ABOUT']
 
 const scenarios = {
   // #1 both windows ingest the same accept
@@ -2381,7 +2463,7 @@ const scenarios = {
     ]
   },
 
-  // CONTRACT9 M7: set SAL-2 for the unsure stop, then Settings -> LEARNED PLACES -> Undo on the newest change ->
+  // CONTRACT9 M7: set SAL-2 for the unsure stop, then Settings -> OTHER MODE -> LEARNED PLACES -> Undo on the newest change ->
   // the stop is '? not sure' again and the entry is no longer the user's
   'memory-undo': async () => {
     const name = 'memory-undo'
@@ -2394,7 +2476,7 @@ const scenarios = {
     try {
       setDoc = await memSetVia(port, /Shubin Mining Facility on Lyria/i, SAL2)
       await nextText(port, MEM_TAG.user)
-      await clickButton(port, 'main', /^SETTINGS$/)
+      await openSettingsTab(port, 'OTHER MODE')
       listText = (await until(() => windowText(port, 'main').then((t) => (/LEARNED PLACES/i.test(t) && /SAL-2/.test(t) ? t : '')), 10000)) || (await windowText(port, 'main'))
       undone = await clickButton(port, 'main', /^Undo$/i)
       await until(() => (memEntry(memFile(e), /Shubin Mining Facility on Lyria/i)?.origin !== 'user' ? true : null), 8000)
@@ -2811,6 +2893,70 @@ const scenarios = {
 
   // CONTRACT10 e2e 4: one user entry ("Shubin Mining Facility on Lyria" -> SAL-2) applies to every lookup alike: a
   // Game.log job imported after it, a scan job's confirm screen and saved stop, and the typed start
+  // CONTRACT11: Settings has a tab bar GENERAL | OTHER MODE. GENERAL keeps the vanilla sections and no Other rows;
+  // OTHER MODE has the 5 headings in order, each larger than a GENERAL section title; the jump list scrolls to AFK;
+  // the tab is remembered after a restart (settings.json otherSettingsTab); a toggle there still saves (otherShowRep)
+  'settings-tabs': async () => {
+    const e = setup('settings-tabs')
+    const port = await freePort()
+    let stop = await launch(e, cdpArgs(port))
+    const r = { general: '', gen: null, other: '', oth: null, before: null, jumped: false, after: null, rep0: null, rep1: null, again: '', againProbe: null }
+    let err = ''
+    try {
+      r.page = await clickButton(port, 'main', /^SETTINGS$/)
+      r.general = (await until(() => windowText(port, 'main').then((t) => (/OCR CAPTURE/.test(t) && /ABOUT/.test(t) ? t : '')), 10000)) || (await windowText(port, 'main'))
+      r.gen = await settingsProbe(port)
+      r.tabClicked = !!(await until(() => clickButton(port, 'main', /^OTHER MODE$/).then((ok) => ok || null), 8000))
+      r.other = (await until(() => windowText(port, 'main').then((t) => (/afk/i.test(t) && /places\s*&\s*matching/i.test(t) ? t : '')), 10000)) || (await windowText(port, 'main'))
+      r.oth = await settingsProbe(port)
+      r.before = await afkView(port)
+      r.jumped = await clickJumpAfk(port)
+      r.after = await until(() => afkView(port).then((v) => (v?.inView && (v.scrolled > (r.before?.scrolled ?? 0) || r.before?.inView) ? v : null)), 4000)
+      r.after = r.after ?? (await afkView(port))
+      r.rep0 = (await settingsGet(port))?.otherShowRep ?? true
+      r.toggle = await clickRowToggle(port, /^show\b.*reputation/i)
+      r.rep1 = (await until(() => settingsGet(port).then((x) => ((x?.otherShowRep ?? true) !== r.rep0 ? x : null)), 8000))?.otherShowRep ?? null
+    } catch (x) {
+      err = String(x?.message ?? x)
+    }
+    await stop()
+    try {
+      // same data folder: localStorage survives the restart; Settings opens on the remembered tab without a click
+      const port2 = await freePort()
+      stop = await launch(e, cdpArgs(port2))
+      await clickButton(port2, 'main', /^SETTINGS$/)
+      r.again = (await until(() => windowText(port2, 'main').then((t) => (/places\s*&\s*matching/i.test(t) ? t : '')), 10000)) || (await windowText(port2, 'main'))
+      r.againProbe = await settingsProbe(port2)
+    } catch (x) {
+      err += ` restart: ${String(x?.message ?? x)}`
+    }
+    await stop()
+    const saved = (() => {
+      try {
+        return JSON.parse(fs.readFileSync(path.join(e.data, 'settings.json'), 'utf8'))
+      } catch {
+        return null
+      }
+    })()
+    const genSize = r.gen?.game?.size ?? NaN
+    const hs = r.oth?.headings ?? []
+    const tops = hs.map((h) => h?.top ?? NaN)
+    return [
+      ['tab bar: GENERAL and OTHER MODE buttons', ['GENERAL', 'OTHER MODE'].every((t) => r.gen?.tabs?.includes(t)), `tabs=${short(r.gen?.tabs)} page=${r.page} ${err}`],
+      ['GENERAL is the first-visit tab: vanilla sections shown', GENERAL_SECTIONS.every((t) => new RegExp(`^${t}$`, 'm').test(r.general)), `missing=${short(GENERAL_SECTIONS.filter((t) => !new RegExp(`^${t}$`, 'm').test(r.general)))}`],
+      ['GENERAL has no Other rows', !OTHER_ROWS.test(r.general), `found=${short(lineWith(r.general, OTHER_ROWS))}`],
+      ['OTHER MODE tab clicked: no vanilla sections, Other rows shown', r.tabClicked && !/^OCR CAPTURE$/m.test(r.other) && /Show reputation/i.test(r.other) && /DATA SOURCES/i.test(r.other) && /LEARNED PLACES/i.test(r.other), `clicked=${r.tabClicked} text=${short(r.other.slice(0, 300))}`],
+      ['OTHER MODE: the 5 headings are there', hs.length === 5 && hs.every(Boolean), `headings=${short(hs.map((h) => h?.text ?? null))}`],
+      ['OTHER MODE: sections jobs, distances, where, places, afk (data-other-section)', short(r.oth?.ids) === short(['jobs', 'distances', 'where', 'places', 'afk']), `ids=${short(r.oth?.ids)}`],
+      ['GENERAL shows no OTHER MODE sections', !(r.gen?.ids ?? []).length, `ids=${short(r.gen?.ids)}`],
+      ['OTHER MODE: headings in order Jobs, Distances, Where Am I, Places, AFK', tops.every((t, i) => i === 0 || t > tops[i - 1]), `tops=${short(tops)}`],
+      ['OTHER MODE: every heading larger than a GENERAL section title', Number.isFinite(genSize) && hs.every((h) => h && h.size > genSize), `general=${genSize}px headings=${short(hs.map((h) => h?.size ?? null))}`],
+      ['jump list AFK scrolls the AFK heading into view', r.jumped && !!r.after?.inView, `clicked=${r.jumped} before=${short(r.before)} after=${short(r.after)}`],
+      ['toggle on OTHER MODE saves (otherShowRep flips)', r.rep1 !== null && r.rep1 === !r.rep0 && saved?.otherShowRep === !r.rep0, `ui=${short(r.toggle)} before=${r.rep0} after=${r.rep1} file=${saved?.otherShowRep}`],
+      ['tab remembered after a restart (OTHER MODE open, no click)', /places\s*&\s*matching/i.test(r.again) && !/^OCR CAPTURE$/m.test(r.again), `stored=${JSON.stringify(e.settings?.()?.otherSettingsTab ?? null)} text=${short(r.again.slice(0, 300))}`]
+    ]
+  },
+
   'resolver-memory-everywhere': async () => {
     const name = 'resolver-memory-everywhere'
     const SCAN_TITLE = 'Resolver Memory Scan'
@@ -2872,7 +3018,24 @@ async function replayRealLog(file, mode, since, outFile) {
       e.append(...lines.slice(i, i + 300))
       await sleep(150)
     }
-    await sleep(4000)
+    // wait until the app has caught up and saved: the jobs file's watermark reaches the log's last event time
+    // and the app log has been quiet for 2 s (a fixed wait lost jobs on a busy machine: 47 of 121 handled, none saved)
+    const stamps = text.match(/^<(\d{4}-\d\d-\d\dT[^>]+)>/gm) ?? []
+    const lastAt = stamps.length ? stamps[stamps.length - 1].slice(1, -1) : null
+    let size = -1
+    let quietSince = Date.now()
+    const t0 = Date.now()
+    while (Date.now() - t0 < 60000) {
+      await sleep(500)
+      const now = e.log().length
+      if (now !== size) {
+        size = now
+        quietSince = Date.now()
+      }
+      const mark = e.jobs()?.lastLogEventAt ?? null
+      const caughtUp = !lastAt || (mark != null && Date.parse(mark) >= Date.parse(lastAt) - 1)
+      if (caughtUp && Date.now() - quietSince >= 2000) break
+    }
   }
   await stop()
   const doc = e.jobs() ?? { jobs: [], history: [] }

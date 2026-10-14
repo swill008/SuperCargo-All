@@ -7,7 +7,7 @@ import { C, F, GLOW, ZOOM_MIN, ZOOM_MAX, ZOOM_STEP, ZOOM_DEFAULT, clampZoom } fr
 import PageHeader, { PAGE_PADDING } from '../components/PageHeader'
 import { Btn } from '../components/ui'
 import OcrCalibrator from '../components/OcrCalibrator'
-import OtherSettingsBlock from '@other/renderer/settingsBlock'
+import OtherSettingsPage from '@other/renderer/OtherSettingsPage'
 import HotkeyRecorder from '@other/renderer/components/HotkeyRecorder'
 import { otherSetting } from '@other/workMode'
 import PrivacyPolicy from '../components/PrivacyPolicy'
@@ -31,6 +31,39 @@ const rowStyle: React.CSSProperties = {
 }
 
 const keyStyle: React.CSSProperties = { fontFamily: F.body, fontSize: 14, color: C.body }
+
+// GENERAL | OTHER MODE tab bar; the chosen tab is remembered per machine.
+type SettingsTab = 'general' | 'other'
+// remembered in the app's settings file (otherSettingsTab): localStorage is not reliably flushed before the app exits
+function SettingsTabBar({ tab, onPick }: { tab: SettingsTab; onPick: (t: SettingsTab) => void }): React.ReactElement {
+  const tabs: [SettingsTab, string][] = [['general', 'GENERAL'], ['other', 'OTHER MODE']]
+  return (
+    <div role="tablist" style={{ display: 'flex', gap: 6, borderBottom: `1px solid ${C.lineStrong}`, marginTop: 8 }}>
+      {tabs.map(([id, label]) => (
+        <button
+          key={id}
+          role="tab"
+          aria-selected={tab === id}
+          onClick={() => onPick(id)}
+          style={{
+            fontFamily: F.display,
+            fontSize: 12,
+            letterSpacing: '0.2em',
+            padding: '9px 16px',
+            background: 'transparent',
+            border: 'none',
+            borderBottom: `2px solid ${tab === id ? C.acc : 'transparent'}`,
+            color: tab === id ? C.acc : C.dim,
+            cursor: 'pointer',
+            marginBottom: -1
+          }}
+        >
+          {label}
+        </button>
+      ))}
+    </div>
+  )
+}
 
 function Section({ title }: { title: string }): React.ReactElement {
   return (
@@ -58,6 +91,8 @@ export default function SettingsPage(): React.ReactElement {
     trace({ area: 'usage', what: 'setting', data: { keys: Object.keys(patch) } })
     return updateSettingsRaw(patch)
   }
+  const tab: SettingsTab = otherSetting(settings, 'otherSettingsTab') === 'other' ? 'other' : 'general'
+
   const watcher = useStore((s) => s.watcher)
   const appVersion = useStore((s) => s.appVersion)
   const update = useStore((s) => s.update)
@@ -143,6 +178,11 @@ export default function SettingsPage(): React.ReactElement {
   return (
     <div style={{ padding: PAGE_PADDING, maxWidth: 820 }}>
       <PageHeader title="SETTINGS" subtitle="Game integration, ship, display, updates" />
+      <SettingsTabBar tab={tab} onPick={(t) => void updateSettings({ otherSettingsTab: t })} />
+      {tab === 'other' ? (
+        <OtherSettingsPage rowStyle={rowStyle} keyStyle={keyStyle} Toggle={Toggle} />
+      ) : (
+      <>
 
       <Section title="GAME" />
       <div style={rowStyle}>
@@ -520,7 +560,6 @@ export default function SettingsPage(): React.ReactElement {
           <span style={{ fontFamily: F.mono, fontSize: 13, color: C.body }}>{settings.ocrCaptureDelay.toFixed(1)} s</span>
         </div>
       </div>
-      <OtherSettingsBlock rowStyle={rowStyle} keyStyle={keyStyle} Toggle={Toggle} />
 
       <Section title="CONTRIBUTE TRAINING DATA" />
       <div style={rowStyle}>
@@ -659,6 +698,8 @@ export default function SettingsPage(): React.ReactElement {
 
       <Section title="ABOUT" />
       <AboutBlock />
+      </>
+      )}
     </div>
   )
 }

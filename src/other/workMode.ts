@@ -98,6 +98,8 @@ declare module '@shared/types' {
     otherOverlayDistance?: boolean
     /** data source: the bundled starmap positions (places UEX lacks + coords UEX lacks); UEX is always on */
     otherSourceStarmap?: boolean
+    /** Settings page tab last shown */
+    otherSettingsTab?: 'general' | 'other'
   }
 }
 
@@ -126,7 +128,8 @@ export const OTHER_SETTING_DEFAULTS = {
   otherAfkMaxMin: 120,
   otherAfkWhereRead: true,
   otherOverlayDistance: true,
-  otherSourceStarmap: true
+  otherSourceStarmap: true,
+  otherSettingsTab: 'general' as 'general' | 'other'
 }
 
 type OtherSettingKey = keyof typeof OTHER_SETTING_DEFAULTS

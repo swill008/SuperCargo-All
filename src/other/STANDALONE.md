@@ -7,7 +7,7 @@ After merging AquatikJustice/SuperCargo, restore:
 1. `src/main/index.ts` — `registerOther({ watcher, getSettings, getMainWindow })` inside `app.whenReady` (after the single-instance lock); each new `LogWatcher` relays its `'line'` events to it; `routeAccepted()` in the log `accepted` handler only to skip the haul manifest in Other mode.
 2. `src/main/logWatcher.ts` — `this.emit('line', line)` for every raw line (`'line'` in `LogWatcherEvents`).
 3. `src/renderer/src/App.tsx` — `bootOther()`, `<OtherPages>`, `<OtherModals>`, `useOtherEscape`, Other view guard.
-4. `src/renderer/src/pages/SettingsPage.tsx` — `<OtherSettingsBlock />` after Capture delay.
+4. `src/renderer/src/pages/SettingsPage.tsx` — the tab bar GENERAL | OTHER MODE (remembered in settings.json `otherSettingsTab`): GENERAL renders the upstream sections unchanged; OTHER MODE renders `<OtherSettingsPage rowStyle keyStyle Toggle />` (`src/other/renderer/OtherSettingsPage.tsx`). To drop Other, remove the tab bar and the OTHER MODE branch (batch 10, rules 69-73).
 5. `src/preload/index.ts` and `src/shared/channels.ts` — the Other IPC methods and channels (`loadOtherJobs`, `saveOtherJobs`, `scanOtherEvents`, `onOtherLogEvent`, `onOtherJobsChanged`, `otherAction`, `onOtherAction`, …).
 6. `electron.vite.config.ts` / tsconfig — `@other` → `src/other`.
 7. `BottomNav` / `CompactGate` — workMode branch (Jobs/Next vs Manifest).
@@ -155,7 +155,38 @@ Tests: `resolver-scan-fix`, `resolver-log-no-rename`, `resolver-typed-start`, `r
 
 Known limits: a body's radius is estimated from its places, so a body with few or no roster places can't be matched (the local planet table, userData/other-bodies.json, uses the panel's exact `Radius:` once WHERE AM I has read it near that body). A marker on a body with no place within 10 km of it stays uncalibrated, and its step still shows "Not found in UEX".
 
-Options for these behaviours live in Settings (Other block); defaults in `OTHER_SETTING_DEFAULTS` (`src/other/workMode.ts`).
+## OTHER MODE settings tab (batch 10, user 2026-10-14)
+
+User: "create an Other Mode settings tab in the Settings tab. All specific other mode options will be there. Anything
+vanilla and specific to the main program will be in the original settings area... all headings in this new Other Mode will
+be enlarged so they are prominent... make the new settings user friendly and easy to understand."
+
+69. **Two tabs.** The SETTINGS page opens with a tab bar: GENERAL | OTHER MODE. The chosen tab is remembered per
+    install (settings.json key `otherSettingsTab`, default GENERAL; localStorage was not flushed before exit). The Work mode
+    selector (`WorkModeSection`, shown by `App.tsx` above the page in Haul mode) stays where it is.
+70. **GENERAL is the vanilla page.** Game, Data, Display, Overlay, OCR Capture, Contribute, Contract Data, Updates, Usage
+    Stats, Debug, About, as upstream, with no Other rows. The OCR hotkey recorder (re-tie 14) and its conflict list stay
+    there.
+71. **OTHER MODE holds every Other option** (`src/other/renderer/OtherSettingsPage.tsx`), shown in both work modes; in
+    Haul mode its top line says "These settings apply when Work mode is Other." Five sections in this order, each with a
+    large heading (about 20 px display font, accent colour, letter-spacing, a rule under it; clearly bigger than a GENERAL
+    section title) and a one-line plain description: **Jobs & Objectives** (Include aUEC (scan), auto-tick objectives,
+    withdrawn steps, crash notice, contract-limit toast, show reputation, shared badge, session summary, short-loop
+    hiding, Haul-switch prompt and its minimum SCU); **Distances & Route** (start mode, distance from mission markers,
+    distances on the overlay); **Where Am I (position reading)** (hotkey, zones / SET UP ZONES, use zone 2, live position
+    and its interval); **Places & Matching** (sub-headings Data Sources and Learned Places); **AFK** (the RSI-terms note,
+    interval, first key, cycle key, time limit, read position while AFK).
+72. **Jump list.** Under the tab bar: "Jobs · Distances · Where Am I · Places · AFK"; each button scrolls its section into
+    view.
+73. **Same settings, plainer words.** Every row has a plain label and a one-line hint saying what it changes in the game;
+    no setting was added, removed or renamed, and every key and behaviour is as before.
+
+Tests: `settings-tabs` in `test/replay/replay.mjs` (GENERAL vanilla only; OTHER MODE's 5 headings in order and larger
+than a GENERAL title by computed font size; the jump list reaches AFK; the tab is remembered after a restart; a toggle
+on OTHER MODE still saves `otherShowRep`). The scenarios that read DATA SOURCES or LEARNED PLACES (`sources-starmap-off`,
+`memory-undo`) open Settings → OTHER MODE through `openSettingsTab()`.
+
+Options for these behaviours live in Settings → OTHER MODE (rules 69-73); defaults in `OTHER_SETTING_DEFAULTS` (`src/other/workMode.ts`).
 
 ## Diagnostics footprint in upstream files
 

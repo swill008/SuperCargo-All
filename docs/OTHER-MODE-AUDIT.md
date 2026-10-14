@@ -116,7 +116,7 @@ changes that sit outside `src/other` but are not in STANDALONE.md:
 | `main/index.ts` | High | One `registerOther({watcher, getSettings})` call inside `whenReady`; move the overlay rework to its own branch |
 | `TopBar.tsx` | High | Revert completely (this also fixes the escape bug) |
 | `App.tsx`, `BottomNav.tsx` | High | Use the existing `<OtherMount view>` plus a `useNavItems` hook; revert the formatting |
-| `SettingsPage.tsx` | High | Keep only `<OtherSettingsBlock/>`; the overlay rows go with the overlay branch |
+| `SettingsPage.tsx` | High | Keep only `<OtherSettingsBlock/>`; the overlay rows go with the overlay branch. Batch 10: now the tab bar + `<OtherSettingsPage/>` (re-tie 4) |
 | `logParser.ts`, `logWatcher.ts` | Med-High | Move the Other patterns into `src/other/main`, and subscribe to the watcher from `register.ts` |
 | `channels.ts`, `preload` | Med | `OTHER_IPC` in `src/other`, and `...otherApi` in the preload |
 | `Typeahead.tsx` | Med | Make the new props opt-in |
@@ -521,6 +521,39 @@ merge), `otherGeo.ts`, `otherMarkers.ts`, `otherBodies.ts`.
 - The scan scenarios use a test seam (main's `ocr:run` answered with a fixed text), not a real capture and OCR.
 - A stop the resolver isn't sure about keeps the text as read in `location`, so two imports of the same unsure text
   from the log and a scan dedupe only when the texts are equal.
+
+## OTHER MODE settings tab (batch 10)
+
+Added 2026-10-14, user-approved (CONTRACT11). Rules 69-73 in
+[STANDALONE.md](../src/other/STANDALONE.md#other-mode-settings-tab-batch-10-user-2026-10-14); files in
+[SYSTEM-MAP.md](SYSTEM-MAP.md#other-mode-other-mode-settings-tab-batch-10-2026-10-14).
+
+**Why.** The Other rows sat in one long block inside the vanilla Settings page, after OCR Capture, under a small
+"OTHER MODE" title the same size as every upstream section; Other options were hard to find and mixed with Haul ones.
+
+**The change.** A tab bar GENERAL | OTHER MODE. GENERAL is the upstream page with no Other rows. OTHER MODE has five
+sections with large headings and plain descriptions, a jump list, and hints rewritten in game terms. No setting added,
+removed or renamed. The upstream footprint in `SettingsPage.tsx` is now the tab bar and one `<OtherSettingsPage/>`
+(re-tie 4) instead of `<OtherSettingsBlock/>` in the middle of the vanilla sections.
+
+| # | Case | Expected | Test |
+|---|---|---|---|
+| T1 | Open SETTINGS on a fresh install | GENERAL tab: Game, Data, Display, Overlay, OCR Capture, …, About; no Other rows (Show reputation, DATA SOURCES, LEARNED PLACES, SET UP ZONES, AFK) | `settings-tabs` |
+| T2 | Click OTHER MODE | Jobs & Objectives, Distances & Route, Where Am I (position reading), Places & Matching, AFK, in that order; each heading's computed font size larger than a GENERAL section title | `settings-tabs` |
+| T3 | Jump list → AFK | the AFK heading is scrolled into view | `settings-tabs` |
+| T4 | Restart the app, open SETTINGS | OTHER MODE is open without a click (`otherSettingsTab` in settings.json) | `settings-tabs` |
+| T5 | Show reputation toggle on OTHER MODE | `otherShowRep` flips and is saved in settings.json | `settings-tabs` |
+| T6 | DATA SOURCES / LEARNED PLACES flows | still work from the OTHER MODE tab | `sources-starmap-off`, `memory-undo` (via `openSettingsTab()`) |
+
+Run (after `npm run build`): `node test/replay/replay.mjs settings-tabs sources-starmap-off memory-undo`.
+
+**Known limits.**
+- The remembered tab is per install (browser storage of the main window), not in settings.json, so the diagnostics
+  export doesn't show it and clearing site data resets it to GENERAL.
+- `settings-tabs` finds headings by their own text and the toggle by its label (`/^show\b.*reputation/i`); a later
+  relabel of those rows needs the scenario's patterns updated.
+- The Haul-mode note line on OTHER MODE ("These settings apply when Work mode is Other.") is not covered by a replay
+  scenario (all scenarios start in Other mode).
 
 ## Suggested order
 
