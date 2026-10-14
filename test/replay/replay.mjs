@@ -2,7 +2,7 @@
 // Each scenario gets a fresh data folder. Expectations are the intended behaviour, so a FAIL is a bug.
 // Usage: npm run build && node test/replay/replay.mjs [scenario-name ...]
 // Real logs: node test/replay/run_all.mjs (every fixture in test/replay/fixtures, live and scan)
-// Linux runs under xvfb-run when it is installed; Windows opens real windows.
+// Linux runs each app on its own Xvfb display when Xvfb is installed; Windows opens real windows.
 
 import { spawn, spawnSync } from 'node:child_process'
 import { createRequire } from 'node:module'
@@ -18,10 +18,9 @@ const here = path.resolve(path.dirname(new URL(import.meta.url).pathname.replace
 const root = process.env.REPLAY_ROOT ? path.resolve(process.env.REPLAY_ROOT) : here
 const runRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'sc-replay-'))
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms))
-const useXvfb = process.platform === 'linux' && spawnSync('which', ['xvfb-run']).status === 0
+const useXvfb = process.platform === 'linux' && spawnSync('which', ['Xvfb']).status === 0
 
 let seq = 0
-let nextDisplay = 90 + (process.pid % 50) * 20 // distinct X display per launch, so parallel runs don't race
 const mission = () => `00000000-0000-4000-8000-${String(++seq).padStart(12, '0')}`
 // every builder takes an optional time (ms or Date) so start-up scenarios can sit lines either side of a watermark
 const iso = (at) => new Date(at ?? Date.now()).toISOString()
@@ -120,17 +119,60 @@ function setup(name, settings, jobsDoc) {
   }
 }
 
+// every app (and Xvfb) this process started, killed on exit too: a scenario that throws before stop() used to
+// leave a detached app + X server running after the suite, holding its display
+const live = new Set()
+const killGroup = (pid) => {
+  try {
+    if (process.platform === 'win32') spawnSync('taskkill', ['/pid', String(pid), '/T', '/F'])
+    else process.kill(-pid, 'SIGTERM')
+  } catch {
+    // already gone
+  }
+}
+process.on('exit', () => {
+  for (const pid of live) killGroup(pid)
+})
+process.on('SIGINT', () => process.exit(130))
+process.on('SIGTERM', () => process.exit(143))
+// a private X server on a display Xvfb picks itself (-displayfd): fixed -n numbers per pid collided between
+// parallel replay processes (run_all), xvfb-run then failed at once and the app never started (app_jobs=0 after 45 s)
+function startXvfb() {
+  return new Promise((resolve, reject) => {
+    const x = spawn('Xvfb', ['-displayfd', '3', '-screen', '0', '1280x1024x24', '-nolisten', 'tcp'], { detached: true, stdio: ['ignore', 'ignore', 'pipe', 'pipe'] })
+    live.add(x.pid)
+    let out = ''
+    let errText = ''
+    const timer = setTimeout(() => reject(new Error(`Xvfb gave no display in 10 s ${errText.trim().slice(-200)}`)), 10000)
+    x.stderr.on('data', (d) => (errText += d))
+    x.stdio[3].on('data', (d) => {
+      out += d
+      if (!out.includes('\n')) return
+      clearTimeout(timer)
+      resolve({ pid: x.pid, display: `:${out.trim()}` })
+    })
+    x.on('exit', (code) => {
+      live.delete(x.pid)
+      clearTimeout(timer)
+      reject(new Error(`Xvfb exited (${code}) ${errText.trim().slice(-200)}`))
+    })
+  })
+}
+
+/** starts the app; resolves to stop(). stop.ready is false when the app never wrote its start-up line (45 s). */
 async function launch(env, extraArgs = [], extraEnv = {}) {
   const appEnv = { ...process.env, HOME: env.home, USERPROFILE: env.home, APPDATA: path.join(env.home, 'AppData', 'Roaming'), XDG_CONFIG_HOME: path.join(env.home, '.config'), ...extraEnv }
   delete appEnv.ELECTRON_RENDERER_URL
   const args = [root, '--no-sandbox', ...extraArgs]
-  const child = useXvfb
-    ? spawn('xvfb-run', ['-n', String(nextDisplay++), electron, ...args], { env: appEnv, detached: true, stdio: 'ignore' })
-    : spawn(electron, args, { env: appEnv, detached: process.platform !== 'win32', stdio: 'ignore' })
+  const xvfb = useXvfb ? await startXvfb() : null
+  if (xvfb) appEnv.DISPLAY = xvfb.display
+  const child = spawn(electron, args, { env: appEnv, detached: process.platform !== 'win32', stdio: 'ignore' })
+  live.add(child.pid)
   // ready once the main window has bound its listeners (and, in Other mode, run the start-up scan);
   // a fixed wait was flaky with several apps starting at once
   const logFile = path.join(env.data, 'logs', 'supercargo.log')
-  const ready = /\[main\] (startup scan|init loaded)/
+  const readyRe = /\[main\] (startup scan|init loaded)/
+  let ready = false
   const t0 = Date.now()
   while (Date.now() - t0 < 45000) {
     let text = ''
@@ -139,20 +181,26 @@ async function launch(env, extraArgs = [], extraEnv = {}) {
     } catch {
       // not written yet
     }
-    if (ready.test(text) && (!/workMode=other/.test(text) || /\[main\] startup scan/.test(text) || /startup scan skipped/.test(text))) break
+    if (readyRe.test(text) && (!/workMode=other/.test(text) || /\[main\] startup scan/.test(text) || /startup scan skipped/.test(text))) {
+      ready = true
+      break
+    }
     await sleep(250)
   }
+  if (!ready) console.error(`launch: app NOT READY after 45 s (no start-up line in ${logFile}; display ${xvfb?.display ?? 'native'})`)
   await sleep(1000)
-  return async () => {
+  const stop = async () => {
     await sleep(1500) // let saves and the 500 ms log flush land
-    try {
-      if (process.platform === 'win32') spawnSync('taskkill', ['/pid', String(child.pid), '/T', '/F'])
-      else process.kill(-child.pid, 'SIGTERM')
-    } catch {
-      // already gone
-    }
+    killGroup(child.pid)
+    live.delete(child.pid)
     await sleep(1500)
+    if (xvfb) {
+      killGroup(xvfb.pid)
+      live.delete(xvfb.pid)
+    }
   }
+  stop.ready = ready
+  return stop
 }
 
 // Chrome DevTools Protocol: launch with cdpArgs(port) to run JS in a window (main = index.html, overlay = #compact)
@@ -483,6 +531,41 @@ async function j74Run(name, { collected = false, exportDiag = false } = {}) {
 }
 // "Security Compound" line(s) of a window's text
 const lineWith = (text, re) => (text ?? '').split(/\n/).filter((l) => re.test(l)).join(' | ')
+
+// CONTRACT6 REFRESH. Phase A: J74 (and a second job that then ends) arrive live, app quits. The doc is then left as an
+// older build would leave it: steps without a position, empty zone table, watermark past the J74 lines (the app's own).
+// keepVersion false also drops refreshedForVersion (first start after an update).
+const J74_ENDED = '7a1e0d2c-5b6f-4c1e-9a3b-00000000e0e1'
+const j74Stripped = (doc, keepVersion) => {
+  for (const j of doc.jobs ?? []) for (const s of j.steps ?? []) delete s.position
+  delete doc.markerZones
+  if (!keepVersion) delete doc.refreshedForVersion
+  return doc
+}
+const j74Drop = (doc) => doc?.jobs?.find((j) => j.missionId === J74)?.steps?.find((s) => s.objectiveId === J74_DROP || /Security Compound/.test(s.label ?? ''))
+const traceText = (e) => {
+  try {
+    return fs.readFileSync(path.join(e.data, 'logs', 'trace.jsonl'), 'utf8')
+  } catch {
+    return ''
+  }
+}
+const clickButton = (port, which, re) =>
+  cdpEval(port, which, `(() => { const b = [...document.querySelectorAll('button')].find((x) => ${re}.test(x.textContent.trim())); b?.click(); return !!b })()`)
+async function j74Stale(name, keepVersion) {
+  const e = setup(name, { otherStartMode: 'fixed' }, { jobs: [], history: [], startLocation: 'Lorville', startTypedAt: iso(ago(60)), listOrder: 'distance', lastLogEventAt: iso(ago(300)) })
+  e.append(...J74_L.session(ago(240)))
+  const stop = await launch(e)
+  e.append(J74_L.marker(), J74_L.accept(), J74_L.deliver(), J74_L.collect(), J74_L.collected())
+  e.append(L.accept(J74_ENDED, 'Bounty Hunt'), L.marker(J74_ENDED, 'Bounty', 'Bounty_Rank1'), L.objective(J74_ENDED, 'Go to Port Tressler'))
+  await sleep(1500)
+  e.append(L.end(J74_ENDED, 'Complete'))
+  await until(() => (e.jobs()?.jobs?.find((j) => j.missionId === J74)?.steps?.length >= 2 && findJob(e.jobs(), J74_ENDED)?.status === 'complete' ? true : null))
+  await stop()
+  const doc = j74Stripped(e.jobs() ?? { jobs: [], history: [] }, keepVersion)
+  fs.writeFileSync(path.join(e.data, 'other-jobs.json'), JSON.stringify(doc))
+  return { e, before: doc }
+}
 
 const scenarios = {
   // #1 both windows ingest the same accept
@@ -1572,6 +1655,89 @@ const scenarios = {
     ]
   },
 
+  // CONTRACT6: REFRESH on the Next screen re-reads the active jobs' markers ignoring the watermark and places J74's
+  // delivery; watermark, done flags and ended jobs untouched; the result line names the place
+  'refresh-places-j74': async () => {
+    const { e, before } = await j74Stale('refresh-places-j74', true)
+    const port = await freePort()
+    const stop = await launch(e, cdpArgs(port))
+    let pre = ''
+    let clicked = false
+    let msg = ''
+    let overlay = ''
+    let next = ''
+    let jobsBtn = false
+    let err = ''
+    try {
+      pre = await until(() => windowText(port, 'overlay').then((t) => (/Security Compound/i.test(t) ? t : '')), 8000)
+      await clickButton(port, 'main', '/^NEXT$/')
+      await until(() => clickButton(port, 'main', '/^REFRESH$/').then((ok) => (clicked = ok)), 6000)
+      msg = lineWith(await until(() => windowText(port, 'main').then((t) => (/Refreshed|Refresh failed/.test(t) ? t : '')), 15000), /Refresh/)
+      overlay = (await until(() => windowText(port, 'overlay').then((t) => (/near HDPC-Cassillo/i.test(t) ? t : '')), 8000)) || (await windowText(port, 'overlay'))
+      next = (await until(() => windowText(port, 'main').then((t) => (/near HDPC-Cassillo/.test(t) ? t : '')), 8000)) || (await windowText(port, 'main'))
+      await clickButton(port, 'main', '/^JOBS$/')
+      jobsBtn = await until(() => cdpEval(port, 'main', `[...document.querySelectorAll('button')].some((x) => /^REFRESH$/.test(x.textContent.trim()))`), 4000)
+    } catch (x) {
+      err = String(x?.message ?? x)
+    }
+    await stop()
+    const doc = e.jobs()
+    const drop = j74Drop(doc)
+    const collect = doc?.jobs?.find((j) => j.missionId === J74)?.steps?.find((s) => /Farnesway/.test(s.label ?? ''))
+    const endedBefore = findJob(before, J74_ENDED)
+    const endedAfter = findJob(doc, J74_ENDED)
+    return [
+      ['before REFRESH: start-up did not place it (watermark past the marker)', !!pre && !/near HDPC-Cassillo/i.test(pre), `overlay=${JSON.stringify(lineWith(pre, /Security Compound|near/i).slice(0, 200))} ${err}`],
+      ['REFRESH button on the Next screen', clicked, `clicked=${clicked}`],
+      ['delivery step gets a position', !!drop?.position, `step=${JSON.stringify(drop ?? null)?.slice(0, 200)}`],
+      ['overlay: "near HDPC-Cassillo"', /near HDPC-Cassillo/i.test(overlay), `overlay=${JSON.stringify(lineWith(overlay, /Security Compound|near/i).slice(0, 200))}`],
+      ['Next tab: "near HDPC-Cassillo"', /near HDPC-Cassillo/.test(next), `next=${JSON.stringify(lineWith(next, /Security Compound|near/i).slice(0, 200))}`],
+      ['result line names the place', /Refreshed.*\d+ place.*(Security Compound|HDPC-Cassillo)/.test(msg), `msg=${JSON.stringify(msg)}`],
+      ['zone recalibrated for build 12913470', !!doc?.markerZones?.['12913470']?.['862321816216'], `zones=${JSON.stringify(doc?.markerZones ?? null)?.slice(0, 200)}`],
+      ['watermark unchanged', !!before.lastLogEventAt && doc?.lastLogEventAt === before.lastLogEventAt && doc?.lastLogEventCount === before.lastLogEventCount, `before=${before.lastLogEventAt}/${before.lastLogEventCount} after=${doc?.lastLogEventAt}/${doc?.lastLogEventCount}`],
+      ['ended job not revived', !!endedBefore && endedBefore.status !== 'active' && endedAfter?.status === endedBefore.status && copies(doc, J74_ENDED) === 1, `before=${endedBefore?.status} after=${endedAfter?.status} copies=${copies(doc, J74_ENDED)}`],
+      ['jobs/history counts and done flags kept', doc?.jobs?.length === before.jobs.length && (doc?.history?.length ?? 0) === (before.history?.length ?? 0) && collect?.done === true, `jobs=${doc?.jobs?.length}/${before.jobs.length} history=${doc?.history?.length ?? 0}/${before.history?.length ?? 0} collect.done=${collect?.done}`],
+      ['Jobs screen header has REFRESH too', !!jobsBtn, `found=${jobsBtn}`]
+    ]
+  },
+
+  // CONTRACT6: the first start after an update (doc refreshedForVersion missing/different) refreshes once by itself;
+  // the next start of the same version does not
+  'refresh-auto-once': async () => {
+    const { e, before } = await j74Stale('refresh-auto-once', false)
+    const autos = () => count(traceText(e), /"what":"auto refresh: new version"/g)
+    const a0 = autos()
+    const port = await freePort()
+    let stop = await launch(e, cdpArgs(port))
+    let overlay = ''
+    let err = ''
+    const placed = await until(() => j74Drop(e.jobs())?.position, 15000)
+    try {
+      overlay = (await until(() => windowText(port, 'overlay').then((t) => (/near HDPC-Cassillo/i.test(t) ? t : '')), 8000)) || (await windowText(port, 'overlay'))
+    } catch (x) {
+      err = String(x?.message ?? x)
+    }
+    await stop()
+    const mid = e.jobs()
+    const a1 = autos()
+    // second start, same version: strip again; nothing may place it this time
+    fs.writeFileSync(path.join(e.data, 'other-jobs.json'), JSON.stringify(j74Stripped(e.jobs(), true)))
+    stop = await launch(e)
+    await sleep(3000)
+    await stop()
+    const last = e.jobs()
+    const a2 = autos()
+    return [
+      ['first start: step placed without clicking', !!placed, `position=${JSON.stringify(placed ?? null)}`],
+      ['overlay: "near HDPC-Cassillo"', /near HDPC-Cassillo/i.test(overlay), `overlay=${JSON.stringify(lineWith(overlay, /Security Compound|near/i).slice(0, 200))} ${err}`],
+      ['refreshedForVersion stored', typeof mid?.refreshedForVersion === 'string' && mid.refreshedForVersion.length > 0, `refreshedForVersion=${mid?.refreshedForVersion}`],
+      ['watermark unchanged', !!before.lastLogEventAt && mid?.lastLogEventAt === before.lastLogEventAt && mid?.lastLogEventCount === before.lastLogEventCount, `before=${before.lastLogEventAt}/${before.lastLogEventCount} after=${mid?.lastLogEventAt}/${mid?.lastLogEventCount}`],
+      ['ended job not revived', findJob(mid, J74_ENDED)?.status === findJob(before, J74_ENDED)?.status && findJob(mid, J74_ENDED)?.status !== 'active', `before=${findJob(before, J74_ENDED)?.status} after=${findJob(mid, J74_ENDED)?.status}`],
+      ['decide trace: one auto refresh on the first start', a1 - a0 === 1, `auto refresh lines ${a0} -> ${a1}`],
+      ['second start: no rerun (trace count same, step stays unplaced)', a2 === a1 && !j74Drop(last)?.position && last?.refreshedForVersion === mid?.refreshedForVersion, `auto refresh lines ${a1} -> ${a2} position=${JSON.stringify(j74Drop(last)?.position ?? null)}`]
+    ]
+  },
+
   // CONTRACT4 C: Export diagnostics (button path) copies the whole saved text to the clipboard; result.copied
   'diag-clipboard': async () => {
     const r = await diagExportRun('diag-clipboard', { note: '', includeImages: false }, ({ iport }) => mainEval(iport, `require('electron').clipboard.readText()`))
@@ -1650,6 +1816,13 @@ async function replayRealLog(file, mode, since, outFile) {
     stop = await launch(e)
   } else {
     stop = await launch(e)
+  }
+  if (!stop.ready) {
+    await stop()
+    console.error(`${name}: APP NOT READY (start-up only, no checks run)`)
+    process.exit(3)
+  }
+  if (mode !== 'scan') {
     const lines = text.split(/\r?\n/)
     for (let i = 0; i < lines.length; i += 300) {
       e.append(...lines.slice(i, i + 300))

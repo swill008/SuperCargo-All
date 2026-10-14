@@ -14,13 +14,13 @@ import {
   type OtherMarkerZone,
   type OtherStep
 } from '@other/otherJob'
-import { calibrateZone, resolveMarker, type BodyRadiusLookup, type MarkerPos } from '@other/otherMarkers'
+import { calibrateZone, resolveMarker, type BodyRadiusLookup, type CalibrateResult, type MarkerPos } from '@other/otherMarkers'
 import { findRosterLocation, nearestRosterPlace, stepActivePlace } from '@other/otherNext'
 import { setBodyRadiusLookup } from '@other/otherGeo'
 import { bodyRadiusFromTable } from '@other/otherBodies'
 import { bodiesTable } from './otherBodiesStore'
 import { ACCURACY, type Where, type WhereRunResult, type WhereSource } from '@other/otherWhere'
-import { mergeLocations } from './otherPlaces'
+import { loadOtherPlacesFromMain, mergeLocations } from './otherPlaces'
 import type { OtherLogEvent } from '@other/otherEvents'
 import type { OtherAction } from '@other/otherActions'
 import { useStore } from '@renderer/state/store'
@@ -39,6 +39,28 @@ export interface OtherJobDraft {
   location: string
   item: string
   need: number
+}
+
+/** REFRESH result (batch 5): counts and the line shown on the screen */
+export interface RefreshResult {
+  /** active jobs refreshed */
+  jobs: number
+  /** marker lines read back from the logs */
+  markers: number
+  /** steps that gained a position */
+  placed: number
+  /** zone outcome, e.g. "2 zones (new 1, body 1)" */
+  zones: string
+  message: string
+}
+
+/** lastRefresh: the result plus when and how it ran (diagnostics, UI) */
+export interface RefreshRecord extends RefreshResult {
+  at: string
+  silent: boolean
+  ms: number
+  files?: string[]
+  error?: string
 }
 
 export interface OtherJobEdit {
@@ -76,6 +98,15 @@ interface OtherJobsState {
   trackedAt?: string
   /** build of the newest log session (doc field) */
   markerBuild?: string
+  /** app version+commit the automatic REFRESH last ran for (doc field) */
+  refreshedForVersion?: string
+  /** a REFRESH is running (UI disables the button) */
+  refreshing: boolean
+  /** newest REFRESH result this run */
+  lastRefresh: RefreshRecord | null
+  /** REFRESH: reload places, re-read active jobs' markers from the logs (ignoring the watermark), re-place steps.
+   *  Main window only; never moves the watermark, changes status/done flags, or creates/ends jobs. */
+  refreshJobs: (opts?: { silent?: boolean }) => Promise<RefreshResult>
   /** start-up: last game session crashed and active log jobs were kept (rule 6) */
   crashNotice: { kept: number } | null
   dismissCrashNotice: () => void
@@ -461,7 +492,7 @@ function takeWhere(cur: Where | null, next: Where, why?: Record<string, unknown>
  * Zone ids change per server, so a new session or a disconnect/quit drops the current build's
  * zone table; later markers calibrate fresh. Step positions already placed (system frame) stay.
  */
-function resetZones(d: Draft, why: 'session' | 'disconnect' | 'quit'): void {
+function resetZones(d: Draft, why: 'session' | 'disconnect' | 'quit' | 'refresh'): void {
   const build = d.markerBuild
   if (!build) return
   const n = Object.keys(d.markerZones[build] ?? {}).length
@@ -471,6 +502,44 @@ function resetZones(d: Draft, why: 'session' | 'disconnect' | 'quit'): void {
   d.markerZones = rest
   decide(`marker zones reset: ${why}`, undefined, { build, zones: n })
   dlog.debug('other', 'marker zones reset', { why, build, zones: n })
+}
+
+/**
+ * One marker line: remember it for its mission/objective, calibrate the build's zone table
+ * (incl. the body-frame path) and place steps. Shared by the reducer and REFRESH; never touches
+ * the watermark. Returns the calibration result (null when there is no build yet).
+ */
+function applyMarker(d: Draft, e: Extract<OtherLogEvent, { kind: 'marker' }>, ctx: Ctx): CalibrateResult | null {
+  const mid = e.missionId
+  const m: MarkerPos = { zoneHostId: e.zoneHostId, x: e.x, y: e.y, z: e.z }
+  const marks = missionMarkers.get(e.missionId) ?? new Map<string, MarkerPos>()
+  marks.set(e.objectiveId, m)
+  missionMarkers.set(e.missionId, marks)
+  if (!d.markerBuild) {
+    decide('marker: no build, not calibrated', mid, { objectiveId: e.objectiveId, zone: e.zoneHostId })
+    dlog.debug('other', 'marker: no game build yet, not calibrated', { id: short(e.missionId) })
+    return null
+  }
+  const table = d.markerZones[d.markerBuild] ?? {}
+  const r = calibrateZone(table, m, mergeLocations(useStore.getState().locations), tableRadius)
+  decide(r.zones !== table ? 'marker calibrated' : 'marker stored', mid, {
+    objectiveId: e.objectiveId,
+    zone: e.zoneHostId,
+    build: d.markerBuild,
+    change: r.change,
+    place: r.place,
+    n: r.zones[e.zoneHostId]?.n,
+    ...(r.bodyWhy ? { body: r.body, bodyWhy: r.bodyWhy, meters: r.meters } : {})
+  })
+  if (r.zones !== table) {
+    d.markerZones = { ...d.markerZones, [d.markerBuild]: r.zones }
+    dlog.debug('other', 'marker zone calibration', { build: d.markerBuild, zone: e.zoneHostId, change: r.change, place: r.place, body: r.body, meters: r.meters, n: r.zones[e.zoneHostId]?.n })
+  }
+  // a newly learned zone can place earlier markers too
+  const job = d.jobs.find((j) => j.missionId === e.missionId)
+  if (r.change === 'new' || r.change === 'root' || r.change === 'body') placeSteps(d, ctx)
+  else if (job) placeSteps(d, ctx, job.id)
+  return r
 }
 
 function reduce(d: Draft, e: OtherLogEvent, ctx: Ctx): void {
@@ -485,37 +554,9 @@ function reduce(d: Draft, e: OtherLogEvent, ctx: Ctx): void {
       dlog.info('other', 'log session', { at: e.at, build: e.build })
       break
 
-    case 'marker': {
-      const m: MarkerPos = { zoneHostId: e.zoneHostId, x: e.x, y: e.y, z: e.z }
-      const marks = missionMarkers.get(e.missionId) ?? new Map<string, MarkerPos>()
-      marks.set(e.objectiveId, m)
-      missionMarkers.set(e.missionId, marks)
-      if (!d.markerBuild) {
-        decide('marker: no build, not calibrated', mid, { objectiveId: e.objectiveId, zone: e.zoneHostId })
-        dlog.debug('other', 'marker: no game build yet, not calibrated', { id: short(e.missionId) })
-        break
-      }
-      const table = d.markerZones[d.markerBuild] ?? {}
-      const r = calibrateZone(table, m, mergeLocations(useStore.getState().locations), tableRadius)
-      decide(r.zones !== table ? 'marker calibrated' : 'marker stored', mid, {
-        objectiveId: e.objectiveId,
-        zone: e.zoneHostId,
-        build: d.markerBuild,
-        change: r.change,
-        place: r.place,
-        n: r.zones[e.zoneHostId]?.n,
-        ...(r.bodyWhy ? { body: r.body, bodyWhy: r.bodyWhy, meters: r.meters } : {})
-      })
-      if (r.zones !== table) {
-        d.markerZones = { ...d.markerZones, [d.markerBuild]: r.zones }
-        dlog.debug('other', 'marker zone calibration', { build: d.markerBuild, zone: e.zoneHostId, change: r.change, place: r.place, body: r.body, meters: r.meters, n: r.zones[e.zoneHostId]?.n })
-      }
-      // a newly learned zone can place earlier markers too
-      const job = d.jobs.find((j) => j.missionId === e.missionId)
-      if (r.change === 'new' || r.change === 'root' || r.change === 'body') placeSteps(d, ctx)
-      else if (job) placeSteps(d, ctx, job.id)
+    case 'marker':
+      applyMarker(d, e, ctx)
       break
-    }
 
     case 'accepted': {
       // rule 1: Haul mode never creates or reactivates Other jobs
@@ -801,6 +842,7 @@ export function buildOtherDoc(): OtherJobsDoc {
     startTypedAt: s.startTypedAt,
     trackedMissionId: s.trackedMissionId,
     trackedAt: s.trackedAt,
+    refreshedForVersion: s.refreshedForVersion,
     rev: s.rev
   }
 }
@@ -837,6 +879,12 @@ function flushSave(): void {
 function sendAction(a: OtherAction): void {
   dlog.debug('other', 'overlay action sent to main window', a)
   window.supercargo.otherAction?.(a)
+}
+
+/** REFRESH preload calls (refresh-main adds them; absent = older build) */
+type RefreshBridge = {
+  refreshOtherPlaces?: () => Promise<unknown>
+  refreshScanOther?: (missionIds: string[]) => Promise<{ events: OtherLogEvent[]; files: string[]; ms: number }>
 }
 
 let listenersBound = false
@@ -904,6 +952,7 @@ export const useOtherJobs = create<OtherJobsState>((set, get) => {
       startTypedAt: typeof doc.startTypedAt === 'string' ? doc.startTypedAt : undefined,
       trackedMissionId: typeof doc.trackedMissionId === 'string' ? doc.trackedMissionId : undefined,
       trackedAt: typeof doc.trackedAt === 'string' ? doc.trackedAt : undefined,
+      refreshedForVersion: typeof doc.refreshedForVersion === 'string' ? doc.refreshedForVersion : undefined,
       rev: doc.rev ?? 0
     })
     useOtherHistory.getState().load(doc)
@@ -1052,6 +1101,134 @@ export const useOtherJobs = create<OtherJobsState>((set, get) => {
     buffer = null
     if (late.length) get().applyEvents(late, true)
     set({ ready: true })
+    // batch 5: first start after an update re-reads active jobs' markers once (silent)
+    await autoRefreshOnUpdate()
+  }
+
+  const autoRefreshOnUpdate = async (): Promise<void> => {
+    let version: string
+    try {
+      const info = await window.supercargo.debugInfo?.()
+      if (!info) return
+      version = `${info.version}+${info.commit}`
+    } catch (err) {
+      dlog.warn('other', 'auto refresh: no version', { error: (err as Error)?.message ?? String(err) })
+      return
+    }
+    const was = get().refreshedForVersion
+    if (was === version) return
+    decide('auto refresh: new version', undefined, { from: was ?? null, to: version })
+    dlog.info('other', 'auto refresh after update', { from: was ?? null, to: version })
+    try {
+      await get().refreshJobs({ silent: true })
+    } catch (err) {
+      dlog.warn('other', 'auto refresh failed', { error: (err as Error)?.message ?? String(err) })
+    }
+    // once per version, whatever the result
+    set({ refreshedForVersion: version })
+    get().persist()
+  }
+
+  let refreshRun: Promise<RefreshResult> | null = null
+  const runRefresh = async (silent: boolean): Promise<RefreshResult> => {
+    const t0 = Date.now()
+    const bridge = window.supercargo as unknown as RefreshBridge
+    set({ refreshing: true })
+    const done = (r: RefreshResult, extra?: { files?: string[]; error?: string }): RefreshResult => {
+      const rec: RefreshRecord = { ...r, at: new Date().toISOString(), silent, ms: Date.now() - t0, ...extra }
+      set({ refreshing: false, lastRefresh: rec })
+      decide('refresh', undefined, { ...rec })
+      dlog.info('other', 'refresh result', { ...rec })
+      return r
+    }
+    try {
+      // 1. places: main re-reads its roster, the window reloads it (place list version bumps)
+      try {
+        await bridge.refreshOtherPlaces?.()
+      } catch (err) {
+        dlog.warn('other', 'refresh: places refresh failed', { error: (err as Error)?.message ?? String(err) })
+      }
+      await loadOtherPlacesFromMain()
+
+      // 2. active jobs' marker lines, ignoring the watermark
+      const active = get().jobs.filter((j) => j.status === 'active' && !!j.missionId)
+      const ids = [...new Set(active.map((j) => j.missionId as string))]
+      let events: OtherLogEvent[] = []
+      let files: string[] | undefined
+      if (ids.length) {
+        if (!bridge.refreshScanOther) {
+          return done({ jobs: active.length, markers: 0, placed: 0, zones: '', message: 'Refresh failed: log re-scan not available' }, { error: 'no refreshScanOther bridge' })
+        }
+        const res = await bridge.refreshScanOther(ids)
+        const want = new Set(ids)
+        events = (res?.events ?? []).filter((e) => e.kind === 'session' || (e.kind === 'marker' && want.has(e.missionId)))
+        files = res?.files
+      }
+
+      // 3. refresh-only apply: zones afresh, markers recalibrate, steps re-placed; no watermark, status or done changes
+      const s = get()
+      const d: Draft = {
+        jobs: s.jobs,
+        history: useOtherHistory.getState().history,
+        lastLogEventAt: s.lastLogEventAt,
+        lastLogEventCount: s.lastLogEventCount,
+        sessionAt: s.sessionAt,
+        expandedId: s.expandedId,
+        markerZones: s.markerZones,
+        markerBuild: s.markerBuild,
+        where: s.where
+      }
+      const ctx: Ctx = { live: false, settings: settingsNow(), accepted: [] }
+      const before = new Map<string, boolean>()
+      for (const j of d.jobs) for (const st of j.steps) before.set(`${j.id}\n${st.id}`, !!st.position)
+      resetZones(d, 'refresh')
+      const changes: Record<string, number> = {}
+      let markers = 0
+      for (const e of events) {
+        if (e.kind === 'session') {
+          // build context only: a new server means new zone ids
+          if (e.build) d.markerBuild = e.build
+          resetZones(d, 'session')
+          continue
+        }
+        if (e.kind !== 'marker') continue
+        markers += 1
+        const r = applyMarker(d, e, ctx)
+        const c = r?.change ?? 'no build'
+        changes[c] = (changes[c] ?? 0) + 1
+      }
+      placeSteps(d, ctx)
+
+      const locations = mergeLocations(useStore.getState().locations)
+      const found: string[] = []
+      let placed = 0
+      for (const j of d.jobs) {
+        for (const st of j.steps) {
+          if (!st.position || before.get(`${j.id}\n${st.id}`) !== false) continue
+          placed += 1
+          const near = nearestRosterPlace(st.position, locations)
+          found.push(near ? `${st.location || st.label} near ${near.name}` : st.location || st.label)
+        }
+      }
+      const zoneCount = Object.keys((d.markerBuild && d.markerZones[d.markerBuild]) || {}).length
+      const tally = Object.entries(changes)
+        .map(([k, n]) => `${k} ${n}`)
+        .join(', ')
+      const zones = `${zoneCount} zone${zoneCount === 1 ? '' : 's'}${tally ? ` (${tally})` : ''}`
+
+      // only jobs (positions), zone table and build change; watermark, session and history stay
+      set({ jobs: d.jobs, markerZones: d.markerZones, markerBuild: d.markerBuild })
+      get().persist()
+
+      const list = found.length > 2 ? `${found.slice(0, 2).join(', ')} +${found.length - 2} more` : found.join(', ')
+      const message = placed
+        ? `Refreshed · ${active.length} job${active.length === 1 ? '' : 's'} · ${placed} place${placed === 1 ? '' : 's'} found (${list})`
+        : 'Refreshed · nothing new'
+      return done({ jobs: active.length, markers, placed, zones, message }, { files })
+    } catch (err) {
+      const error = (err as Error)?.message ?? String(err)
+      return done({ jobs: 0, markers: 0, placed: 0, zones: '', message: `Refresh failed: ${error}` }, { error })
+    }
   }
 
   return {
@@ -1073,6 +1250,9 @@ export const useOtherJobs = create<OtherJobsState>((set, get) => {
     startTypedAt: undefined,
     trackedMissionId: undefined,
     trackedAt: undefined,
+    refreshedForVersion: undefined,
+    refreshing: false,
+    lastRefresh: null,
     crashNotice: null,
     dismissCrashNotice: () => set({ crashNotice: null }),
 
@@ -1092,6 +1272,21 @@ export const useOtherJobs = create<OtherJobsState>((set, get) => {
       if ((doc.rev ?? 0) < get().rev) return
       dlog.debug('other', 'reload from disk', { rev: doc.rev, jobs: doc.jobs?.length ?? 0 })
       loadDoc(doc)
+    },
+
+    refreshJobs: (opts) => {
+      // rule 8: the overlay never applies log events or writes the doc
+      if (get().passive) {
+        dlog.debug('other', 'refresh: not available in the overlay')
+        return Promise.resolve({ jobs: 0, markers: 0, placed: 0, zones: '', message: 'Refresh is not available in the overlay' })
+      }
+      // one at a time: a second press while running gets the running one
+      refreshRun =
+        refreshRun ??
+        runRefresh(!!opts?.silent).finally(() => {
+          refreshRun = null
+        })
+      return refreshRun
     },
 
     applyEvent: (e) => {

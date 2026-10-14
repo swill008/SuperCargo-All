@@ -395,6 +395,7 @@ export default function NextPage(): React.ReactElement {
       <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 18, flexWrap: 'wrap' }}>
         <span style={{ fontFamily: F.display, fontSize: 11, letterSpacing: '0.16em', color: C.dim, flex: 'none' }}>STARTING AT</span>
         <StartModeToggle mode={startMode} onChange={(m) => { void updateSettings({ otherStartMode: m }) }} />
+        <RefreshButton />
         <div
           style={{ flex: '1 1 240px', minWidth: 220, maxWidth: 380, position: 'relative' }}
           title={fromClue ? `${AUTO_TIP}${origin.stale ? ' \u00b7 last seen over 5 min ago' : ''}` : undefined}
@@ -476,5 +477,54 @@ export function StartModeToggle({ mode, onChange }: {
     >
       {fixed ? 'FIXED' : 'AUTO'}
     </Btn>
+  )
+}
+
+const REFRESH_TIP = "Reload places and re-read your active contracts' map markers from the game log"
+
+/** REFRESH: reload places + re-read active jobs' markers (store refreshJobs); result shown ~6 s */
+export function RefreshButton(): React.ReactElement {
+  const refreshJobs = useOtherJobs((s) => s.refreshJobs)
+  const [busy, setBusy] = useState(false)
+  const [result, setResult] = useState<{ text: string; error: boolean } | null>(null)
+
+  useEffect(() => {
+    if (!result) return
+    const t = setTimeout(() => setResult(null), 6000)
+    return () => clearTimeout(t)
+  }, [result])
+
+  const run = async (): Promise<void> => {
+    if (busy) return
+    setBusy(true)
+    setResult(null)
+    try {
+      const r = await refreshJobs()
+      setResult({ text: r.message, error: false })
+    } catch (e) {
+      setResult({ text: `Refresh failed \u00b7 ${e instanceof Error ? e.message : String(e)}`, error: true })
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  return (
+    <span style={{ display: 'inline-flex', alignItems: 'center', gap: 8, flex: 'none' }}>
+      <Btn
+        onClick={() => { void run() }}
+        disabled={busy}
+        title={REFRESH_TIP}
+        style={{
+          fontFamily: F.display, fontSize: 10, letterSpacing: '0.14em', color: C.dim,
+          border: `1px solid ${C.lineStrong}`, background: 'transparent', padding: '3px 8px', flex: 'none',
+          cursor: busy ? 'default' : 'pointer', opacity: busy ? 0.6 : 1
+        }}
+      >
+        {busy ? 'REFRESHING\u2026' : 'REFRESH'}
+      </Btn>
+      {result ? (
+        <span style={{ fontFamily: F.body, fontSize: 12, color: result.error ? C.red : C.dim }}>{result.text}</span>
+      ) : null}
+    </span>
   )
 }

@@ -274,3 +274,34 @@ old `out/` with its `package.json` and `data/`).
 - A zone table is reset on every session line, disconnect and quit, so the first marker after a server change must
   calibrate again (from a z-match or a body frame).
 
+## Other mode: REFRESH and the sanitiser user-name fix (batch 5, 2026-10-14)
+
+Rules 26-28 in [STANDALONE.md](../src/other/STANDALONE.md#refresh-user-2026-10-14); case and audit in
+[OTHER-MODE-AUDIT.md](OTHER-MODE-AUDIT.md#refresh-and-the-sanitiser-user-name-fix-batch-5).
+
+| File | Owns (batch 5) | Entry points |
+|---|---|---|
+| `src/other/main/scanLog.ts` | Re-scan for REFRESH: newest `logbackups` file + Game.log, no watermark, only `session` lines and `marker` events of the given missions, in log order | `scanMarkersFor(logPath, missionIds)` → `{ events, files, ms }`, `pickRefreshEvents(events, ids)`, `resetLocationRoster()` |
+| `src/other/main/jobs.ts` | IPC handlers; `refreshedForVersion` in doc validation | `otherJobs:refreshScan` (missionIds → scan result), `otherPlaces:refresh` (re-pull places, reset the roster) |
+| `src/shared/channels.ts`, `src/preload/index.ts` | Channels and bridge | `IPC.otherJobsRefreshScan`, `IPC.otherPlacesRefresh`; `window.supercargo.refreshScanOther(ids)`, `refreshOtherPlaces()` |
+| `src/other/otherJob.ts` | Doc field | `OtherJobsDoc.refreshedForVersion?: string` (app version + commit the automatic refresh last ran for) |
+| `src/other/renderer/state/otherJobs.ts` | Refresh-only apply path in the main window: reset the build's zone table, `calibrateZone` from the returned markers, `placeSteps` over all jobs; never the watermark, status, done flags, history; automatic run once per version after the start-up scan | `refreshJobs(opts?: { silent?: boolean }): Promise<RefreshResult>` (`{ jobs, markers, placed, zones, message }`); decide trace `refresh`, `auto refresh: new version` |
+| `src/other/renderer/state/otherDiag.ts` | Last refresh result and `refreshedForVersion` in SNAPSHOT | `lastRefresh`, `refreshing` |
+| `src/other/renderer/pages/NextPage.tsx`, `JobsPage.tsx` | REFRESH button (Next next to STARTING AT, Jobs header), disabled while running, result line ~6 s | `RefreshButton` |
+| `src/main/sanitize.ts` (upstream) | OS user name → `%USERNAME%` only in home paths and as a whole value; never inside words or JSON keys; common-word names (`root`, `admin`, ...) never as a bare word | `makeSanitizer(id, user)` → `Clean(s, isKey?)`; `sanitizeDeep` cleans keys with `isKey` |
+| `test/replay/refresh_checks.mjs`, `test/replay/sanitize_checks.mjs` | Unit-level checks for the refresh filter / apply path and the sanitiser user-name rules (name `root` keeps `"root"` keys and the word; home paths cleaned) | `node test/replay/<file>` |
+| `test/replay/replay.mjs`, `test/replay/run_all.mjs` | Scenarios `refresh-places-j74`, `refresh-auto-once`; each app gets its own Xvfb display (`-displayfd`), every started app/X server is killed on exit; `--log` exits 3 when the app never became ready and `run_all` retries only that, once | `node test/replay/replay.mjs refresh-places-j74 refresh-auto-once` |
+
+**Data flow (REFRESH).**
+
+```
+REFRESH button / first start of a new version (main window only)
+  ─► refreshOtherPlaces (main: re-pull UEX/starmap, reset roster) ─► loadOtherPlacesFromMain (place list version bump)
+  ─► refreshScanOther(active mission ids) ─► main scanMarkersFor: logbackups newest + Game.log, NO watermark
+        keep: session lines + markers of those missions (log order)
+  ─► renderer: markerZones[build] = {} ─► calibrateZone per marker (root / small / z-match / body frame)
+        ─► placeSteps over all jobs ─► step.position ─► overlay / Next "near HDPC-Cassillo"
+  untouched: lastLogEventAt / lastLogEventCount, job status, done flags, history; no job created or ended
+  ─► result line (~6 s), decide trace 'refresh', debug log; auto run stores refreshedForVersion
+```
+

@@ -17,6 +17,7 @@ export const IPC = {
   otherJobsLoad: 'otherJobs:load',
   otherJobsSave: 'otherJobs:save',
   otherPlacesGet: 'otherPlaces:get',
+  otherPlacesRefresh: 'otherPlaces:refresh', // REFRESH: re-pull UEX/starmap places -> Location[]
   otherOcrShotSave: 'otherOcrShot:save',
   otherOcrShotGet: 'otherOcrShot:get',
 
@@ -69,6 +70,7 @@ export const IPC = {
   otherAction: 'otherJobs:action', // overlay -> main (send), one OtherAction
   evtOtherAction: 'evt:other:action', // main -> main window only, relayed OtherAction
   otherJobsScanEvents: 'otherJobs:scanEvents',
+  otherJobsRefreshScan: 'otherJobs:refreshScan', // (missionIds) -> { events: markers + sessions, files, ms }, no watermark
   otherWhereRun: 'otherWhere:run', // WHERE AM I: capture + read, result also broadcast on evtOtherWhere
   otherWhereCalPreview: 'otherWhere:calPreview', // fresh screenshot data URL for the zone calibrator
   otherWhereCalTest: 'otherWhere:calTest', // read one zone (1 | 2), not broadcast

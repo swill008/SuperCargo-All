@@ -270,6 +270,50 @@ a build-12913470 session line; the accept title is modelled on real courier acce
 - `near` is a label; the distance comes from the marker point.
 - After every server change the first marker must calibrate again.
 
+## REFRESH and the sanitiser user-name fix (batch 5)
+
+Added 2026-10-14, user-approved (CONTRACT6). Rules 26-28 in
+[STANDALONE.md](../src/other/STANDALONE.md#refresh-user-2026-10-14); files and data flow in
+[SYSTEM-MAP.md](SYSTEM-MAP.md).
+
+**The case.** Marker lines (CreateMarker) and objective texts are logged when a contract is accepted. After a
+restart the start-up scan applies only events newer than the watermark (rule 7), so the body-frame calibration added
+in batch 4 never saw J74's old marker line, and "Deliver Iron To Security Compound" stayed "Not found in UEX".
+REFRESH re-reads markers of the active jobs only, ignoring the watermark, and re-places steps. **Rule: REFRESH never
+moves the watermark (`lastLogEventAt` / `lastLogEventCount`), never revives or ends a job and never touches done
+flags or history; it runs automatically once per app version (`refreshedForVersion`).**
+
+| # | Change | Owner | Test (fails on a7eb226) |
+|---|---|---|---|
+| R1 | Re-scan without watermark: session lines + markers of the given active missions only | `main/scanLog.ts` `scanMarkersFor()`, `main/jobs.ts` IPC | replay `refresh-places-j74` |
+| R2 | Refresh-only apply: reset the build's zone table, calibrate, `placeSteps`; watermark, status, done flags, history untouched; result line + decide trace `refresh` | `otherJobs.ts` `refreshJobs()` | replay `refresh-places-j74` (step placed, overlay and Next "near HDPC-Cassillo", result names the place, watermark same, a Complete job with its own marker line stays complete, counts and the done pickup kept) |
+| R3 | REFRESH button on Next (by STARTING AT) and in the Jobs header | `NextPage.tsx`, `JobsPage.tsx` | replay `refresh-places-j74` (clicks it by text) |
+| R4 | Automatic once per version after the start-up scan; `refreshedForVersion` stored | `otherJobs.ts`, `otherJob.ts`, `main/jobs.ts` | replay `refresh-auto-once` (placed with no click; watermark same; one `auto refresh: new version` trace line; the second start of the same version doesn't rerun: trace count same and a re-stripped step stays unplaced) |
+| S1 | Sanitiser: the OS user name is replaced only inside home paths (`\Users\<name>\`, `/Users/<name>/`, `/home/<name>/`, case-insensitive) and as a whole value; never inside words or JSON keys. With the container user `root`, the SNAPSHOT key `"root"` had become `"%USERNAME%"` | `src/main/sanitize.ts` | `test/replay/sanitize_checks.mjs` |
+
+How the scenarios get the stale doc: a first run applies the J74 lines live (and a second job that has a marker and
+then ends Complete), the app quits, and the doc is left as an older build would leave it: step positions removed,
+`markerZones` removed, the app's own watermark (already past the J74 lines) kept. `refresh-places-j74` keeps
+`refreshedForVersion` so the start does not refresh by itself; `refresh-auto-once` removes it.
+
+**Replay tooling flake (run_all after the full replay suite).** Two real-log replays came back `app_jobs=0` after
+~50 s while alone they pass in 6-11 s. Their saved `supercargo.log` was empty: the app never started. Each launch
+ran `xvfb-run -n <display>` with display = 90 + (pid % 50) × 20 + launch number. `run_all` starts one replay
+process per fixture and mode, several at once; two whose pids match mod 50 pick the same display, and the full
+suite's process walks 50+ displays from its base, across other bases. `xvfb-run` on a display that is in use fails
+at once ("Xvfb failed to start", hidden by `stdio: 'ignore'`), and `launch()` then waited out its 45 s and went on.
+A scenario that threw before `stop()` also left its detached app and X server running after the suite. Fix (test
+tools only): every launch starts its own `Xvfb -displayfd`, so the X server picks a free display itself; every app
+and X server is tracked and killed on exit (also on Ctrl+C); `launch()` reports `ready` and logs
+"APP NOT READY" when the start-up line never comes; `replay.mjs --log` exits 3 in that case, and `run_all` retries
+that start once, printing `RETRY ... app never became ready`. A check that runs and fails is never retried.
+
+**Known limits.**
+- REFRESH reads only the newest `logbackups` file and Game.log (the start-up scan's files); a job accepted two game
+  sessions ago keeps "Not found in UEX" if its marker line is older than that.
+- Markers of ended jobs are not read, so their (history) steps are not re-placed.
+- The automatic run compares version + commit; a local rebuild without a new commit doesn't run it again.
+
 ## Suggested order
 
 1. **Make it green:**

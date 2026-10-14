@@ -41,6 +41,11 @@ export function currentLocationRoster(): Location[] {
   return rosterCache.list
 }
 
+/** drop the roster cache so the next log line rebuilds it (after the places roster is refreshed) */
+export function resetLocationRoster(): void {
+  rosterCache = null
+}
+
 /** runs the location tracker over the same lines; returns a 'location' event when current() changes */
 export function createLocationEmitter(
   locations: Location[] | (() => Location[])
@@ -226,6 +231,59 @@ export async function scanOtherEvents(logPath: string | undefined, since?: strin
     location: location?.kind === 'location' ? location.name : undefined,
     previousEnd: out.previousEnd,
     ms: Date.now() - t0
+  })
+  return out
+}
+
+/** REFRESH filter: markers of the given missions plus session lines (build/zone context), in log order */
+export function pickRefreshEvents(events: OtherLogEvent[], missionIds: string[]): OtherLogEvent[] {
+  const want = new Set(missionIds)
+  return events.filter((e) => e.kind === 'session' || (e.kind === 'marker' && want.has(e.missionId)))
+}
+
+export type OtherRefreshScanResult = { events: OtherLogEvent[]; files: string[]; ms: number }
+
+/**
+ * REFRESH re-scan: same files as scanOtherEvents (newest logbackups file, then Game.log) but no watermark;
+ * returns only session lines and markers of the given (active) missions.
+ */
+export async function scanMarkersFor(logPath: string | undefined, missionIds: string[]): Promise<OtherRefreshScanResult> {
+  const t0 = Date.now()
+  const out: OtherRefreshScanResult = { events: [], files: [], ms: 0 }
+  const ids = Array.isArray(missionIds) ? missionIds.filter((x): x is string => typeof x === 'string' && !!x) : []
+  if (!logPath) {
+    logger.warn('other', 'refresh scan skipped: no Game.log path')
+    return out
+  }
+  if (!ids.length) {
+    logger.info('other', 'refresh scan skipped: no active missions')
+    out.ms = Date.now() - t0
+    return out
+  }
+  const parser = createTracedOtherParser() // one parser across both files, in log order
+  const all: OtherLogEvent[] = []
+  const backup = await newestBackup(logPath)
+  if (backup) {
+    const r = await feedFile(backup, parser, () => null)
+    if (r) {
+      out.files.push(backup)
+      all.push(...r.events)
+    }
+  }
+  const cur = await feedFile(logPath, parser, () => null)
+  if (cur) {
+    out.files.push(logPath)
+    all.push(...cur.events)
+  }
+  out.events = pickRefreshEvents(all, ids)
+  out.ms = Date.now() - t0
+  logger.info('other', 'refresh scan done', {
+    missions: ids.map((m) => m.slice(0, 8)),
+    files: out.files.length,
+    parsed: all.length,
+    markers: out.events.filter((e) => e.kind === 'marker').length,
+    sessions: out.events.filter((e) => e.kind === 'session').length,
+    ms: out.ms
   })
   return out
 }

@@ -9,8 +9,9 @@ import { app, ipcMain } from 'electron'
 import { IPC } from '@shared/channels'
 import type { AppSettings } from '@shared/types'
 import type { OtherJobsDoc } from '@other/otherJob'
-import { scanOtherEvents } from './scanLog'
-import { loadOtherPlaces } from './uex'
+import { scanOtherEvents, scanMarkersFor, resetLocationRoster } from './scanLog'
+import { loadOtherPlaces, refreshOtherPlaces } from './uex'
+import { loadCachedLocations } from '../../main/uex'
 import { saveOtherOcrShot, loadOtherOcrShot } from './ocrSession'
 import { sendOtherJobsChanged } from './ipc'
 import { logger } from '../../main/logger'
@@ -76,6 +77,7 @@ function parseDoc(raw: string): Parsed {
   check('startTypedAt', isStr)
   check('trackedMissionId', isStr)
   check('trackedAt', isStr)
+  check('refreshedForVersion', isStr)
   check('rev', (v) => typeof v === 'number' && Number.isFinite(v))
   if (dropped.length) logger.warn('other', 'jobs file: bad field types reset', { fields: dropped })
   return { ok: true, doc: out as unknown as OtherJobsDoc }
@@ -187,7 +189,17 @@ export function registerOtherJobsIpc(getSettings: () => AppSettings): void {
     return ok
   })
   ipcMain.handle(IPC.otherJobsScanEvents, (_e, since?: string) => scanOtherEvents(getSettings().gameLogPath, since))
+  ipcMain.handle(IPC.otherJobsRefreshScan, (_e, missionIds: string[]) =>
+    scanMarkersFor(getSettings().gameLogPath, Array.isArray(missionIds) ? missionIds : [])
+  )
   ipcMain.handle(IPC.otherPlacesGet, () => loadOtherPlaces())
+  // REFRESH: re-pull the places roster (UEX + starmap; falls back to the cache) and rebuild the location roster
+  ipcMain.handle(IPC.otherPlacesRefresh, async () => {
+    const places = await refreshOtherPlaces(loadCachedLocations()?.locations ?? [])
+    resetLocationRoster()
+    logger.info('other', 'places refreshed on request', { places: places.length })
+    return places
+  })
   ipcMain.handle(IPC.otherOcrShotSave, (_e, jobId: string, dataUrl: string) => saveOtherOcrShot(jobId, dataUrl))
   ipcMain.handle(IPC.otherOcrShotGet, (_e, jobId: string) => loadOtherOcrShot(jobId))
   logger.info('other', 'jobs ipc registered')

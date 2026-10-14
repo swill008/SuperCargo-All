@@ -52,7 +52,15 @@ await Promise.all(
       const log = path.join(fixtures, f)
       const out = path.join(outDir, `${f.replace(/\.log$/, '')}.${mode}.json`)
       const t0 = Date.now()
-      const rep = await run(process.execPath, [path.join(here, 'replay.mjs'), '--log', log, '--mode', mode, '--out', out])
+      const replay = () => run(process.execPath, [path.join(here, 'replay.mjs'), '--log', log, '--mode', mode, '--out', out])
+      let rep = await replay()
+      // exit 3 = the app never became ready (start-up only, no checks ran): retry that once, never a real failure
+      let retried = ''
+      if (rep.status === 3) {
+        retried = ' (retried: app not ready on first start)'
+        console.log(`RETRY ${f} [${mode}]: app never became ready, starting it once more | ${(rep.stderr || '').trim().split('\n').slice(-2).join(' | ')}`)
+        rep = await replay()
+      }
       let line
       let detail = ''
       if (rep.status !== 0 || !fs.existsSync(out)) {
@@ -63,15 +71,15 @@ await Promise.all(
         line = cmp.status === 0 ? 'PASS' : 'FAIL'
         detail = (cmp.stdout || cmp.stderr || '').trim()
       }
-      results[i] = { line, f, mode, secs: ((Date.now() - t0) / 1000).toFixed(0), detail }
+      results[i] = { line, f, mode, secs: ((Date.now() - t0) / 1000).toFixed(0), detail, retried }
     }
   })
 )
 let failed = 0
-for (const { line, f, mode, secs, detail } of results) {
+for (const { line, f, mode, secs, detail, retried } of results) {
   if (line === 'FAIL') failed++
   const [summary, ...rest] = detail.split('\n')
-  console.log(`${line}  ${f} [${mode}] ${secs}s  ${summary}`)
+  console.log(`${line}  ${f} [${mode}] ${secs}s${retried}  ${summary}`)
   if (line === 'FAIL') for (const r of rest) console.log(`      ${r}`)
 }
 console.log(failed ? `\n${failed} replay(s) failed` : '\nall replays passed')

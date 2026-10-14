@@ -85,6 +85,7 @@ const api = {
   getUexCommodities: (): Promise<CommodityRoster | null> => ipcRenderer.invoke(IPC.uexGetCommodities),
   getUexGridFaces: (): Promise<GridFacesRoster | null> => ipcRenderer.invoke(IPC.uexGetGridFaces),
   getOtherPlaces: (): Promise<import('@shared/types').Location[]> => ipcRenderer.invoke(IPC.otherPlacesGet),
+  refreshOtherPlaces: (): Promise<import('@shared/types').Location[]> => ipcRenderer.invoke(IPC.otherPlacesRefresh),
   saveOtherOcrShot: (jobId: string, dataUrl: string): Promise<boolean> => ipcRenderer.invoke(IPC.otherOcrShotSave, jobId, dataUrl),
   getOtherOcrShot: (jobId: string): Promise<string | null> => ipcRenderer.invoke(IPC.otherOcrShotGet, jobId),
 
@@ -167,6 +168,8 @@ const api = {
   otherAction: (a: OtherAction): void => ipcRenderer.send(IPC.otherAction, a),
   onOtherAction: (cb: (a: OtherAction) => void): Unsubscribe => on(IPC.evtOtherAction, cb),
   scanOtherEvents: (since?: string): Promise<OtherScanResult> => ipcRenderer.invoke(IPC.otherJobsScanEvents, since),
+  refreshScanOther: (missionIds: string[]): Promise<{ events: OtherLogEvent[]; files: string[]; ms: number }> =>
+    ipcRenderer.invoke(IPC.otherJobsRefreshScan, missionIds),
   /** WHERE AM I: read the map screen; the result is also broadcast to every window */
   otherWhereRun: (): Promise<WhereRunResult> => ipcRenderer.invoke(IPC.otherWhereRun),
   otherWhereCalPreview: (): Promise<string | null> => ipcRenderer.invoke(IPC.otherWhereCalPreview),

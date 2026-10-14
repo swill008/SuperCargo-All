@@ -19,6 +19,8 @@
     "test:fixtures": "python -I test/replay/make_fixture.py",
     "test:next-order": "node test/replay/next_order.mjs",
     "test:afk": "node test/replay/afk_checks.mjs",
+    "test:refresh": "node test/replay/refresh_checks.mjs",
+    "test:sanitize": "node test/replay/sanitize_checks.mjs",
     "test:where": "node test/replay/where_checks.mjs",
     "test:bodies": "node test/replay/bodies_checks.mjs",
     "typecheck:node": "tsc --noEmit -p tsconfig.node.json --composite false",

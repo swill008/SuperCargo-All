@@ -142,6 +142,8 @@ export interface OtherJobsDoc {
   trackedMissionId?: string
   /** wall-clock ISO time trackedMissionId last changed */
   trackedAt?: string
+  /** app version+commit (DebugInfo) the automatic REFRESH last ran for; a different one runs it once */
+  refreshedForVersion?: string
   /** bumped on every save so a window can tell its own save from the other window's */
   rev?: number
 }

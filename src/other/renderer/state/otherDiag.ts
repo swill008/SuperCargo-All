@@ -294,8 +294,11 @@ export function otherDiagSnapshot(): Record<string, unknown> {
         rev: s.rev,
         listOrder: s.listOrder,
         jobOrder: s.jobOrder,
-        groupBy: s.groupBy
+        groupBy: s.groupBy,
+        refreshedForVersion: s.refreshedForVersion ?? null
       },
+      lastRefresh: s.lastRefresh,
+      refreshing: s.refreshing,
       markerZones: zoneSummary,
       markersThisRun: markerCount,
       settings: otherSettings,

@@ -10,6 +10,7 @@ import { useOtherCapture } from '../state/otherCapture'
 import { mergeLocations } from '../state/otherPlaces'
 import { JobRow, AddForm, miniBtn, outlineBtn } from './JobsParts'
 import { otherView, isShortLoop, HiddenToggle } from './JobsPartsStyles'
+import { RefreshButton } from './NextPage'
 
 const emptyDraft = (): OtherJobDraft => ({
   title: '', kind: 'delivery', reward: 0, location: '', item: '', need: 1
@@ -74,7 +75,8 @@ export default function JobsPage(): React.ReactElement {
         title="JOBS"
         subtitle={`${active.length} tracked \u00b7 Other mode \u00b7 click a job to expand objectives`}
         right={
-          <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+          <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', alignItems: 'center' }}>
+            <RefreshButton />
             {finished.length > 0 && (
               <Btn onClick={() => void clearFinished()} style={miniBtn}>CLEAR FINISHED JOBS</Btn>
             )}
