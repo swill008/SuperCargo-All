@@ -28,6 +28,7 @@ import {
   syncWhereLive
 } from './whereAmI'
 import { getAfkDiag, registerOtherAfkIpc, stopOtherAfk } from './afk'
+import { getBodiesDiag, registerOtherBodiesIpc } from './bodies'
 import { loadCachedLocations } from '../../main/uex'
 import { logger } from '../../main/logger'
 import { setOtherDiagSource } from '../../main/diagnostics'
@@ -56,6 +57,7 @@ export function registerOther({ watcher, getSettings, getMainWindow, reregisterH
   if (reregisterHotkeys) setOtherHotkeyReregister(reregisterHotkeys)
   syncWhereLive(getSettings)
   registerOtherAfkIpc(getSettings)
+  registerOtherBodiesIpc()
   // diagnostics export: each key becomes a '## <KEY>' section (sanitised there); zone crops only when images are opted in
   setOtherDiagSource({
     sections: () => {
@@ -65,7 +67,8 @@ export function registerOther({ watcher, getSettings, getMainWindow, reregisterH
         CAPTURE: w.capture ?? { note: 'no screen capture yet this run (no WHERE AM I read from the screen; test-seam reads capture nothing)' },
         LIVE: w.live,
         HOTKEYS: w.hotkeys,
-        'AFK LOG': getAfkDiag()
+        'AFK LOG': getAfkDiag(),
+        BODIES: getBodiesDiag()
       }
     },
     images: () => getWhereImages()

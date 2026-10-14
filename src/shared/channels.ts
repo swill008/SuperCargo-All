@@ -80,6 +80,9 @@ export const IPC = {
   otherAfkStop: 'otherAfk:stop', // -> AfkState
   otherAfkGet: 'otherAfk:get', // -> AfkState
   evtOtherAfk: 'evt:other:afk', // main -> all windows, one AfkState on every change
+  otherBodiesGet: 'otherBodies:get', // -> BodiesDoc (table built from the roster + saved)
+  otherLearnedPlace: 'otherBodies:learned', // renderer -> main (send), one LearnedPlaceReport
+  evtOtherBodies: 'evt:other:bodies', // main -> all windows, BodiesDoc on every change
   evtObjective: 'evt:objective',
   evtContractEnded: 'evt:contract:ended',
   evtContractPaid: 'evt:contract:paid',

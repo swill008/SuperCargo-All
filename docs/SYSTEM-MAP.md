@@ -228,3 +228,49 @@ the main-process inspector, `--inspect=<port>`; both fail on the batch-2 build 0
 - Quantum travel and ATC log lines are not used: none names the place.
 - AFK sends keys only on Windows and has not been run against the game here (Linux build; dry run only).
 - A real zone 2 OCR read takes about 5 s, so live reads are spaced 30 s or more.
+
+## Other mode: places from markers, pickup order, clipboard (batch 4, 2026-10-14)
+
+Rules 21-25 in [STANDALONE.md](../src/other/STANDALONE.md) (re-tie point 17 for the clipboard); case and audit in
+[OTHER-MODE-AUDIT.md](OTHER-MODE-AUDIT.md#places-from-markers-pickup-order-clipboard-batch-4).
+
+| File | Owns (batch 4) | Entry points |
+|---|---|---|
+| `src/other/otherMarkers.ts` | Body-frame calibration (F1): radius estimate per body, candidate bodies within ±3% of the marker's distance, centre + position within 10 km of a body place, exactly one body | `bodyCentre(body, locations)`, `bodyRadius(body, locations, lookup?)` (lookup = planet table, else median distance of the body's places), `bodyFrameMatch(marker, locations, lookup?)` → `{ match, why, candidates, accepted }`; `calibrateZone(...)` change `'body'`; types `BodyRadiusLookup`, `BodyFrameMatch`, `BodyFrameResult` |
+| `src/other/renderer/state/otherJobs.ts` | Calls `calibrateZone` with the merged roster (`mergeLocations`); clears the current build's zone table on `session`, `disconnect`, `quit` (F3) | internal `resetZones(d, why)`; decide trace `marker zones reset: <why>` |
+| `src/other/otherNext.ts` | `near` on marker-placed rows (F2); pickup before same-item delivery (F4) | `NEAR_MAX_M` (25 km), `nearestRosterPlace(point, locations)`, `formatPlaceNear(place, near, locations)`, `stepWorkOrder(steps)`, `nextLiveStep()`, `listOpenStops()` (rows and groups carry `near?`); type `PlaceNear` |
+| `src/other/renderer/components/OtherOverlay.tsx`, `src/other/renderer/pages/NextPage.tsx` | "<place> · near <roster place> (<dist>)" instead of "Not found in UEX" when a marker distance exists | — |
+| `src/main/diagnostics.ts`, `src/shared/trace.ts`, `src/main/index.ts` (upstream) | Clipboard copy after a UI export (C); never for `--export-diagnostics` | `buildDiagnostics({ ..., copyToClipboard })` → `{ ..., copied? }`; `diagResultLine(r)`, `fmtDiagBytes(n)`; Settings / Debug result line |
+| `test/replay/marker_checks.mjs` | F1 on the real J74 marker and the roster: lands ≈4 km from HDPC-Cassillo; a microTech-radius marker with no near place stays uncalibrated; the ambiguity rule | `node test/replay/marker_checks.mjs` (bundles with esbuild; no build needed) |
+
+**Data flow (marker → place).**
+
+```
+Game.log CreateMarker (zoneHostId, position) ─► otherLogParse 'marker' ─► otherJobs reducer (main window)
+   zone table d.markerZones[build] ─► calibrateZone(table, marker, mergeLocations(roster))
+        root / small / z-match with a UEX place ─► as before
+        else bodyFrameMatch: radius ±3% and a body place within 10 km, exactly one body ─► zone centre = body centre
+   ─► resolveMarker ─► step.position (system frame)
+   ─► listOpenStops: distance from the start; near = nearestRosterPlace(point) within 25 km
+   ─► overlay / Next: "Security Compound · near HDPC-Cassillo (4 km)"
+'session' (Log started) / 'disconnect' / 'quit' ─► resetZones: delete d.markerZones[build] (step positions kept)
+```
+
+Replay scenarios (`test/replay/replay.mjs`, all fail on the batch-3 build e46aba2 except the CLI guard):
+`j74-near-place` (J74 from its real lines, pickup done: overlay and Next show a distance and "near HDPC-Cassillo",
+the table distance matches Hurston centre + marker position), `j74-pickup-first` (first open stop is the Farnesway
+pickup), `j74-session-resets-zones` (session line and disconnect empty the zone table; a later marker
+recalibrates; step position kept), `diag-clipboard` (UI export: clipboard text equals the saved file, `copied`
+true), `diag-cli-no-clipboard` (guard: the command line export leaves a sentinel on the clipboard; passes on the old
+build too, since it never copied). `REPLAY_ROOT=<folder>` runs the scenarios against another build (a copy of the
+old `out/` with its `package.json` and `data/`).
+
+**Known limits.**
+- A body's radius is estimated from its roster places (median distance from the centre); a body with no places
+  with coordinates can't be matched. The local planet table (src/other/otherBodies.ts, main/bodies.ts, userData/other-bodies.json) refines it with the panel's exact `Radius:` once read; marker points take their body from the nearest place within 25 km so same-body legs are measured over the surface.
+- Hurston and microTech are both ~1000 km: only the 10 km place check tells them apart; a marker with no place near
+  it on either stays uncalibrated ("Not found in UEX").
+- `near` is a label only: the stop's distance comes from the marker point, not from the near place.
+- A zone table is reset on every session line, disconnect and quit, so the first marker after a server change must
+  calibrate again (from a z-match or a body frame).
+

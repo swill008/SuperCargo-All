@@ -84,11 +84,34 @@ function gateway(inSys: string, to: string, locations: Location[]): XYZ | undefi
 /** both points within 5% of the same distance from the body centre = on its surface */
 const SURFACE_RADIUS_TOL = 0.05
 
+/** planet table radius in metres (otherBodies.bodyRadiusFromTable), null when unknown */
+export type GeoBodyRadius = (body: string) => number | null | undefined
+
+// set by the renderer's planet-table store so every travel() call uses the table; null = none
+let tableRadius: GeoBodyRadius | null = null
+
+/** register (or clear with null) the planet table lookup travel() uses for surface arcs */
+export function setBodyRadiusLookup(fn: GeoBodyRadius | null): void {
+  tableRadius = fn
+}
+
+const knownRadius = (body: string, lookup?: GeoBodyRadius | null): number | null => {
+  const r = lookup?.(body)
+  return typeof r === 'number' && Number.isFinite(r) && r > 0 ? r : null
+}
+
 /**
  * null when either point is unknown or no gateway joins the systems. Names are normalised
  * (systemKey); a system the roster doesn't have, or none, on either side = same system.
+ * Surface arc radius: the planet table's (opts.bodyRadius, else the registered lookup) when it knows
+ * the body, else the mean of the two points' distances from the centre.
  */
-export function travel(a: GeoPoint | undefined, b: GeoPoint | undefined, locations: Location[]): Travel | null {
+export function travel(
+  a: GeoPoint | undefined,
+  b: GeoPoint | undefined,
+  locations: Location[],
+  opts?: { bodyRadius?: GeoBodyRadius }
+): Travel | null {
   if (!a || !b || !finite(a) || !finite(b)) return null
   const sa = systemKey(a.system, locations)
   const sb = systemKey(b.system, locations)
@@ -101,7 +124,8 @@ export function travel(a: GeoPoint | undefined, b: GeoPoint | undefined, locatio
         const ra = dist(a, c)
         const rb = dist(b, c)
         if (ra > 0 && rb > 0 && Math.abs(ra - rb) <= SURFACE_RADIUS_TOL * Math.max(ra, rb)) {
-          const r = (ra + rb) / 2
+          const r =
+            knownRadius(a.body!.trim(), opts?.bodyRadius) ?? knownRadius(a.body!.trim(), tableRadius) ?? (ra + rb) / 2
           return { meters: r * 2 * Math.asin(Math.min(1, chord / (2 * r))), jumps: 0, surface: true }
         }
       }

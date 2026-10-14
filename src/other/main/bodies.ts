@@ -1,0 +1,112 @@
+/**
+ * Planet table + learned generic places, saved under userData (other-bodies.json).
+ * The table is rebuilt from the current roster on every get; the file carries the panel radii,
+ * seen counts and learned places across restarts.
+ */
+import * as fs from 'node:fs'
+import * as path from 'node:path'
+import { app, BrowserWindow, ipcMain } from 'electron'
+import { IPC } from '@shared/channels'
+import type { WhereRunResult } from '@other/otherWhere'
+import {
+  bodiesDiag,
+  buildBodies,
+  emptyBodiesDoc,
+  normalizeBodiesDoc,
+  radiusSane,
+  recordLearned,
+  recordPanelRadius,
+  type BodiesDoc,
+  type LearnedPlaceReport
+} from '@other/otherBodies'
+import { currentLocationRoster } from './scanLog'
+import { logger } from '../../main/logger'
+
+const FILE = 'other-bodies.json'
+
+let saved: BodiesDoc | null = null
+
+function filePath(): string {
+  return path.join(app.getPath('userData'), FILE)
+}
+
+function load(): BodiesDoc {
+  if (saved) return saved
+  try {
+    saved = normalizeBodiesDoc(JSON.parse(fs.readFileSync(filePath(), 'utf8')))
+    logger.info('other', 'bodies loaded', { bodies: Object.keys(saved.bodies).length, learned: saved.learned.length })
+  } catch (e) {
+    const code = (e as NodeJS.ErrnoException)?.code
+    if (code !== 'ENOENT') logger.warn('other', 'bodies file unreadable, starting empty', { error: (e as Error)?.message ?? String(e) })
+    saved = emptyBodiesDoc()
+  }
+  return saved
+}
+
+/** write to a temp file, then rename over the old one */
+function save(doc: BodiesDoc): void {
+  saved = doc
+  const file = filePath()
+  const tmp = `${file}.tmp`
+  try {
+    fs.writeFileSync(tmp, JSON.stringify({ savedAt: new Date().toISOString(), ...doc }, null, 2))
+    fs.renameSync(tmp, file)
+  } catch (e) {
+    logger.warn('other', 'bodies save failed', { error: (e as Error)?.message ?? String(e) })
+  }
+}
+
+function broadcast(doc: BodiesDoc): void {
+  for (const w of BrowserWindow.getAllWindows()) if (!w.isDestroyed()) w.webContents.send(IPC.evtOtherBodies, doc)
+}
+
+/** table built from the current roster + the saved file */
+export function getBodies(): BodiesDoc {
+  const s = load()
+  return { bodies: buildBodies(currentLocationRoster(), s), learned: s.learned }
+}
+
+/** WHERE AM I hook: record the panel's exact radius for its body (50 km - 10,000 km) */
+export function onWhereRead(r: WhereRunResult): void {
+  const info = r.info
+  if (!info?.body || typeof info.radiusM !== 'number') return
+  if (!radiusSane(info.radiusM)) {
+    logger.debug('other', 'bodies: panel radius out of range, ignored', { body: info.body, radiusM: info.radiusM })
+    return
+  }
+  const doc = getBodies()
+  const next = recordPanelRadius(doc, info.body, info.system, info.radiusM, new Date().toISOString())
+  if (next === doc) {
+    logger.debug('other', 'bodies: panel radius for a body not in the table, ignored', { body: info.body })
+    return
+  }
+  save(next)
+  broadcast(next)
+  logger.info('other', 'bodies: panel radius recorded', { body: info.body, radiusM: info.radiusM, seen: next.bodies[info.body.trim().toLowerCase()]?.seen })
+}
+
+export function recordLearnedPlace(entry: LearnedPlaceReport): boolean {
+  const doc = getBodies()
+  const next = recordLearned(doc, entry, new Date().toISOString())
+  if (next === doc) return false
+  save(next)
+  broadcast(next)
+  logger.info('other', 'bodies: learned place', { name: entry.name, near: entry.near, nearMeters: Math.round(entry.nearMeters), learned: next.learned.length })
+  return true
+}
+
+/** diagnostics 'BODIES' section */
+export function getBodiesDiag(): ReturnType<typeof bodiesDiag> {
+  return bodiesDiag(getBodies())
+}
+
+let bound = false
+
+export function registerOtherBodiesIpc(): void {
+  if (bound) return
+  bound = true
+  ipcMain.handle(IPC.otherBodiesGet, () => getBodies())
+  ipcMain.on(IPC.otherLearnedPlace, (e, p: LearnedPlaceReport) => {
+    if (!p || typeof p !== 'object' || !recordLearnedPlace(p)) logger.debug('ipc', 'learned place rejected', { sender: e.sender.id })
+  })
+}

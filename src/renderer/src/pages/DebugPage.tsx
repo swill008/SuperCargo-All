@@ -4,6 +4,7 @@ import { C, F, GLOW } from '../theme'
 import { Btn } from '../components/ui'
 import CrashGuard from '../components/CrashGuard'
 import { formatEntry, LOG_CATEGORIES, LOG_LEVELS } from '@shared/debugLog'
+import { diagResultLine } from '@shared/trace'
 import type { DebugInfo, LogCategory, LogEntry, LogLevel, LogSource } from '@shared/debugLog'
 
 const MAX_ROWS = 5000
@@ -78,12 +79,6 @@ const PERIODS: { id: string; label: string; hours?: number }[] = [
   { id: '24', label: 'LAST 24 H', hours: 24 }
 ]
 
-function fmtBytes(n: number): string {
-  if (n < 1024) return `${n} B`
-  if (n < 1024 * 1024) return `${(n / 1024).toFixed(1)} KB`
-  return `${(n / 1024 / 1024).toFixed(1)} MB`
-}
-
 const NOTE_MAX = 2000
 const IMAGES_LABEL = "Include images (OCR crops and an overlay picture). Pictures can't be cleaned of names."
 
@@ -108,7 +103,7 @@ function DiagExportBar(): React.ReactElement {
       const opts = { hours, includeLogExcerpt: excerpt, note: note.trim() || undefined, includeImages }
       const r = await window.supercargo.diagExport(opts)
       if (r.ok) {
-        setMsg({ text: `saved ${r.path ?? ''}${r.bytes != null ? ` (${fmtBytes(r.bytes)})` : ''}`, err: false })
+        setMsg({ text: diagResultLine(r), err: false })
         setImages(r.images ?? [])
         setNote('')
       } else setMsg({ text: r.error || 'export failed', err: true })

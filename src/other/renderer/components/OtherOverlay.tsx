@@ -10,7 +10,7 @@ import { otherSetting } from '@other/workMode'
 import { useOtherJobs } from '../state/otherJobs'
 import { useMergedLocations, otherPlacesVersion } from '../state/otherPlaces'
 import {
-  listOpenStops, stepActivePlace, stepActionLabel, formatPlaceWithBodySystem, formatMapDistance,
+  listOpenStops, stepActivePlace, stepActionLabel, formatPlaceNear, formatMapDistance,
   resolveOrigin, groupByPlace, remainingRoute
 } from '@other/otherNext'
 import type { ListOrder } from '@other/otherNext'
@@ -248,8 +248,10 @@ export default function OtherOverlay(): React.ReactElement {
         ? 'from you'
         : 'from start'
   // 'no-start' is said by the start line below
+  // a marker-placed stop says where it is ("near HDPC-Cassillo") instead of "Not found in UEX"
   const noDistanceText =
-    group && legMeters == null && group.noDistanceWhy && group.noDistanceWhy !== 'no-start'
+    group && legMeters == null && group.noDistanceWhy && group.noDistanceWhy !== 'no-start' &&
+    !(group.near && group.noDistanceWhy === 'not-in-uex')
       ? NO_DISTANCE_TEXT[group.noDistanceWhy]
       : null
   const startName = origin.label || origin.name
@@ -261,7 +263,7 @@ export default function OtherOverlay(): React.ReactElement {
 
   // ## OVERLAY in EXPORT DIAGNOSTICS: what this card is showing now
   const distanceShown = showDistance && group && legMeters != null ? `${travelText(legMeters, legJumps, legSurface, legApprox)} ${legFrom}` : null
-  const placeShown = group && current ? formatPlaceWithBodySystem(group.place || stepActivePlace(current.step) || current.step.label, locations) : null
+  const placeShown = group && current ? formatPlaceNear(group.place || stepActivePlace(current.step) || current.step.label, group.near, locations) : null
   useEffect(() => {
     setOverlayDiag({
       placeListSize: locations.length,
@@ -325,9 +327,7 @@ export default function OtherOverlay(): React.ReactElement {
               minWidth: 0
             }}
           >
-            {group && current
-              ? formatPlaceWithBodySystem(group.place || stepActivePlace(current.step) || current.step.label, locations)
-              : 'NO OPEN STOP'}
+            {placeShown ?? 'NO OPEN STOP'}
           </div>
           {groupTracked ? <TrackedTag /> : null}
         </div>
@@ -451,7 +451,7 @@ export default function OtherOverlay(): React.ReactElement {
           {nextGroup ? (
             <div style={{ marginTop: upcoming ? 4 : 0 }}>
               <span style={{ color: C.acc }}>Next Location</span>
-              <span>: {formatPlaceWithBodySystem(nextGroup.place || stepActivePlace(nextGroup.rows[0].step), locations)}</span>
+              <span>: {formatPlaceNear(nextGroup.place || stepActivePlace(nextGroup.rows[0].step), nextGroup.near, locations)}</span>
               {nextLeg != null ? (
                 <span title={formatMapDistance(nextLeg)}>
                   {' \u00b7 '}{travelText(nextLeg, nextGroup.legJumps, nextGroup.legSurface, nextGroup.distanceSource === 'marker')}

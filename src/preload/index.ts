@@ -36,6 +36,7 @@ import type { OtherLogEvent, OtherScanResult } from '@other/otherEvents'
 import type { OtherAction } from '@other/otherActions'
 import type { WhereRunResult } from '@other/otherWhere'
 import type { AfkState } from '@other/otherAfk'
+import type { BodiesDoc, LearnedPlaceReport } from '@other/otherBodies'
 
 type Unsubscribe = () => void
 
@@ -179,6 +180,9 @@ const api = {
   otherAfkStop: (): Promise<AfkState> => ipcRenderer.invoke(IPC.otherAfkStop),
   otherAfkGet: (): Promise<AfkState> => ipcRenderer.invoke(IPC.otherAfkGet),
   onOtherAfk: (cb: (s: AfkState) => void): Unsubscribe => on(IPC.evtOtherAfk, cb),
+  otherBodiesGet: (): Promise<BodiesDoc> => ipcRenderer.invoke(IPC.otherBodiesGet),
+  otherLearnedPlace: (p: LearnedPlaceReport): void => ipcRenderer.send(IPC.otherLearnedPlace, p),
+  onOtherBodies: (cb: (d: BodiesDoc) => void): Unsubscribe => on(IPC.evtOtherBodies, cb),
   onObjective: (cb: (e: ObjectiveEvent) => void): Unsubscribe => on(IPC.evtObjective, cb),
   onContractEnded: (cb: (e: ContractEndedEvent) => void): Unsubscribe =>
     on(IPC.evtContractEnded, cb),

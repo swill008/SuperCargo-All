@@ -13,7 +13,9 @@ import * as path from 'node:path'
 
 const require = createRequire(import.meta.url)
 const electron = require('electron')
-const root = path.resolve(path.dirname(new URL(import.meta.url).pathname.replace(/^\/([A-Za-z]:)/, '$1')), '../..')
+const here = path.resolve(path.dirname(new URL(import.meta.url).pathname.replace(/^\/([A-Za-z]:)/, '$1')), '../..')
+// REPLAY_ROOT=<folder with package.json, out/ and data/> runs another build (e.g. a copy of the old out/ to show a check fails there)
+const root = process.env.REPLAY_ROOT ? path.resolve(process.env.REPLAY_ROOT) : here
 const runRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'sc-replay-'))
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms))
 const useXvfb = process.platform === 'linux' && spawnSync('which', ['xvfb-run']).status === 0
@@ -291,7 +293,15 @@ function snapshotJson(text) {
 const ROSTER = (() => {
   try {
     const d = JSON.parse(fs.readFileSync(path.join(root, 'data', 'uex', 'locations.json'), 'utf8'))
-    return Object.values(d).flat().filter((l) => l && typeof l === 'object' && l.name)
+    const uex = Object.values(d).flat().filter((l) => l && typeof l === 'object' && l.name)
+    // then the non-UEX positions (planet centres, cities): UEX names win where both have one
+    let extra = []
+    try {
+      extra = JSON.parse(fs.readFileSync(path.join(root, 'data', 'uex', 'other-positions.json'), 'utf8')).places ?? []
+    } catch {
+      // older checkout
+    }
+    return [...uex, ...extra.filter((l) => l && l.name)]
   } catch {
     return []
   }
@@ -376,7 +386,7 @@ const histEntry = (id, extra = {}) => ({ id, ref: 'J01', title: 'Bounty Hunt', k
 const DIAG_REAL = 'Zorblax9000'
 // fixed start, two steps (same system + through a gateway), a log with the handle in it, two WHERE AM I reads
 // (test seam) and a dry-run AFK, then Export diagnostics from the main window with opts
-async function diagExportRun(name, opts) {
+async function diagExportRun(name, opts, after) {
   const step = (id, s) => ({ id, kind: 'go', label: `Go to ${s}`, location: s, have: 0, need: 1, done: false })
   const e = setup(name, { otherStartMode: 'fixed', otherAfkFirstKey: 'F2', otherAfkCycleKey: 'F1' }, {
     jobs: [logJob(mission(), { steps: [step('s1', 'Port Tressler'), step('s2', 'Ruin Station')] })],
@@ -392,6 +402,7 @@ async function diagExportRun(name, opts) {
   const iport = await freePort()
   const stop = await launch(e, [...cdpArgs(port), ...inspectArgs(iport)], { SC_WHERE_TEXT_FILE: textFile, SC_AFK_DRYRUN: '1', SC_AFK_INTERVAL_MS: '500' })
   let res
+  let extra
   let err = ''
   try {
     const id = mission()
@@ -405,6 +416,7 @@ async function diagExportRun(name, opts) {
     await cdpEval(port, 'main', 'window.supercargo.otherAfkStop()')
     await stubSaveDialog(iport, out)
     res = await cdpEval(port, 'main', `window.supercargo.diagExport(${JSON.stringify(opts)})`, 40000)
+    if (after) extra = await after({ port, iport })
   } catch (x) {
     err = String(x?.message ?? x)
   }
@@ -415,8 +427,62 @@ async function diagExportRun(name, opts) {
   } catch {
     // checked by the caller
   }
-  return { e, res, text, sec: diagSections(text), err }
+  return { e, res, text, sec: diagSections(text), err, extra }
 }
+
+// J74, the user's real courier job (CONTRACT4). Marker line verbatim (time aside); objective texts and ids
+// verbatim; the accept title is modelled on the real courier accept lines (the export did not keep it).
+const J74 = 'c240a60b-1597-4d36-baf0-98e06dd1fe5c'
+const J74_DROP = 'dropoff_f1fc9593-e30c-4303-8a4e-7e1509141107_0'
+const J74_PICK = 'pickup_f1fc9593-e30c-4303-8a4e-7e1509141107_0'
+const J74_L = {
+  // a game launch as the real log opens: build line, then "Log started" (the build is what keys the zone table)
+  session: (at) => [`${stamp(at)} BackupNameAttachment=" Build(12913470) 14 Oct 26 (10 12 26)"  -- used by backup system`, L.logStarted(at)],
+  marker: (at) =>
+    `${stamp(at)} [Notice] <CLocalMissionPhaseMarker::CreateMarker> Creating objective marker: missionId [${J74}], generator name [FTL_Courier], contract [FTL_Courier_Stanton_Iron_Rank1], contractDefinitionId[0d41bca1-0bd1-4aad-bf63-9436567a221a], objectiveId [${J74_DROP}], markerEntityId [7145], zoneHostId [862321816216], position [x: -790556.763184, y: 614240.106819, z: -6055.992337] [Team_MissionFeatures][Missions]`,
+  accept: (at) =>
+    `${stamp(at)} ${NOTE} "Contract Accepted:  Courier Run - from HDPC-Farnesway on Hurston <EM4>[417 Rep]</EM4>: " [47] to queue. New queue size: 5, MissionId: [${J74}], ObjectiveId: [] ${TAGS}`,
+  deliver: (at) =>
+    `${stamp(at)} ${NOTE} "New Objective: Deliver Iron To Security Compound: " [48] to queue. New queue size: 6, MissionId: [${J74}], ObjectiveId: [${J74_DROP}] ${TAGS}`,
+  collect: (at) =>
+    `${stamp(at)} ${NOTE} "New Objective: Collect Iron From HDPC-Farnesway on Hurston: " [49] to queue. New queue size: 7, MissionId: [${J74}], ObjectiveId: [${J74_PICK}] ${TAGS}`,
+  collected: (at) =>
+    `${stamp(at)} ${NOTE} "Objective Complete: Collect Iron From HDPC-Farnesway on Hurston\n${stamp(at)} : " [118] to queue. New queue size: 9, MissionId: [${J74}], ObjectiveId: [${J74_PICK}] ${TAGS}`
+}
+// typed start Lorville (FIXED); the app starts mid-session (build line above the watermark), then J74 arrives live.
+// collected: the Farnesway pickup is done, so the delivery is the next stop. Returns overlay + Next tab text,
+// the saved doc and (with exportDiag) the SNAPSHOT of a button-path export.
+async function j74Run(name, { collected = false, exportDiag = false } = {}) {
+  const e = setup(name, { otherStartMode: 'fixed' }, { jobs: [], history: [], startLocation: 'Lorville', startTypedAt: iso(ago(60)), listOrder: 'distance', lastLogEventAt: iso(ago(30)) })
+  e.append(...J74_L.session(ago(120)))
+  const port = await freePort()
+  const iport = await freePort()
+  const stop = await launch(e, [...cdpArgs(port), ...inspectArgs(iport)])
+  let overlay = ''
+  let next = ''
+  let snap = null
+  let err = ''
+  try {
+    e.append(J74_L.marker(), J74_L.accept(), J74_L.deliver(), J74_L.collect(), ...(collected ? [J74_L.collected()] : []))
+    const want = collected ? /near HDPC-Cassillo/i : /Farnesway/i
+    await until(() => (e.jobs()?.jobs?.[0]?.steps?.length >= 2 ? true : null))
+    overlay = (await until(() => windowText(port, 'overlay').then((t) => (want.test(t) ? t : '')), 10000)) || (await windowText(port, 'overlay'))
+    await cdpEval(port, 'main', `(() => { const b = [...document.querySelectorAll('button')].find((x) => x.textContent.trim() === 'NEXT'); b?.click(); return !!b })()`)
+    next = (await until(() => windowText(port, 'main').then((t) => (want.test(t) ? t : '')), 8000)) || (await windowText(port, 'main'))
+    if (exportDiag) {
+      const out = path.join(e.data, `${name}.txt`)
+      await stubSaveDialog(iport, out)
+      const res = await cdpEval(port, 'main', `window.supercargo.diagExport({ note: '', includeImages: false })`, 40000)
+      snap = snapshotJson(fs.readFileSync(res?.path ?? out, 'utf8'))
+    }
+  } catch (x) {
+    err = String(x?.message ?? x)
+  }
+  await stop()
+  return { e, overlay, next, snap, err, doc: e.jobs() }
+}
+// "Security Compound" line(s) of a window's text
+const lineWith = (text, re) => (text ?? '').split(/\n/).filter((l) => re.test(l)).join(' | ')
 
 const scenarios = {
   // #1 both windows ingest the same accept
@@ -1427,6 +1493,120 @@ const scenarios = {
       ['the export lists the saved picture', !!overlayPng && (text ?? '').includes(path.basename(overlayPng)), `sections=${Object.keys(sec).join(',')}`],
       ['no zone crops in the test seam', !imgs.some((f) => /-zone[12]\.png$/.test(f)), `images=${JSON.stringify(imgs)}`],
       ['note cleaned (no player name)', /PLAYER/.test(sec['NOTE'] ?? '') && !(text ?? '').includes(DIAG_REAL), `note=${JSON.stringify((sec['NOTE'] ?? '(missing)').slice(0, 100))}`]
+    ]
+  },
+
+  // CONTRACT4 F1/F2: J74 from its real lines, pickup done -> the delivery to "Security Compound" (no UEX place)
+  // is placed from its body-frame marker (Hurston) and shows a distance "near HDPC-Cassillo", not "Not found in UEX"
+  'j74-near-place': async () => {
+    const r = await j74Run('j74-near-place', { collected: true, exportDiag: true })
+    const rows = r.snap?.other?.distanceTable?.distance ?? []
+    const row = rows.find((x) => /Security Compound/.test(String(x.place)))
+    // the marker is in Hurston's body frame: point = Hurston centre + position (4 km from HDPC-Cassillo)
+    const hur = ROSTER.find((l) => l.name === 'Hurston')
+    const lor = ROSTER.find((l) => l.name === 'Lorville')
+    const want = hur && lor ? Math.hypot(hur.x - 790556.763184 - lor.x, hur.y + 614240.106819 - lor.y, hur.z - 6055.992337 - lor.z) : null
+    // straight line or over the surface (arc on a ~1000 km body), whichever the table uses
+    const arc = want ? 1000000 * 2 * Math.asin(Math.min(1, want / 2000000)) : null
+    const near = (d, w) => d > 0 && w > 0 && Math.abs(d - w) < Math.max(15000, w * 0.05)
+    const ovl = lineWith(r.overlay, /Security Compound|near|km|Gm|Mm/i)
+    return [
+      // the overlay title is upper case on screen (CSS), so match either case
+      ['overlay: "near HDPC-Cassillo"', /near HDPC-Cassillo/i.test(r.overlay), `overlay=${JSON.stringify(r.overlay.slice(0, 400))} ${r.err}`],
+      ['overlay: no "Not found in UEX"', r.overlay.length > 0 && !/Not found in UEX/.test(r.overlay), `lines=${JSON.stringify(ovl)}`],
+      ['overlay: a distance', /\d\s*(Gm|Mm|km)/.test(r.overlay.replace(/\(\d+(\.\d+)?\s*km\)/gi, '')), `lines=${JSON.stringify(ovl)}`],
+      ['Next tab: "near HDPC-Cassillo"', /near HDPC-Cassillo/.test(r.next), `next=${JSON.stringify(lineWith(r.next, /Security Compound|near/).slice(0, 400))}`],
+      ['Next tab: no "Not found in UEX"', r.next.length > 0 && !/Not found in UEX/.test(r.next), `next=${JSON.stringify(r.next.slice(0, 400))}`],
+      ['table distance ~ Lorville -> Hurston centre + marker position', near(row?.distance, want) || near(row?.distance, arc), `row=${JSON.stringify(row)?.slice(0, 300)} want~${Math.round(want ?? 0)} (line) or ${Math.round(arc ?? 0)} (surface)`],
+      ['zone 862321816216 calibrated on Hurston for build 12913470', !!r.doc?.markerZones?.['12913470']?.['862321816216'], `zones=${JSON.stringify(r.doc?.markerZones ?? null)?.slice(0, 300)}`]
+    ]
+  },
+
+  // CONTRACT4 F4: J74's game order is deliver, then collect; the first open stop is the Farnesway pickup
+  'j74-pickup-first': async () => {
+    const r = await j74Run('j74-pickup-first')
+    const steps = r.doc?.jobs?.[0]?.steps ?? []
+    const first = (t) => {
+      const a = t.toLowerCase().indexOf('farnesway')
+      const b = t.toLowerCase().indexOf('security compound')
+      return a >= 0 && (b < 0 || a < b)
+    }
+    return [
+      ['both steps saved, game order kept in the doc', steps.length === 2 && /Security Compound/.test(steps[0]?.label ?? steps[0]?.location ?? ''), `steps=${JSON.stringify(steps.map((s) => s.label))}`],
+      ['overlay: Farnesway pickup first', first(r.overlay), `overlay=${JSON.stringify(r.overlay.slice(0, 400))} ${r.err}`],
+      ['Next tab: Farnesway pickup first', first(r.next), `next=${JSON.stringify(lineWith(r.next, /Farnesway|Security Compound/).slice(0, 400))}`]
+    ]
+  },
+
+  // CONTRACT4 F3: zone ids change per server, so a new session line (and a disconnect) drops this build's zone table;
+  // a marker after it calibrates fresh; a step already placed keeps its position
+  'j74-session-resets-zones': async () => {
+    const e = setup('j74-session-resets-zones', {}, { jobs: [], history: [], lastLogEventAt: iso(ago(30)) })
+    e.append(...J74_L.session(ago(120)))
+    const stop = await launch(e)
+    const zone = (d) => d?.markerZones?.['12913470']?.['862321816216']
+    e.append(J74_L.marker(), J74_L.accept(), J74_L.deliver(), J74_L.collect())
+    const before = await until(() => zone(e.jobs()))
+    const pos = e.jobs()?.jobs?.[0]?.steps?.find((s) => s.objectiveId === J74_DROP || /Security Compound/.test(s.label ?? ''))?.position
+    e.append(...J74_L.session())
+    const cleared = await until(() => (e.jobs() && !zone(e.jobs()) ? e.jobs() : null), 8000)
+    e.append(J74_L.marker())
+    const again = await until(() => zone(e.jobs()), 8000)
+    e.append(L.drop())
+    const dropped = await until(() => (e.jobs() && !zone(e.jobs()) ? e.jobs() : null), 8000)
+    await stop()
+    const keptPos = cleared?.jobs?.[0]?.steps?.find((s) => s.objectiveId === J74_DROP || /Security Compound/.test(s.label ?? ''))?.position
+    let trace = ''
+    try {
+      trace = fs.readFileSync(path.join(e.data, 'logs', 'trace.jsonl'), 'utf8')
+    } catch {
+      // checked below
+    }
+    return [
+      ['zone calibrated from the J74 marker', !!before, `zones=${JSON.stringify(before ?? null)}`],
+      ['new session line: zone table for the build emptied', !!before && !!cleared, `after=${JSON.stringify(cleared?.markerZones ?? null)?.slice(0, 200)}`],
+      ['placed step keeps its position', !!pos && !!keptPos && Math.abs(keptPos.x - pos.x) < 1, `before=${JSON.stringify(pos)} after=${JSON.stringify(keptPos)}`],
+      ['marker after the reset calibrates fresh', !!cleared && !!again, `zone=${JSON.stringify(again ?? null)}`],
+      ['disconnect empties it too', !!again && !!dropped, `after=${JSON.stringify(dropped?.markerZones ?? null)?.slice(0, 200)}`],
+      ['decide trace notes the reset (session and disconnect)', /marker zones reset: session/.test(trace) && /marker zones reset: disconnect/.test(trace), `resets=${count(trace, /marker zones reset/g)}`]
+    ]
+  },
+
+  // CONTRACT4 C: Export diagnostics (button path) copies the whole saved text to the clipboard; result.copied
+  'diag-clipboard': async () => {
+    const r = await diagExportRun('diag-clipboard', { note: '', includeImages: false }, ({ iport }) => mainEval(iport, `require('electron').clipboard.readText()`))
+    const clip = r.extra ?? ''
+    return [
+      ['export written', r.res?.ok === true && r.text != null, `result=${JSON.stringify(r.res)} ${r.err}`],
+      ['result.copied true', r.res?.copied === true, `copied=${r.res?.copied}`],
+      ['clipboard text equals the saved file', r.text != null && clip === r.text, `clipboard=${clip.length} chars file=${r.text?.length ?? null} chars`]
+    ]
+  },
+
+  // CONTRACT4 C: the --export-diagnostics command-line path saves the file but leaves the clipboard alone
+  'diag-cli-no-clipboard': async () => {
+    const e = setup('diag-cli-no-clipboard')
+    const out = path.join(e.data, 'diag-cli.txt')
+    const iport = await freePort()
+    const stop = await launch(e, ['--export-diagnostics', out, ...inspectArgs(iport)])
+    const SENTINEL = 'sentinel-clipboard-untouched'
+    let early = false
+    let clip = ''
+    let err = ''
+    try {
+      await mainEval(iport, `require('electron').clipboard.writeText(${JSON.stringify(SENTINEL)})`)
+      early = !fs.existsSync(out)
+      await waitForFile(out)
+      await sleep(1000)
+      clip = await mainEval(iport, `require('electron').clipboard.readText()`)
+    } catch (x) {
+      err = String(x?.message ?? x)
+    }
+    await stop()
+    return [
+      ['sentinel set before the export was written', early, `file existed already=${!early} ${err}`],
+      ['file written', fs.existsSync(out), `file=${out}`],
+      ['clipboard still the sentinel', clip === SENTINEL, `clipboard=${JSON.stringify(String(clip).slice(0, 80))}`]
     ]
   },
 

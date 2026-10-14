@@ -14,8 +14,11 @@ import {
   type OtherMarkerZone,
   type OtherStep
 } from '@other/otherJob'
-import { calibrateZone, resolveMarker, type MarkerPos } from '@other/otherMarkers'
-import { findRosterLocation, stepActivePlace } from '@other/otherNext'
+import { calibrateZone, resolveMarker, type BodyRadiusLookup, type MarkerPos } from '@other/otherMarkers'
+import { findRosterLocation, nearestRosterPlace, stepActivePlace } from '@other/otherNext'
+import { setBodyRadiusLookup } from '@other/otherGeo'
+import { bodyRadiusFromTable } from '@other/otherBodies'
+import { bodiesTable } from './otherBodiesStore'
 import { ACCURACY, type Where, type WhereRunResult, type WhereSource } from '@other/otherWhere'
 import { mergeLocations } from './otherPlaces'
 import type { OtherLogEvent } from '@other/otherEvents'
@@ -27,7 +30,7 @@ import { otherSetting, resolveWorkMode } from '@other/workMode'
 import { useOtherHistory } from './otherHistory'
 import { requestAutoOcrIfEnabled } from './otherCapture'
 import { findStepByText, kindFromGenerator, stepFromObjectiveText, stepKey } from '@other/otherLog'
-import type { AppSettings } from '@shared/types'
+import type { AppSettings, Location } from '@shared/types'
 
 export interface OtherJobDraft {
   title: string
@@ -249,10 +252,45 @@ export function otherMissionMarkers(): ReadonlyMap<string, ReadonlyMap<string, M
  * Only steps whose place has no UEX coords get a position; a step whose marker can't be placed
  * keeps none (or the last one it had). jobId limits the pass to one job.
  */
+/** planet table radius (otherBodiesStore), for body-frame markers and surface arcs */
+const tableRadius: BodyRadiusLookup = (body) => bodyRadiusFromTable(bodiesTable(), body)
+// every travel() (otherNext distances, overlay, diagnostics) measures surface arcs with the table radius
+setBodyRadiusLookup(tableRadius)
+
+/** "<name>\n<near>" already sent to main this run (main bumps seen/lastSeen; once per session is enough) */
+const learnedSent = new Set<string>()
+
+/**
+ * A generic step place (no roster coords) placed by a marker near a known place: tell main so the
+ * planet table's learned list (diagnostics + label hint) keeps it. Once per (name, near) per run.
+ */
+function reportLearned(step: OtherStep, pos: { x: number; y: number; z: number }, locations: Location[], ref: string): void {
+  const name = step.location?.trim()
+  if (!name) return
+  const near = nearestRosterPlace(pos, locations)
+  if (!near) return
+  const key = `${name.toLowerCase()}\n${near.name.toLowerCase()}`
+  if (learnedSent.has(key)) return
+  learnedSent.add(key)
+  const at = locations.find((l) => l.name === near.name)
+  const body = at?.body ?? undefined
+  const system = at?.system ?? undefined
+  window.supercargo?.otherLearnedPlace?.({
+    name,
+    near: near.name,
+    nearMeters: Math.round(near.meters),
+    ...(body ? { body } : {}),
+    ...(system ? { system } : {}),
+    point: { x: pos.x, y: pos.y, z: pos.z }
+  })
+  dlog.info('other', 'learned place reported', { ref, name, near: near.name, meters: Math.round(near.meters), body })
+}
+
 function placeSteps(d: Draft, ctx: Ctx, jobId?: string): void {
   if (!otherSetting(ctx.settings, 'otherMarkerDistance') || !d.markerBuild) return
   const zones = d.markerZones[d.markerBuild] ?? {}
-  const locations = useStore.getState().locations ?? []
+  // merged roster (haul + other places), the same list calibrateZone uses
+  const locations = mergeLocations(useStore.getState().locations)
   const hasUex = (s: OtherStep): boolean => {
     const named = findRosterLocation(s.location, locations)
     return !!named && named.x != null && named.y != null && named.z != null
@@ -288,6 +326,7 @@ function placeSteps(d: Draft, ctx: Ctx, jobId?: string): void {
         decide('marker placed', j.missionId, { ref: j.ref, step: stepKey(s), objectiveId: s.objectiveId, zone: m.zoneHostId, build: d.markerBuild, pos })
         dlog.debug('other', 'marker position on step', { ref: j.ref, stepKey: stepKey(s), zone: m.zoneHostId, build: d.markerBuild })
       }
+      reportLearned(s, pos, locations, j.ref)
       return { ...s, position: pos }
     })
     return changed ? { ...j, steps } : j
@@ -418,6 +457,22 @@ function takeWhere(cur: Where | null, next: Where, why?: Record<string, unknown>
   return next
 }
 
+/**
+ * Zone ids change per server, so a new session or a disconnect/quit drops the current build's
+ * zone table; later markers calibrate fresh. Step positions already placed (system frame) stay.
+ */
+function resetZones(d: Draft, why: 'session' | 'disconnect' | 'quit'): void {
+  const build = d.markerBuild
+  if (!build) return
+  const n = Object.keys(d.markerZones[build] ?? {}).length
+  if (!n) return
+  const rest = { ...d.markerZones }
+  delete rest[build]
+  d.markerZones = rest
+  decide(`marker zones reset: ${why}`, undefined, { build, zones: n })
+  dlog.debug('other', 'marker zones reset', { why, build, zones: n })
+}
+
 function reduce(d: Draft, e: OtherLogEvent, ctx: Ctx): void {
   const mode = resolveWorkMode(ctx.settings.workMode)
   const mid = 'missionId' in e ? e.missionId : undefined
@@ -426,6 +481,7 @@ function reduce(d: Draft, e: OtherLogEvent, ctx: Ctx): void {
       d.sessionAt = e.at
       if (e.build) d.markerBuild = e.build
       decide('session', undefined, { at: e.at, build: e.build, live: ctx.live })
+      resetZones(d, 'session')
       dlog.info('other', 'log session', { at: e.at, build: e.build })
       break
 
@@ -440,22 +496,23 @@ function reduce(d: Draft, e: OtherLogEvent, ctx: Ctx): void {
         break
       }
       const table = d.markerZones[d.markerBuild] ?? {}
-      const r = calibrateZone(table, m, useStore.getState().locations ?? [])
+      const r = calibrateZone(table, m, mergeLocations(useStore.getState().locations), tableRadius)
       decide(r.zones !== table ? 'marker calibrated' : 'marker stored', mid, {
         objectiveId: e.objectiveId,
         zone: e.zoneHostId,
         build: d.markerBuild,
         change: r.change,
         place: r.place,
-        n: r.zones[e.zoneHostId]?.n
+        n: r.zones[e.zoneHostId]?.n,
+        ...(r.bodyWhy ? { body: r.body, bodyWhy: r.bodyWhy, meters: r.meters } : {})
       })
       if (r.zones !== table) {
         d.markerZones = { ...d.markerZones, [d.markerBuild]: r.zones }
-        dlog.debug('other', 'marker zone calibration', { build: d.markerBuild, zone: e.zoneHostId, change: r.change, place: r.place, n: r.zones[e.zoneHostId]?.n })
+        dlog.debug('other', 'marker zone calibration', { build: d.markerBuild, zone: e.zoneHostId, change: r.change, place: r.place, body: r.body, meters: r.meters, n: r.zones[e.zoneHostId]?.n })
       }
       // a newly learned zone can place earlier markers too
       const job = d.jobs.find((j) => j.missionId === e.missionId)
-      if (r.change === 'new' || r.change === 'root') placeSteps(d, ctx)
+      if (r.change === 'new' || r.change === 'root' || r.change === 'body') placeSteps(d, ctx)
       else if (job) placeSteps(d, ctx, job.id)
       break
     }
@@ -665,6 +722,7 @@ function reduce(d: Draft, e: OtherLogEvent, ctx: Ctx): void {
 
     case 'disconnect':
     case 'quit': {
+      resetZones(d, e.kind)
       // rule 5: quitting ends every active log job
       const hit = d.jobs.filter((j) => j.status === 'active' && j.source === 'log')
       decide(`${e.kind} abandoned ${hit.length}`, undefined, { refs: hit.map((j) => j.ref), live: ctx.live })

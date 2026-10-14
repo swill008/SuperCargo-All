@@ -237,6 +237,39 @@ default and the tick box says so.
 - The replay scenarios answer the save dialog by replacing `dialog.showSaveDialog` through the main-process inspector;
   the `--export-diagnostics` CLI flag still takes no note or images.
 
+## Places from markers, pickup order, clipboard (batch 4)
+
+Added 2026-10-14, user-approved (CONTRACT4 F1-F4 and C). Rules 21-25 in
+[STANDALONE.md](../src/other/STANDALONE.md#places-from-mission-markers-user-2026-10-14); files and data flow in
+[SYSTEM-MAP.md](SYSTEM-MAP.md).
+
+**The case (the user's export).** Job J74 (`FTL_Courier_Stanton_Iron_Rank1`) lists "Deliver Iron To Security
+Compound" before "Collect Iron From HDPC-Farnesway on Hurston". "Security Compound" is not a UEX place, so the stop
+showed "Not found in UEX". Its marker (`zoneHostId 862321816216`) has |position| = 1001.2 km, Hurston's radius: the
+zone is Hurston's own frame, and Hurston's centre + position lands 4.0 km from HDPC-Cassillo (other log lines name
+the place `DC_Stan_Hurston_S1_Cassillo_FOB`). The zone was never calibrated, because calibration needed a z-match with
+a UEX place, and it was given the Haul-only roster. Zone ids also change per server (SolarSystem 862399811847 one
+session, 862321811808 the next), so a table learned on an earlier server was wrong for the current one.
+
+| # | Fix | Owner | Test (fails on e46aba2) |
+|---|---|---|---|
+| F1 | Body-frame markers: radius estimate (median distance of the body's places), ±3% radius, a body place within 10 km, exactly one body; merged roster | `otherMarkers.ts` `bodyFrameMatch()`, `otherJobs.ts` | `marker_checks.mjs`; replay `j74-near-place`, `j74-session-resets-zones` |
+| F2 | `near` (nearest roster place within 25 km) on marker rows; overlay and Next show "Security Compound · near HDPC-Cassillo (4 km)" | `otherNext.ts`, `OtherOverlay.tsx`, `NextPage.tsx` | `next_order.mjs`; replay `j74-near-place` |
+| F3 | Zone table for the build cleared on session / disconnect / quit; step positions kept; decide trace `marker zones reset: <why>` | `otherJobs.ts` | replay `j74-session-resets-zones` |
+| F4 | Open pickup before same-item deliveries of the same job (next step, show-all and route order); no item or `pickupLocation` → game order | `otherNext.ts` `stepWorkOrder()` | `next_order.mjs`; replay `j74-pickup-first` |
+| C | UI export copies the saved text to the clipboard (`copied`); result line "Saved and copied · 1.4 MB · <path>" (+ large note > 1 MB) or "Saved (copy to clipboard failed)"; the CLI never copies | `diagnostics.ts`, `trace.ts`, `index.ts` handler, Settings / Debug | replay `diag-clipboard` (clipboard read in main through the inspector equals the saved file); `diag-cli-no-clipboard` is a guard (passes on the old build too) |
+
+The J74 replay uses the real marker line, the real objective texts and ids (`dropoff_` / `pickup_f1fc9593-…_0`) and
+a build-12913470 session line; the accept title is modelled on real courier accept lines (the export did not keep it).
+
+**Known limits.**
+- Body radius is estimated from the roster's places; a saved planet table (the panel's exact `Radius:`) could refine
+  it later. A body with no places with coordinates can't be matched.
+- Hurston and microTech are both ~1000 km; only the 10 km place check separates them. No place near the point on
+  any body (or more than one body passing) leaves the zone uncalibrated and the stop "Not found in UEX".
+- `near` is a label; the distance comes from the marker point.
+- After every server change the first marker must calibrate again.
+
 ## Suggested order
 
 1. **Make it green:**

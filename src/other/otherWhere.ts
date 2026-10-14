@@ -2,6 +2,7 @@
 // inventory, the map's bottom line, r_DisplayInfo text). Parsers and resolvers are pure.
 import type { Location } from "@shared/types";
 import type { GeoPoint } from "./otherGeo";
+import { bodyRadius, type BodyRadiusLookup } from "./otherMarkers";
 
 export type WhereSource =
   | "typed"
@@ -521,26 +522,6 @@ export function resolveMapLine(
   };
 }
 
-/** body radius (km) when the panel's "Radius:" line is cut off; only used for the "N km up" label */
-const BODY_RADIUS_KM: Record<string, number> = {
-  hurston: 1000,
-  arial: 344.5,
-  aberdeen: 274,
-  magda: 340.8,
-  ita: 325,
-  crusader: 7450,
-  cellin: 260,
-  daymar: 295,
-  yela: 313,
-  arccorp: 800,
-  lyria: 223,
-  wala: 283,
-  microtech: 1000,
-  calliope: 240,
-  clio: 337,
-  euterpe: 213,
-};
-
 /** "Current player location : Stanton<n>" -> planet */
 const STANTON_INDEX: Record<number, string> = {
   1: "Hurston",
@@ -564,11 +545,14 @@ function formatUp(m: number): string {
  *    within 5 km, player-location index agrees with the body; altitude over 100 km skips this step);
  * 2. SolarSystem line (== Root within 1 km when Root is there), else Root alone.
  * null = nothing usable (the caller falls back to the map line). ServerTime > 2 min off `at` = maybe stale (accuracy −3).
+ * opts.bodyRadius = planet table (otherBodies) for the "N km up" label when the panel's "Radius:" line is cut off;
+ * without it (or when it doesn't know the body) the roster estimate (otherMarkers.bodyRadius) is used.
  */
 export function resolveDisplayInfo(
   info: DisplayInfo,
   locations: Location[],
   at: string,
+  opts?: { bodyRadius?: BodyRadiusLookup },
 ): Where | null {
   const checks: NonNullable<DisplayInfo["checks"]> = [];
   info.checks = checks;
@@ -668,7 +652,7 @@ export function resolveDisplayInfo(
       const r =
         typeof radius === "number"
           ? radius
-          : (BODY_RADIUS_KM[nearLoc.name.toLowerCase()] ?? NaN) * 1000;
+          : (bodyRadius(nearLoc.name, locations, opts?.bodyRadius) ?? NaN);
       up = typeof alt === "number" ? alt : Math.hypot(pos.x, pos.y, pos.z) - r;
       if (!Number.isFinite(up)) up = undefined;
       checks.push({

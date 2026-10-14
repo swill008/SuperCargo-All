@@ -24,6 +24,18 @@ esbuild.buildSync({
   alias: { '@shared': path.join(root, 'src/shared'), '@other': path.join(root, 'src/other') }
 })
 const W = await import(pathToFileURL(outfile).href)
+const geofile = path.join(tmp, 'otherGeo.mjs')
+esbuild.buildSync({
+  entryPoints: [path.join(root, 'src/other/otherGeo.ts')],
+  bundle: true,
+  platform: 'node',
+  format: 'esm',
+  outfile: geofile,
+  logLevel: 'error',
+  tsconfig: path.join(root, 'tsconfig.node.json'),
+  alias: { '@shared': path.join(root, 'src/shared'), '@other': path.join(root, 'src/other') }
+})
+const G = await import(pathToFileURL(geofile).href)
 fs.rmSync(tmp, { recursive: true, force: true })
 
 const roster = JSON.parse(fs.readFileSync(path.join(root, 'data/uex/other-positions.json'), 'utf8')).places
@@ -212,7 +224,17 @@ safe('real OCR texts', () => {
   const want = { x: H.x - 500748.1, y: H.y + 922872.0, z: H.z - 1516.49 }
   check('real OCR texts', 'near Hurston: point = Hurston centre + zone pos', w1?.point && dist(w1.point, want) < 1 && w1.body === 'Hurston' && w1.system === 'Stanton', j(w1?.point))
   check('real OCR texts', 'near Hurston: ~422 km from HDPC-Cassillo', w1?.point && near(dist(w1.point, C) / 1000, 422, 1.5), `${w1?.point && dist(w1.point, C) / 1000} km`)
-  check('real OCR texts', 'near Hurston: label', w1?.label === 'Hurston · 50 km up · 422 km from HDPC-Cassillo' && w1.name === null, w1?.label)
+  // no Radius line on this panel: "km up" = |pos| - radius; roster estimate for Hurston is ~1001 km -> 49 km up
+  check('real OCR texts', 'near Hurston: label (roster estimate radius)', w1?.label === 'Hurston · 49 km up · 422 km from HDPC-Cassillo' && w1.name === null, w1?.label)
+  // planet table radius (otherBodies) wins over the estimate
+  const asked = []
+  const table = (n) => { asked.push(n); return n === 'Hurston' ? 1_000_000 : null }
+  const wt = W.resolveDisplayInfo(W.parseDisplayInfo(REAL_NEAR_HURSTON), roster, AT, { bodyRadius: table })
+  check('real OCR texts', 'near Hurston: table radius 1000 km -> 50 km up', wt?.label === 'Hurston · 50 km up · 422 km from HDPC-Cassillo' && asked.includes('Hurston'), `${wt?.label} asked=${asked}`)
+  const wt2 = W.resolveDisplayInfo(W.parseDisplayInfo(REAL_NEAR_HURSTON), roster, AT, { bodyRadius: () => 990_000 })
+  check('real OCR texts', 'near Hurston: table radius 990 km -> 60 km up', /^Hurston · 60 km up · /.test(wt2?.label ?? ''), wt2?.label)
+  const wn = W.resolveDisplayInfo(W.parseDisplayInfo(REAL_NEAR_HURSTON), roster, AT, { bodyRadius: () => null })
+  check('real OCR texts', 'near Hurston: table without the body -> estimate', wn?.label === w1?.label, wn?.label)
   check('real OCR texts', 'near Hurston: accuracy 10', w1?.accuracy === 10, j(w1?.accuracy))
 
   const i2 = W.parseDisplayInfo(REAL_SPACE_TOP3)
@@ -317,6 +339,30 @@ safe('accuracy', () => {
   const words = [10, 9, 8, 6, 5, 4, 3, 1, 0].map((n) => W.accuracyWord(n)).join(' ')
   check('accuracy', 'words', words === 'exact exact good good rough rough guess guess none', words)
   check('accuracy', 'ACCURACY table', W.ACCURACY.displayInfoBody === 10 && W.ACCURACY.displayInfoSpace === 9 && W.ACCURACY.mapPlace === 8 && W.ACCURACY.mapBody === 4 && W.ACCURACY.mapCoords === 3)
+})
+
+safe('surface arc radius', () => {
+  const a = loc('HDPC-Cassillo')
+  const b = loc('HDRSO-Stott')
+  const H = loc('Hurston')
+  const pa = { x: a.x, y: a.y, z: a.z, system: 'Stanton', body: 'Hurston' }
+  const pb = { x: b.x, y: b.y, z: b.z, system: 'Stanton', body: 'Hurston' }
+  const chord = dist(pa, pb)
+  const arc = (r) => r * 2 * Math.asin(Math.min(1, chord / (2 * r)))
+  const mean = (dist(pa, H) + dist(pb, H)) / 2
+  const t0 = G.travel(pa, pb, roster)
+  check('surface arc radius', 'no table -> mean of the two radii', t0?.surface && Math.abs(t0.meters - arc(mean)) < 1, `${t0?.meters} vs ${arc(mean)}`)
+  const t1 = G.travel(pa, pb, roster, { bodyRadius: (n) => (n === 'Hurston' ? 800_000 : null) })
+  check('surface arc radius', 'opts table radius used for r', t1?.surface && Math.abs(t1.meters - arc(800_000)) < 1 && Math.abs(t1.meters - t0.meters) > 100, `${t1?.meters} vs ${arc(800_000)}`)
+  G.setBodyRadiusLookup((n) => (n === 'Hurston' ? 800_000 : null))
+  const t2 = G.travel(pa, pb, roster)
+  const ex = G.explainTravel(pa, pb, roster)
+  G.setBodyRadiusLookup(null)
+  check('surface arc radius', 'registered table lookup used (travel + explainTravel)', t2 && Math.abs(t2.meters - t1.meters) < 1e-6 && Math.abs(ex.meters - t1.meters) < 1e-6, `${t2?.meters} ${ex.meters}`)
+  const t3 = G.travel(pa, pb, roster, { bodyRadius: () => null })
+  check('surface arc radius', 'table without the body -> mean', t3 && Math.abs(t3.meters - t0.meters) < 1e-6, `${t3?.meters}`)
+  const off = G.travel({ ...pa, body: 'Hurston' }, { ...pb, body: 'microTech' }, roster, { bodyRadius: () => 800_000 })
+  check('surface arc radius', 'different bodies -> straight line', off && !off.surface && Math.abs(off.meters - chord) < 1e-6, j(off))
 })
 
 let failed = 0

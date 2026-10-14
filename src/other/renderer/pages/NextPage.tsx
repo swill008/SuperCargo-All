@@ -8,7 +8,7 @@ import { useStore } from '@renderer/state/store'
 import { otherSetting } from '@other/workMode'
 import { useOtherJobs } from '../state/otherJobs'
 import {
-  listOpenStops, formatMapDistance, stepActionLabel, stepActivePlace, formatPlaceWithBodySystem, routeTotal,
+  listOpenStops, formatMapDistance, stepActionLabel, stepActivePlace, formatPlaceWithBodySystem, formatPlaceNear, routeTotal,
   resolveOrigin, groupByPlace, type OpenStopRow, type ListOrder
 } from '@other/otherNext'
 import { formatTravel } from '@other/otherGeo'
@@ -215,11 +215,13 @@ export default function NextPage(): React.ReactElement {
   const renderGroup = (g: Group, gi: number): React.ReactElement => {
     const { rows, withdrawn } = g
     const pickup = g.place && rows.some((r) => r.pickup)
-    const title = !g.place ? g.heading : pickup ? pickupHeading(g.heading, rows, fmtPlace) : fmtPlace(g.heading)
+    // a marker-placed stop shows "near <place>" instead of "Not found in UEX"
+    const near = rows.find((r) => r.near)?.near
+    const title = !g.place ? g.heading : pickup ? pickupHeading(g.heading, rows, fmtPlace) : formatPlaceNear(g.heading, near, locations)
     const snapped = g.place
       ? rows.some((r) => (r.pickup ? r.step.pickupLocationSnapped : r.step.locationSnapped))
       : rows.some((r) => r.step.locationSnapped)
-    const why = g.distance == null && g.noDistanceWhy ? NO_DISTANCE_TEXT[g.noDistanceWhy] : null
+    const why = g.distance == null && g.noDistanceWhy && !(near && g.noDistanceWhy === 'not-in-uex') ? NO_DISTANCE_TEXT[g.noDistanceWhy] : null
     return (
         <div
           key={g.key}
@@ -297,7 +299,7 @@ export default function NextPage(): React.ReactElement {
               </span>
             ) : null}
           </div>
-          {rows.map(({ job, step, distance, distanceSource, jumps, surface }) => (
+          {rows.map(({ job, step, distance, distanceSource, jumps, surface, near, pickup }) => (
             <div key={step.id} style={{ display: 'grid', gridTemplateColumns: '1fr auto', gap: 12, alignItems: 'center', padding: '6px 0 2px 32px' }}>
               <div>
                 <div style={{ fontFamily: F.body, fontSize: 14, color: C.textBody }}>{step.label}</div>
@@ -310,7 +312,7 @@ export default function NextPage(): React.ReactElement {
                       color: step.locationSnapped ? C.acc : C.dim,
                       marginTop: 2
                     }}
-                  >{formatPlaceWithBodySystem(step.location, locations)}</div>
+                  >{formatPlaceNear(step.location, near && !pickup ? near : undefined, locations)}</div>
                 ) : null}
                 <div style={{ fontFamily: F.mono, fontSize: 12, color: C.dim, marginTop: 2 }}>
                   {job.ref}

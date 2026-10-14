@@ -472,6 +472,86 @@ safe('remainingRoute', () => {
   }
 })
 
+// F4: J74 shape (real, from the user's export): the game lists the turn-in first, the pickup second
+const otherPositions = JSON.parse(fs.readFileSync(path.join(root, 'data/uex/other-positions.json'), 'utf8')).places
+const posByName = (n) => otherPositions.find((l) => l.name === n) ?? byName(n)
+const j74 = (steps) => ({
+  id: 'J74', ref: 'J74', title: 'FTL_Courier_Stanton_Iron_Rank1', kind: 'delivery', reward: 0, status: 'active', createdAt: 74,
+  missionId: 'c240a60b-1597-4d36-baf0-98e06dd1fe5c', steps
+})
+const j74Steps = (pickupItem = 'Iron', turninItem = 'Iron') => [
+  { id: 'd', kind: 'turnin', label: 'Deliver Iron To Security Compound', location: 'Security Compound', item: turninItem,
+    have: 0, need: 1, done: false, objectiveId: 'dropoff_f1fc9593-e30c-4303-8a4e-7e1509141107_0' },
+  { id: 'p', kind: 'pickup', label: 'Collect Iron From HDPC-Farnesway on Hurston', location: 'HDPC-Farnesway', item: pickupItem,
+    have: 0, need: 1, done: false, objectiveId: 'pickup_f1fc9593-e30c-4303-8a4e-7e1509141107_0' }
+]
+safe('pickup first', () => {
+  const job = j74(j74Steps())
+  check('pickup first', 'nextLiveStep is the Farnesway pickup', N.nextLiveStep(job)?.id === 'p', N.nextLiveStep(job)?.label)
+  const one = N.listOpenStops([job], '', locations, {})
+  check('pickup first', 'one-per-job list shows the pickup', one[0]?.step.id === 'p', one.map((r) => r.step.id).join(','))
+  const all = N.listOpenStops([job], '', locations, { showAll: true, listOrder: 'distance' })
+  check('pickup first', 'show-all: pickup before delivery', all.map((r) => r.step.id).join(',') === 'p,d', all.map((r) => r.step.id).join(','))
+  // route from Cassillo: the delivery (near Cassillo) is nearer but must wait for its pickup
+  const cas = posByName('HDPC-Cassillo')
+  const hur = posByName('Hurston')
+  const dpos = { x: hur.x - 790556.763184, y: hur.y + 614240.106819, z: hur.z - 6055.992337 }
+  const jr = j74(j74Steps().map((s) => (s.id === 'd' ? { ...s, position: dpos } : s)))
+  const route = N.listOpenStops([jr], '', [...locations, ...otherPositions], {
+    showAll: true, listOrder: 'route', origin: { x: cas.x, y: cas.y, z: cas.z, system: 'stanton', body: 'Hurston' }
+  })
+  check('pickup first', 'route: pickup before nearer delivery', route.map((r) => r.step.id).join(',') === 'p,d', route.map((r) => r.step.id).join(','))
+  // done pickup: the delivery is next again
+  const after = j74(j74Steps().map((s) => (s.id === 'p' ? { ...s, done: true } : s)))
+  check('pickup first', 'after the pickup the delivery is next', N.nextLiveStep(after)?.id === 'd', N.nextLiveStep(after)?.id)
+})
+safe('item mismatch keeps order', () => {
+  const other = j74(j74Steps('Copper', 'Iron'))
+  check('item mismatch', 'different item: game order', N.nextLiveStep(other)?.id === 'd', N.nextLiveStep(other)?.id)
+  const none = j74(j74Steps('', 'Iron'))
+  check('item mismatch', 'pickup with no item: game order', N.nextLiveStep(none)?.id === 'd', N.nextLiveStep(none)?.id)
+  const caseFold = j74(j74Steps('iron', 'IRON'))
+  check('item mismatch', 'case-insensitive match moves the pickup', N.nextLiveStep(caseFold)?.id === 'p', N.nextLiveStep(caseFold)?.id)
+  // combined "collect from A, deliver to B" step is not a plain pickup: order unchanged
+  const combined = j74([
+    { id: 'a', kind: 'turnin', label: 'Deliver Iron To X', location: 'X', item: 'Iron', have: 0, need: 1, done: false },
+    { id: 'b', kind: 'pickup', label: 'Collect Iron', location: 'Y', pickupLocation: 'Z', item: 'Iron', have: 0, need: 1, done: false }
+  ])
+  check('item mismatch', 'combined pickupLocation step unaffected', N.nextLiveStep(combined)?.id === 'a', N.nextLiveStep(combined)?.id)
+})
+
+// F2: a marker point (system frame) 4 km from HDPC-Cassillo gets a near label; no "Not found in UEX"
+safe('near label', () => {
+  const roster = [...locations, ...otherPositions.filter((p) => !byName(p.name))]
+  const hur = posByName('Hurston')
+  const cas = posByName('HDPC-Cassillo')
+  const position = { x: hur.x - 790556.763184, y: hur.y + 614240.106819, z: hur.z - 6055.992337 }
+  const job = j74([{ ...j74Steps()[0], position }])
+  const rows = N.listOpenStops([job], '', roster, { listOrder: 'distance' })
+  const r = rows[0]
+  const want = Math.hypot(position.x - cas.x, position.y - cas.y, position.z - cas.z)
+  check('near label', 'marker row has near HDPC-Cassillo', r?.near?.name === 'HDPC-Cassillo', JSON.stringify(r?.near))
+  check('near label', 'near distance ~4 km', r?.near && Math.abs(r.near.meters - want) < 1 && want > 3000 && want < 5000, `${r?.near?.meters} want ${want}`)
+  check('near label', 'not "not-in-uex"', r?.noDistanceWhy !== 'not-in-uex', r?.noDistanceWhy)
+  const g = N.groupByPlace(rows, roster)[0]
+  check('near label', 'group carries near', g?.near?.name === 'HDPC-Cassillo', JSON.stringify(g?.near))
+  const text = N.formatPlaceNear(r.place, r.near, roster)
+  check('near label', 'label text', /^Security Compound.* · near HDPC-Cassillo \(4 km\)$/.test(text), text)
+  // with a start: distance from the marker, still near
+  const withStart = N.listOpenStops([job], 'HDPC-Cassillo', roster, { listOrder: 'distance' })[0]
+  check('near label', 'with start: marker distance and near', withStart?.distanceSource === 'marker' && withStart?.near?.name === 'HDPC-Cassillo', `${withStart?.distanceSource} ${withStart?.distance}`)
+  // UEX-placed rows get no near
+  // the marker point borrows its body from the near place, so a leg from Lorville (also on Hurston) goes over the surface
+  const fromLorville = N.listOpenStops([job], 'Lorville', roster, { listOrder: 'distance' })[0]
+  check('near label', 'from Lorville: surface distance on Hurston', fromLorville?.surface === true && fromLorville?.distance > 1.6e6, `${fromLorville?.surface} ${fromLorville?.distance}`)
+  const uex = N.listOpenStops([j74([j74Steps()[1]])], '', roster, {})[0]
+  check('near label', 'UEX-placed row has no near', uex && !uex.near, JSON.stringify(uex?.near))
+  // nothing within 25 km: no near
+  const far = j74([{ ...j74Steps()[0], position: { x: hur.x + 5e6, y: hur.y, z: hur.z } }])
+  const fr = N.listOpenStops([far], '', roster, {})[0]
+  check('near label', 'no roster place within 25 km: no near', fr && !fr.near, JSON.stringify(fr?.near))
+})
+
 fs.rmSync(tmp, { recursive: true, force: true })
 let failed = 0
 for (const { name, what, ok, detail } of results) {

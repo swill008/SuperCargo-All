@@ -21,6 +21,8 @@ import {
 } from '@other/otherWhere'
 import { otherSetting, resolveWorkMode } from '../workMode'
 import { currentLocationRoster } from './scanLog'
+import { getBodies, onWhereRead } from './bodies'
+import { bodyRadiusFromTable } from '../otherBodies'
 import { captureGameWindow, captureDisplay, cropImage, toUpscaledPng, toPreviewDataUrl } from '../../main/capture'
 import { TesseractEngine } from '../../main/ocr/tesseractEngine'
 import { logger } from '../../main/logger'
@@ -186,7 +188,7 @@ function readZone(zone: Zone, text: string, at: string, out: { info?: DisplayInf
   if (zone === 2) {
     const info = parseDisplayInfo(text)
     if (info) out.info = info
-    return info ? resolveDisplayInfo(info, locations, at) : null
+    return info ? resolveDisplayInfo(info, locations, at, { bodyRadius: (n) => bodyRadiusFromTable(getBodies().bodies, n) }) : null
   }
   const line = parseMapLine(text)
   return line ? resolveMapLine(line, locations, at) : null
@@ -366,6 +368,8 @@ export async function runWhere(opts: RunWhereOptions = {}): Promise<WhereRunResu
   }
   r.why = why
   record(r, why, !!process.env.SC_WHERE_TEXT_FILE)
+  // planet table: the panel's exact radius for its body
+  onWhereRead(r)
   if (opts.broadcast !== false) broadcast(r)
   return r
 }

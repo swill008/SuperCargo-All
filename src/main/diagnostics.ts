@@ -1,7 +1,7 @@
 // EXPORT DIAGNOSTICS: one readable, cleaned .txt for Claude to review how the app read the game,
 // what it decided and how it performed. Sections in a fixed order; see buildDiagnostics.
 
-import { app, BrowserWindow, dialog, ipcMain } from 'electron'
+import { app, BrowserWindow, clipboard, dialog, ipcMain } from 'electron'
 import * as fs from 'node:fs'
 import * as path from 'node:path'
 import { randomUUID } from 'node:crypto'
@@ -137,8 +137,13 @@ function gameLogHealth(logPath: string, all: TraceRecord[], recs: TraceRecord[])
       return t === null ? null : r.t - t
     })
     .filter((x): x is number => x !== null)
-  if (lags.length) out.push(`lag (record time - line time) over ${lags.length} parse records: median ${median(lags)} ms, max ${Math.max(...lags)} ms`)
-  else out.push('lag: (no timed parse records in period)')
+  // the start-up scan traces old lines as plain parse events too; anything over a minute behind is a replay, not live lag
+  const REPLAY_MS = 60_000
+  const live = lags.filter((x) => x <= REPLAY_MS)
+  const replayed = lags.length - live.length
+  if (live.length) out.push(`live lag (record time - line time) over ${live.length} parse records: median ${median(live)} ms, max ${Math.max(...live)} ms`)
+  else out.push('live lag: (no live parse records in period)')
+  if (replayed) out.push(`replayed lines (start-up scan / rescans, over ${REPLAY_MS / 1000} s behind): ${replayed}`)
   const watcherLag = recs.filter((r) => r.what === 'watcher lag' && typeof r.ms === 'number').map((r) => r.ms as number)
   if (watcherLag.length) out.push(`watcher lag samples: ${watcherLag.length}, median ${median(watcherLag)} ms, max ${Math.max(...watcherLag)} ms`)
   const rotations = getRecent().filter((e) => e.msg.includes('rotated/truncated')).length
@@ -461,8 +466,19 @@ export async function buildDiagnostics(opts: DiagExportOptions = {}, savePath?: 
 
     fs.writeFileSync(dest, out, 'utf8')
     const bytes = Buffer.byteLength(out)
-    logger.info('app', 'diagnostics exported', { path: dest, bytes, records: recs.length, images: images.length })
-    return { ok: true, path: dest, bytes, ...(opts.includeImages ? { images } : {}) }
+    // UI export only (the IPC handler sets copyToClipboard; the CLI path never does)
+    let copied: boolean | undefined
+    if (opts.copyToClipboard) {
+      try {
+        clipboard.writeText(out)
+        copied = true
+      } catch (e) {
+        copied = false
+        logger.warn('app', 'diagnostics clipboard copy failed', { error: (e as Error).message })
+      }
+    }
+    logger.info('app', 'diagnostics exported', { path: dest, bytes, records: recs.length, images: images.length, copied })
+    return { ok: true, path: dest, bytes, ...(opts.includeImages ? { images } : {}), ...(copied !== undefined ? { copied } : {}) }
   } catch (e) {
     logger.error('app', 'diagnostics export failed', { error: (e as Error).message })
     return { ok: false, error: (e as Error).message }

@@ -722,7 +722,7 @@ function registerIpc(): void {
     if (o['includeLogExcerpt'] === false) clean.includeLogExcerpt = false
     if (typeof o['note'] === 'string' && o['note'].trim()) clean.note = o['note'].slice(0, 4000)
     if (o['includeImages'] === true) clean.includeImages = true
-    return buildDiagnostics(clean)
+    return buildDiagnostics({ ...clean, copyToClipboard: true })
   })
   registerDiagSnapshotReply()
 

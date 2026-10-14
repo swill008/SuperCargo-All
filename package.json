@@ -20,6 +20,7 @@
     "test:next-order": "node test/replay/next_order.mjs",
     "test:afk": "node test/replay/afk_checks.mjs",
     "test:where": "node test/replay/where_checks.mjs",
+    "test:bodies": "node test/replay/bodies_checks.mjs",
     "typecheck:node": "tsc --noEmit -p tsconfig.node.json --composite false",
     "typecheck:web": "tsc --noEmit -p tsconfig.web.json --composite false",
     "typecheck": "npm run typecheck:node && npm run typecheck:web",

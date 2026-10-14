@@ -1,6 +1,7 @@
 import React, { useEffect, useState } from 'react'
 import { useStore } from '../state/store'
 import { trace } from '../state/trace'
+import { diagResultLine } from '@shared/trace'
 import type { AppSettings } from '@shared/types'
 import { C, F, GLOW, ZOOM_MIN, ZOOM_MAX, ZOOM_STEP, ZOOM_DEFAULT, clampZoom } from '../theme'
 import PageHeader, { PAGE_PADDING } from '../components/PageHeader'
@@ -680,7 +681,7 @@ function DiagExportRow(): React.ReactElement {
       const r = await window.supercargo.diagExport(opts)
       if (r.ok) {
         setState({
-          busy: false, msg: `${r.path ?? ''}${r.bytes != null ? ` (${fmtBytes(r.bytes)})` : ''}`, err: false, images: r.images ?? []
+          busy: false, msg: diagResultLine(r), err: false, images: r.images ?? []
         })
         setNote('')
       } else setState({ busy: false, msg: r.error || 'export failed', err: true, images: [] })
@@ -728,12 +729,6 @@ function DiagExportRow(): React.ReactElement {
       )}
     </div>
   )
-}
-
-function fmtBytes(n: number): string {
-  if (n < 1024) return `${n} B`
-  if (n < 1024 * 1024) return `${(n / 1024).toFixed(1)} KB`
-  return `${(n / 1024 / 1024).toFixed(1)} MB`
 }
 
 function AboutBlock(): React.ReactElement {

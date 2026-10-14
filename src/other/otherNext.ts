@@ -303,6 +303,35 @@ export interface OpenStopRow {
   noDistanceWhy: 'not-in-uex' | 'no-start' | 'no-gateway' | null
   /** place position used for distance/leg (UEX coords or marker); absent when unknown */
   point?: GeoPoint
+  /** marker-based point only: nearest roster place within 25 km of it */
+  near?: PlaceNear
+}
+
+export interface PlaceNear {
+  name: string
+  meters: number
+}
+
+/** how far a marker point may be from a roster place to be called "near" it */
+export const NEAR_MAX_M = 25_000
+
+/** nearest roster place (with coords) within 25 km of a point; undefined when none */
+export function nearestRosterPlace(p: GeoPoint | undefined, locations: Location[]): PlaceNear | undefined {
+  if (!p) return undefined
+  let best: PlaceNear | undefined
+  for (const l of locations) {
+    if (l.x == null || l.y == null || l.z == null) continue
+    const d = Math.hypot(l.x - p.x, l.y - p.y, l.z - p.z)
+    if (d <= NEAR_MAX_M && (!best || d < best.meters)) best = { name: l.name, meters: d }
+  }
+  return best
+}
+
+/** "<place, body, system> · near <name> (<dist>)"; the plain place line when there is no near place */
+export function formatPlaceNear(place: string, near: PlaceNear | undefined, locations: Location[]): string {
+  const base = formatPlaceWithBodySystem(place, locations)
+  if (!near) return base
+  return `${base} \u00b7 near ${near.name} (${formatDistance(near.meters)})`
 }
 
 /** true while the step's next place is a pickup not yet collected */
@@ -387,6 +416,8 @@ export interface StopGroup {
   legSurface?: boolean
   distanceSource: 'uex' | 'marker' | null
   noDistanceWhy: OpenStopRow['noDistanceWhy']
+  /** the first row's near place (marker-based points only) */
+  near?: PlaceNear
 }
 
 const placeKey = (p: string): string => p.toLowerCase().replace(/\s+/g, ' ').trim()
@@ -412,7 +443,8 @@ export function groupByPlace(rows: OpenStopRow[], locations: Location[] = []): S
         ...(r.surface ? { surface: true } : {}),
         leg: null,
         distanceSource: r.distanceSource,
-        noDistanceWhy: r.noDistanceWhy
+        noDistanceWhy: r.noDistanceWhy,
+        ...(r.near ? { near: r.near } : {})
       }
       groups.push(g)
       if (key) byKey.set(key, g)
@@ -504,10 +536,38 @@ export type ListOpenStopsOpts = {
   origin?: GeoPoint
 }
 
-/** first open step that the game has not withdrawn; withdrawn steps are never "next" */
+const itemKey = (s: OtherStep): string => (s.item ?? '').trim().toLowerCase()
+
+/** an open plain pickup (not a combined "collect from A, deliver to B" step) */
+const isOpenPickup = (s: OtherStep): boolean =>
+  s.kind === 'pickup' && !s.pickupLocation && !s.done && !s.withdrawn && !!itemKey(s)
+
+/** an open delivery / turn-in that needs an item first */
+const isOpenDelivery = (s: OtherStep): boolean =>
+  s.kind !== 'pickup' && !s.pickupLocation && !s.done && !s.withdrawn && !!itemKey(s)
+
+/**
+ * The job's steps in the order to do them: game order, except an open pickup moves before the first open
+ * delivery of the same item (case-insensitive). Steps with no item, and combined pickupLocation steps, keep their place.
+ */
+export function stepWorkOrder(steps: OtherStep[]): OtherStep[] {
+  const out = steps.slice()
+  for (const p of steps) {
+    if (!isOpenPickup(p)) continue
+    const at = out.indexOf(p)
+    const key = itemKey(p)
+    const before = out.findIndex((d, i) => i < at && isOpenDelivery(d) && itemKey(d) === key)
+    if (before < 0) continue
+    out.splice(at, 1)
+    out.splice(before, 0, p)
+  }
+  return out
+}
+
+/** first open step that the game has not withdrawn (pickups before same-item deliveries); withdrawn steps are never "next" */
 export function nextLiveStep(job: OtherJob): OtherStep | null {
   if (job.status !== 'active') return null
-  return job.steps.find((s) => !s.done && !s.withdrawn) ?? null
+  return stepWorkOrder(job.steps).find((s) => !s.done && !s.withdrawn) ?? null
 }
 
 export function sortJobsByManualOrder(jobs: OtherJob[], jobOrder: string[]): OtherJob[] {
@@ -520,7 +580,7 @@ export function sortJobsByManualOrder(jobs: OtherJob[], jobOrder: string[]): Oth
 }
 
 function visibleSteps(job: OtherJob, hideCompleted: boolean, hideWithdrawn = false): OtherStep[] {
-  return job.steps.filter((s) => !(hideCompleted && s.done) && !(hideWithdrawn && s.withdrawn))
+  return stepWorkOrder(job.steps).filter((s) => !(hideCompleted && s.done) && !(hideWithdrawn && s.withdrawn))
 }
 
 /** first step to sort a job by: a live one, else whatever is visible */
@@ -553,8 +613,24 @@ function stepPointWithSource(
 ): { point: GeoPoint; source: 'uex' | 'marker' } | undefined {
   const named = locationPoint(findRosterLocation(stepActivePlace(step), locations))
   if (named) return { point: named, source: 'uex' }
-  if (useMarker && hasCoords(step.position)) return { point: markerPoint(step.position!), source: 'marker' }
+  if (useMarker && hasCoords(step.position)) return { point: withNearBody(markerPoint(step.position!), locations), source: 'marker' }
   return undefined
+}
+
+/** a marker point carries no body: take it from the nearest place within NEAR_MAX_M, so same-body legs go over the surface */
+function withNearBody(p: GeoPoint, locations: Location[]): GeoPoint {
+  if (p.body) return p
+  let best: Location | undefined
+  let bestD = NEAR_MAX_M
+  for (const l of locations) {
+    if (l.x == null || l.y == null || l.z == null || !l.body) continue
+    const d = Math.hypot(l.x - p.x, l.y - p.y, l.z - p.z)
+    if (d <= bestD) {
+      best = l
+      bestD = d
+    }
+  }
+  return best ? { ...p, body: best.body ?? null, system: p.system ?? best.system ?? null } : p
 }
 
 type Placed = BaseRow & {
@@ -565,15 +641,22 @@ type Placed = BaseRow & {
   distanceSource: 'uex' | 'marker' | null
 }
 
+/** a delivery whose same-item pickup (same job) is still to be routed */
+const waitsForPickup = (r: Placed, left: Placed[]): boolean =>
+  isOpenDelivery(r.step) &&
+  left.some((o) => o !== r && o.job.id === r.job.id && isOpenPickup(o.step) && itemKey(o.step) === itemKey(r.step))
+
 /** greedy nearest-neighbour (fewest jumps, then shortest) from start over rows with a known point; ties keep input order */
 function routeOrder(rows: Placed[], start: GeoPoint, locations: Location[]): Placed[] {
   const left = rows.slice()
   const out: Placed[] = []
   let cur = start
   while (left.length) {
-    let best = 0
+    // default: first row not waiting on its pickup
+    let best = Math.max(0, left.findIndex((r) => !waitsForPickup(r, left)))
     let bestT: Travel | null = null
     for (let i = 0; i < left.length; i++) {
+      if (waitsForPickup(left[i], left)) continue
       const t = travel(cur, left[i].point, locations)
       if (t && compareTravel(t, bestT) < 0) {
         bestT = t
@@ -630,6 +713,7 @@ export function listOpenStops(
     const hadPrev = !!prev
     prev = r.point
     const leg = legT?.meters ?? null
+    const near = r.source === 'marker' ? nearestRosterPlace(r.point, locations) : undefined
     const noDistanceWhy: OpenStopRow['noDistanceWhy'] = !r.point
       ? 'not-in-uex'
       : start && !r.travel
@@ -652,7 +736,8 @@ export function listOpenStops(
       pickup: stepIsPickup(r.step),
       dest: stepDest(r.step),
       noDistanceWhy,
-      ...(r.point ? { point: r.point } : {})
+      ...(r.point ? { point: r.point } : {}),
+      ...(near ? { near } : {})
     }
   })
 }
