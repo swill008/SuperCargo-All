@@ -1,6 +1,7 @@
 // Replays a made-up Game.log through the real app (watcher -> main -> both windows -> other-jobs.json).
 // Each scenario gets a fresh data folder. Expectations are the intended behaviour, so a FAIL is a bug.
 // Usage: npm run build && node test/replay/replay.mjs [scenario-name ...]
+// Real logs: node test/replay/run_all.mjs (every fixture in test/replay/fixtures, live and scan)
 // Linux runs under xvfb-run when it is installed; Windows opens real windows.
 
 import { spawn, spawnSync } from 'node:child_process'
@@ -17,16 +18,41 @@ const sleep = (ms) => new Promise((r) => setTimeout(r, ms))
 const useXvfb = process.platform === 'linux' && spawnSync('which', ['xvfb-run']).status === 0
 
 let seq = 0
+let nextDisplay = 90 + (process.pid % 50) * 20 // distinct X display per launch, so parallel runs don't race
 const mission = () => `00000000-0000-4000-8000-${String(++seq).padStart(12, '0')}`
-const stamp = () => `<${new Date().toISOString()}>`
+// every builder takes an optional time (ms or Date) so start-up scenarios can sit lines either side of a watermark
+const iso = (at) => new Date(at ?? Date.now()).toISOString()
+const stamp = (at) => `<${iso(at)}>`
+const ago = (s) => Date.now() - s * 1000
+const NOTE = '[Notice] <SHUDEvent_OnNotification> Added notification'
+const TAGS = '[Team_CoreGameplayFeatures][Missions][Comms]'
+// formats copied from real Game.log files (player handle and ids replaced)
 const L = {
-  accept: (id, title) =>
-    `${stamp()} [Notice] <SHUDEvent_OnNotification> Added notification "Contract Accepted:  ${title}: " [3] to queue. New queue size: 1, MissionId: [${id}], ObjectiveId: [] [Team_CoreGameplayFeatures][Missions]`,
-  objective: (id, text) =>
-    `${stamp()} [Notice] <SHUDEvent_OnNotification> Added notification "New Objective: ${text}: " [4] to queue. New queue size: 1, MissionId: [${id}], ObjectiveId: [obj_1] [Team_CoreGameplayFeatures][Missions]`,
-  end: (id, type) =>
-    `${stamp()} [Notice] <EndMission> Ending mission for player. MissionId[${id}] Player[Tester] PlayerId[1] CompletionType[${type}] Reason[] [Team_CoreGameplayFeatures][Missions]`,
-  drop: () => `${stamp()} [Notice] <Channel Disconnected> cause=30018 reason="Remote Disconnect - Player requested disconnect" frame=1 isRemote=1 viewState=eCVS_InGame [Team_Network]`
+  logStarted: (at) => {
+    // "Mon, 12 Oct 2026 23:13:50 GMT" -> "Mon Oct 12 23:13:50 2026"
+    const [wd, day, mon, year, time] = new Date(at ?? Date.now()).toUTCString().replace(',', '').split(' ')
+    return `${stamp(at)} Log started on ${wd} ${mon} ${Number(day)} ${time} ${year}`
+  },
+  accept: (id, title, at) =>
+    `${stamp(at)} ${NOTE} "Contract Accepted:  ${title}: " [3] to queue. New queue size: 1, MissionId: [${id}], ObjectiveId: [] ${TAGS}`,
+  objective: (id, text, at) =>
+    `${stamp(at)} ${NOTE} "New Objective: ${text}: " [4] to queue. New queue size: 1, MissionId: [${id}], ObjectiveId: [d19969ff-392e-ae47-918f-62c2022e3139] ${TAGS}`,
+  // the game writes Objective Complete over two lines (the text ends in a newline)
+  objectiveComplete: (id, text, at) =>
+    `${stamp(at)} ${NOTE} "Objective Complete: ${text}\n${stamp(at)} : " [17] to queue. New queue size: 1, MissionId: [${id}], ObjectiveId: [d19969ff-392e-ae47-918f-62c2022e3139] ${TAGS}`,
+  objectiveWithdrawn: (id, text, at) =>
+    `${stamp(at)} ${NOTE} "Objective Withdrawn: ${text}: " [40] to queue. New queue size: 3, MissionId: [${id}], ObjectiveId: [2ce15ee2-5fe1-1644-b04a-a1baa852e6a7] ${TAGS}`,
+  contractLimit: (at) =>
+    `${stamp(at)} ${NOTE} "Contract Not Accepted: Contract Limit Exceeded: " [32] to queue. New queue size: 4, MissionId: [00000000-0000-0000-0000-000000000000], ObjectiveId: [] ${TAGS}`,
+  end: (id, type, at) =>
+    `${stamp(at)} [Notice] <EndMission> Ending mission for player. MissionId[${id}] Player[PLAYER] PlayerId[1] CompletionType[${type}] Reason[${type === 'Complete' ? 'Mission Ended' : 'Player left'}] [Team_MissionFeatures][Missions]`,
+  shared: (ownerId, id, at) => `${stamp(at)} [Notice] <MissionShared> Received share push message: ownerId[${ownerId}] - missionId[${id}] [Team_GameServices][Missions]`,
+  marker: (id, generator, contract, at) =>
+    `${stamp(at)} [Notice] <CLocalMissionPhaseMarker::CreateMarker> Creating objective marker: missionId [${id}], generator name [${generator}], contract [${contract}], contractDefinitionId[5168b0a5-7816-4c62-9273-7f2c823af115], objectiveId [d19969ff-392e-ae47-918f-62c2022e3139], markerEntityId [14098], zoneHostId [874493856467], position [x: 267369.758029, y: -60808.454505, z: -109494.581748] [Team_MissionFeatures][Missions]`,
+  drop: (at) =>
+    `${stamp(at)} [Notice] <Channel Disconnected> cause=30016 reason="Remote Disconnect - Player requested disconnect" frame=418017 isRemote=1 viewState=eCVS_InGame map="megamap" gamerules="SC_Default" hostType="Replicant" connection={3, 0} uptime_secs=4036.688477 [Team_Network][Network][Gateway][Disconnection]`,
+  quit: (at) =>
+    `${stamp(at)} [Notice] <SystemQuit> CSystem::Quit invoked with - cause=30016, reason=Quit via console command, exitCode=0, thread id=22328, main thread id=22328 [Team_Unknown][System]`
 }
 
 function dataDir(home) {
@@ -59,6 +85,12 @@ function setup(name, settings, jobsDoc) {
     data,
     gameLog,
     append: (...lines) => fs.appendFileSync(gameLog, lines.join('\n') + '\n'),
+    // a previous game session's log, as the game leaves it in <Game.log dir>/logbackups/
+    backup: (lines, name = 'Game Build(12913470) 13 Oct 26 (14 58 34).log') => {
+      const dir = path.join(home, 'logbackups')
+      fs.mkdirSync(dir, { recursive: true })
+      fs.writeFileSync(path.join(dir, name), lines.join('\n') + '\n')
+    },
     jobs: () => {
       try {
         return JSON.parse(fs.readFileSync(path.join(data, 'other-jobs.json'), 'utf8'))
@@ -81,9 +113,24 @@ async function launch(env) {
   delete appEnv.ELECTRON_RENDERER_URL
   const args = [root, '--no-sandbox']
   const child = useXvfb
-    ? spawn('xvfb-run', ['-a', electron, ...args], { env: appEnv, detached: true, stdio: 'ignore' })
+    ? spawn('xvfb-run', ['-n', String(nextDisplay++), electron, ...args], { env: appEnv, detached: true, stdio: 'ignore' })
     : spawn(electron, args, { env: appEnv, detached: process.platform !== 'win32', stdio: 'ignore' })
-  await sleep(7000) // windows load, listeners bind, start-up scan runs
+  // ready once the main window has bound its listeners (and, in Other mode, run the start-up scan);
+  // a fixed wait was flaky with several apps starting at once
+  const logFile = path.join(env.data, 'logs', 'supercargo.log')
+  const ready = /\[main\] (startup scan|init loaded)/
+  const t0 = Date.now()
+  while (Date.now() - t0 < 45000) {
+    let text = ''
+    try {
+      text = fs.readFileSync(logFile, 'utf8')
+    } catch {
+      // not written yet
+    }
+    if (ready.test(text) && (!/workMode=other/.test(text) || /\[main\] startup scan/.test(text) || /startup scan skipped/.test(text))) break
+    await sleep(250)
+  }
+  await sleep(1000)
   return async () => {
     await sleep(1500) // let saves and the 500 ms log flush land
     try {
@@ -97,7 +144,13 @@ async function launch(env) {
 }
 
 const count = (text, re) => (text.match(re) || []).length
-const allJobs = (doc) => [...(doc?.jobs ?? []), ...(doc?.history ?? []).map((h) => h.job ?? h)]
+// history entries are flat ({id, ref, outcome, movedBy, steps, archivedAt, ...}); give them a status like a job
+const OUTCOME_STATUS = { completed: 'complete', abandoned: 'abandoned' }
+const allJobs = (doc) => [...(doc?.jobs ?? []), ...(doc?.history ?? []).map((h) => ({ ...h, status: h.status ?? OUTCOME_STATUS[h.outcome] ?? h.outcome }))]
+const findJob = (doc, id) => allJobs(doc).find((j) => j.missionId === id || j.id === id)
+const copies = (doc, id) => allJobs(doc).filter((j) => j.missionId === id || j.id === id).length
+const logJob = (id, extra = {}) => ({ id, ref: 'J01', title: 'Bounty Hunt', kind: 'delivery', reward: 0, status: 'active', steps: [], createdAt: Date.now(), missionId: id, source: 'log', ...extra })
+const histEntry = (id, extra = {}) => ({ id, ref: 'J01', title: 'Bounty Hunt', kind: 'delivery', reward: 0, outcome: 'abandoned', movedBy: 'manual', steps: [], archivedAt: Date.now(), createdAt: Date.now(), missionId: id, source: 'log', ...extra })
 
 const scenarios = {
   // #1 both windows ingest the same accept
@@ -169,16 +222,343 @@ const scenarios = {
     return [['outcome is complete, not abandoned', found?.status === 'complete', `status=${found?.status}`]]
   },
 
-  // #7 a job the user archived is not re-created by the start-up scan
+  // rule 7: start-up applies only events newer than lastLogEventAt, so an archived job does not come back
+  // from an old accept line (a re-share AFTER the watermark would reactivate it, rule 4)
   'archived-stays-archived': async () => {
     const id = mission()
-    const job = { id, ref: 'J01', title: 'Bounty Hunt', kind: 'delivery', reward: 0, status: 'abandoned', steps: [], createdAt: Date.now(), missionId: id, source: 'log' }
-    const e = setup('archived-stays-archived', {}, { jobs: [], history: [{ job, outcome: 'abandoned', movedBy: 'manual', at: Date.now() }] })
-    e.append(L.accept(id, 'Bounty Hunt'))
+    const fresh = mission()
+    const watermark = iso(ago(30))
+    const e = setup('archived-stays-archived', {}, { jobs: [], history: [histEntry(id)], lastLogEventAt: watermark })
+    e.append(L.logStarted(ago(120)), L.accept(id, 'Bounty Hunt', ago(60)), L.objective(id, 'Go to Port Tressler', ago(60)), L.accept(fresh, 'Patrol', ago(10)))
     const stop = await launch(e)
     await stop()
-    const active = (e.jobs()?.jobs ?? []).filter((j) => j.id === id || j.missionId === id)
-    return [['archived mission not re-created as active', active.length === 0, `active copies=${active.length}`]]
+    const doc = e.jobs()
+    const active = (doc?.jobs ?? []).filter((j) => j.id === id || j.missionId === id)
+    return [
+      ['archived mission not re-created as active', active.length === 0, `active copies=${active.length}`],
+      ['archived entry still in history', (doc?.history ?? []).some((h) => h.id === id || h.missionId === id), `history=${doc?.history?.length}`],
+      ['accept newer than the watermark was applied', findJob(doc, fresh)?.status === 'active', `fresh=${findJob(doc, fresh)?.status}`],
+      ['watermark moved forward', !!doc?.lastLogEventAt && doc.lastLogEventAt > watermark, `lastLogEventAt=${doc?.lastLogEventAt}`]
+    ]
+  },
+
+  // rule 7: a restart does not re-apply old objectives onto a kept job
+  'restart-no-reapply': async () => {
+    const id = mission()
+    const step = { id: 's1', kind: 'go', label: 'Go to Port Tressler', location: 'Port Tressler', have: 0, need: 1, done: true, logText: 'Go to Port Tressler' }
+    const e = setup('restart-no-reapply', {}, { jobs: [logJob(id, { steps: [step] })], history: [], lastLogEventAt: iso(ago(30)) })
+    e.append(L.accept(id, 'Bounty Hunt', ago(60)), L.objective(id, 'Go to Port Tressler', ago(60)), L.end(id, 'Abandon', ago(50)))
+    const stop = await launch(e)
+    await stop()
+    const job = findJob(e.jobs(), id)
+    return [
+      ['old ending not re-applied', job?.status === 'active', `status=${job?.status}`],
+      ['old objective not added again', job?.steps?.length === 1, `steps=${job?.steps?.length}`],
+      ['user tick kept', job?.steps?.[0]?.done === true, `done=${job?.steps?.[0]?.done}`]
+    ]
+  },
+
+  // rule 4 + 3: a re-share reactivates an abandoned job, and the later Complete wins
+  'reshare-reactivates': async () => {
+    const e = setup('reshare-reactivates')
+    const stop = await launch(e)
+    const id = mission()
+    e.append(L.accept(id, 'Bounty Hunt'), L.objective(id, 'Go to Port Tressler'))
+    await sleep(2000)
+    e.append(L.end(id, 'Abandon'))
+    await sleep(2000)
+    const afterAbandon = findJob(e.jobs(), id)?.status
+    e.append(L.shared('900000000001', id), L.accept(id, 'Bounty Hunt'))
+    await sleep(2000)
+    const mid = e.jobs()
+    const afterReshare = findJob(mid, id)?.status
+    const midCopies = copies(mid, id)
+    e.append(L.end(id, 'Complete'))
+    await sleep(2000)
+    await stop()
+    const doc = e.jobs()
+    return [
+      ['abandoned after EndMission Abandon', afterAbandon === 'abandoned', `status=${afterAbandon}`],
+      ['active again after the re-share accept', afterReshare === 'active', `status=${afterReshare}`],
+      ['one copy of the job after the re-share', midCopies === 1, `copies=${midCopies}`],
+      ['the later Complete wins', findJob(doc, id)?.status === 'complete', `status=${findJob(doc, id)?.status}`],
+      ['still one copy at the end', copies(doc, id) === 1, `copies=${copies(doc, id)}`]
+    ]
+  },
+
+  // rule 4: the re-share brings an archived (history) job back to the Jobs list
+  'reshare-unarchives': async () => {
+    const id = mission()
+    const e = setup('reshare-unarchives', {}, { jobs: [], history: [histEntry(id, { ref: 'J05' })] })
+    const stop = await launch(e)
+    e.append(L.shared('900000000001', id), L.accept(id, 'Bounty Hunt'))
+    await sleep(3000)
+    await stop()
+    const doc = e.jobs()
+    const active = (doc?.jobs ?? []).find((j) => j.id === id || j.missionId === id)
+    return [
+      ['archived job is active again', active?.status === 'active', `status=${active?.status}`],
+      ['no longer in history', !(doc?.history ?? []).some((h) => h.id === id || h.missionId === id), `history=${doc?.history?.length}`],
+      ['one copy', copies(doc, id) === 1, `copies=${copies(doc, id)}`]
+    ]
+  },
+
+  // rule 5: quit to menu / server hop ("Player requested disconnect") abandons every active log job
+  'quit-to-menu-abandons': async () => {
+    const e = setup('quit-to-menu-abandons')
+    const stop = await launch(e)
+    const a = mission()
+    const b = mission()
+    e.append(L.accept(a, 'Bounty Hunt'), L.accept(b, 'Patrol'))
+    await sleep(2000)
+    e.append(L.drop())
+    await sleep(2500)
+    await stop()
+    const doc = e.jobs()
+    return [
+      ['first job abandoned', findJob(doc, a)?.status === 'abandoned', `status=${findJob(doc, a)?.status}`],
+      ['second job abandoned', findJob(doc, b)?.status === 'abandoned', `status=${findJob(doc, b)?.status}`]
+    ]
+  },
+
+  // rule 5: SystemQuit "Quit via console command" (quit game) abandons every active log job
+  'systemquit-abandons': async () => {
+    const e = setup('systemquit-abandons')
+    const stop = await launch(e)
+    const a = mission()
+    e.append(L.accept(a, 'Bounty Hunt'), L.objective(a, 'Go to Port Tressler'))
+    await sleep(2000)
+    e.append(L.quit())
+    await sleep(2500)
+    await stop()
+    const job = findJob(e.jobs(), a)
+    return [['job abandoned after SystemQuit', job?.status === 'abandoned', `status=${job?.status}`]]
+  },
+
+  // rule 6: a previous log with contract activity and no SystemQuit is a crash: jobs stay active, the user is told
+  'crash-keeps-jobs': async () => {
+    const id = mission()
+    const e = setup('crash-keeps-jobs', {}, { jobs: [logJob(id)], history: [], lastLogEventAt: iso(ago(300)) })
+    e.backup([L.logStarted(ago(240)), L.marker(id, 'VisitingIasi', 'Iasi_EliminateSpecific_Easy_0', ago(200)), L.accept(id, 'Bounty Hunt', ago(200)), L.objective(id, 'Go to Port Tressler', ago(200))])
+    // current Game.log is empty: the game has not been started again yet
+    const stop = await launch(e)
+    await stop()
+    const job = findJob(e.jobs(), id)
+    const notice = e.log().split('\n').filter((l) => /\bother\b/.test(l) && /crash/i.test(l))
+    return [
+      ['job still active after a crash', job?.status === 'active', `status=${job?.status}`],
+      ['one copy', copies(e.jobs(), id) === 1, `copies=${copies(e.jobs(), id)}`],
+      ['debug log shows the crash notice', notice.length > 0, `lines=${notice.length}`]
+    ]
+  },
+
+  // reviewer: a line in the same millisecond as the watermark is still applied after a restart
+  'same-ms-after-watermark': async () => {
+    const id = mission()
+    const t = ago(60)
+    const e = setup('same-ms-after-watermark', {}, { jobs: [logJob(id)], history: [], lastLogEventAt: iso(t) })
+    e.append(L.logStarted(ago(120)), L.accept(id, 'Bounty Hunt', t), L.objective(id, 'Go to Port Tressler', t))
+    const stop = await launch(e)
+    await stop()
+    const job = findJob(e.jobs(), id)
+    return [
+      ['objective in the watermark ms became a step', job?.steps?.length === 1, `steps=${job?.steps?.length}`],
+      ['still one copy', copies(e.jobs(), id) === 1, `copies=${copies(e.jobs(), id)}`]
+    ]
+  },
+
+  // reviewer: replaying the watermark's millisecond must not undo what the user did after it
+  'restart-keeps-user-action': async () => {
+    const id = mission()
+    const t = ago(60)
+    const e = setup('restart-keeps-user-action', {}, { jobs: [logJob(id, { status: 'abandoned' })], history: [], lastLogEventAt: iso(t), lastLogEventCount: 1 })
+    e.append(L.logStarted(ago(120)), L.accept(id, 'Bounty Hunt', t))
+    const stop = await launch(e)
+    await stop()
+    const job = findJob(e.jobs(), id)
+    return [['user abandon kept (old accept not re-applied)', job?.status === 'abandoned', `status=${job?.status}`]]
+  },
+
+  // #7: a step with no UEX place gets its mission marker's position (system-frame zone used as is)
+  'marker-position': async () => {
+    const e = setup('marker-position', {}, { jobs: [], history: [], lastLogEventAt: iso(ago(30)) })
+    // the app starts mid-session: the build line is above the watermark
+    e.append(`${stamp(ago(120))} BackupNameAttachment=" Build(12913470) 13 Oct 26 (18 39 13)"  -- used by backup system`, L.logStarted(ago(120)))
+    const stop = await launch(e)
+    const id = mission()
+    const obj = 'a1b2c3d4-0000-4000-8000-00000000beef'
+    e.append(
+      `${stamp()} [Notice] <CLocalMissionPhaseMarker::CreateMarker> Creating objective marker: missionId [${id}], generator name [VisitingIasi], contract [Iasi_Salvage_Wreck], contractDefinitionId[5168b0a5-7816-4c62-9273-7f2c823af115], objectiveId [${obj}], markerEntityId [14098], zoneHostId [862551775550], position [x: 18379031526.5, y: -21999936331.25, z: 1234.5] [Team_MissionFeatures][Missions]`,
+      L.accept(id, 'Salvage Contract'),
+      `${stamp()} ${NOTE} "New Objective: Go to Caterpillar wreck site: " [4] to queue. New queue size: 1, MissionId: [${id}], ObjectiveId: [${obj}] ${TAGS}`
+    )
+    await sleep(3000)
+    await stop()
+    const step = e.jobs()?.jobs?.[0]?.steps?.[0]
+    const pos = step?.position
+    return [
+      ['step has the marker position', !!pos && Math.abs(pos.x - 18379031526.5) < 1 && Math.abs(pos.y + 21999936331.25) < 1, `position=${JSON.stringify(pos)}`]
+    ]
+  },
+
+  // reviewer (rule 1): Haul mode never creates Other jobs, but endings for existing ones still apply live
+  'haul-mode-ending-applies': async () => {
+    const id = mission()
+    const e = setup('haul-mode-ending-applies', { workMode: 'haul' }, { jobs: [logJob(id)], history: [] })
+    const stop = await launch(e)
+    e.append(L.end(id, 'Complete'))
+    await sleep(2500)
+    await stop()
+    const job = findJob(e.jobs(), id)
+    return [['ending applied in Haul mode', job?.status === 'complete', `status=${job?.status}`]]
+  },
+
+  // reviewer (rule 6): app opened after a crash but before the game: judged from Game.log itself
+  'crash-from-current-log': async () => {
+    const id = mission()
+    const e = setup('crash-from-current-log', {}, { jobs: [logJob(id)], history: [], lastLogEventAt: iso(ago(600)) })
+    e.append(L.logStarted(ago(500)), L.accept(id, 'Bounty Hunt', ago(400)), L.objective(id, 'Go to Port Tressler', ago(400)))
+    const old = new Date(ago(300))
+    fs.utimesSync(e.gameLog, old, old) // the game is not running: Game.log stopped growing
+    const stop = await launch(e)
+    await stop()
+    const job = findJob(e.jobs(), id)
+    const notice = e.log().split('\n').filter((l) => /\bother\b/.test(l) && /crash/i.test(l))
+    return [
+      ['job kept after the crash', job?.status === 'active', `status=${job?.status}`],
+      ['crash noticed', notice.length > 0, `lines=${notice.length}`]
+    ]
+  },
+
+  // reviewer (rule 5): only the two quit reasons end contracts
+  'other-systemquit-not-quit': async () => {
+    const id = mission()
+    const e = setup('other-systemquit-not-quit', {}, { jobs: [logJob(id)], history: [] })
+    const stop = await launch(e)
+    e.append(`${stamp()} [Notice] <SystemQuit> CSystem::Quit invoked with - cause=1, reason=Shader cache rebuild, exitCode=0 [Team_Unknown][System]`)
+    await sleep(2500)
+    await stop()
+    const job = findJob(e.jobs(), id)
+    return [['job still active', job?.status === 'active', `status=${job?.status}`]]
+  },
+
+  // rule 7 + 5: a previous log that ends in SystemQuit abandons the kept job at start-up
+  'previous-quit-abandons': async () => {
+    const id = mission()
+    const e = setup('previous-quit-abandons', {}, { jobs: [logJob(id)], history: [], lastLogEventAt: iso(ago(300)) })
+    e.backup([L.logStarted(ago(240)), L.accept(id, 'Bounty Hunt', ago(200)), L.objective(id, 'Go to Port Tressler', ago(200)), L.drop(ago(100)), L.quit(ago(100))])
+    const stop = await launch(e)
+    await stop()
+    const job = findJob(e.jobs(), id)
+    return [
+      ['job abandoned because the last session quit', job?.status === 'abandoned', `status=${job?.status}`],
+      ['one copy', copies(e.jobs(), id) === 1, `copies=${copies(e.jobs(), id)}`]
+    ]
+  },
+
+  // Objective Complete (two-line form) ticks the step whose text matches, and only that one
+  'objective-complete-ticks': async () => {
+    const e = setup('objective-complete-ticks')
+    const stop = await launch(e)
+    const id = mission()
+    e.append(L.accept(id, 'Bounty Hunt'), L.objective(id, 'Go to Port Tressler'), L.objective(id, 'Neutralize Vanduul Scout'))
+    await sleep(2000)
+    e.append(L.objectiveComplete(id, 'Go to Port Tressler'))
+    await sleep(2500)
+    await stop()
+    const steps = findJob(e.jobs(), id)?.steps ?? []
+    const go = steps.find((s) => /Port Tressler/.test(s.logText ?? s.label ?? ''))
+    const other = steps.find((s) => s !== go)
+    return [
+      ['matching step ticked', go?.done === true, `done=${go?.done} steps=${steps.length}`],
+      ['other step not ticked', other && other.done !== true, `done=${other?.done}`]
+    ]
+  },
+
+  // Objective Withdrawn marks the step withdrawn
+  'objective-withdrawn': async () => {
+    const e = setup('objective-withdrawn')
+    const stop = await launch(e)
+    const id = mission()
+    e.append(L.accept(id, 'Bounty Hunt'), L.objective(id, 'Go to the asteroids surrounding Yela'), L.objective(id, 'Go to Port Tressler'))
+    await sleep(2000)
+    e.append(L.objectiveWithdrawn(id, 'Go to the asteroids surrounding Yela'))
+    await sleep(2500)
+    await stop()
+    const steps = findJob(e.jobs(), id)?.steps ?? []
+    const yela = steps.find((s) => /Yela/.test(s.logText ?? s.label ?? ''))
+    const other = steps.find((s) => s !== yela)
+    return [
+      ['withdrawn step marked', yela?.withdrawn === true, `withdrawn=${yela?.withdrawn}`],
+      ['other step untouched', other && !other.withdrawn, `withdrawn=${other?.withdrawn}`]
+    ]
+  },
+
+  // the game refuses a contract at the limit: a toast (recorded in the debug log), no job
+  'contract-limit-toast': async () => {
+    const e = setup('contract-limit-toast')
+    const stop = await launch(e)
+    e.append(L.contractLimit())
+    await sleep(2500)
+    await stop()
+    const lines = e.log().split('\n').filter((l) => /contract limit/i.test(l))
+    return [
+      ['debug log shows the contract-limit toast', lines.length > 0, `lines=${lines.length}`],
+      ['no job made', (e.jobs()?.jobs?.length ?? 0) === 0, `jobs=${e.jobs()?.jobs?.length ?? 0}`]
+    ]
+  },
+
+  // reputation in the title lands on job.rep and leaves the title
+  'rep-parsed': async () => {
+    const e = setup('rep-parsed')
+    const stop = await launch(e)
+    const id = mission()
+    e.append(L.accept(id, 'RSI Disc. Month: Package Recovery (Exp. E) <EM4>[313 Rep]</EM4>'))
+    await sleep(3000)
+    await stop()
+    const job = findJob(e.jobs(), id)
+    return [
+      ['rep is 313', job?.rep === 313, `rep=${job?.rep}`],
+      ['title has no markup', job && !/EM4|Rep\]/.test(job.title), `title=${JSON.stringify(job?.title)}`]
+    ]
+  },
+
+  // a MissionShared push before the accept sets sharedBy to the owner
+  'shared-by': async () => {
+    const e = setup('shared-by')
+    const stop = await launch(e)
+    const id = mission()
+    const solo = mission()
+    e.append(L.shared('900000000042', id), L.marker(id, 'VisitingIasi', 'Iasi_EliminateAll_Medium'), L.accept(id, 'Bounty Hunt'), L.accept(solo, 'Patrol'))
+    await sleep(3000)
+    await stop()
+    const doc = e.jobs()
+    return [
+      ['sharedBy is the owner id', findJob(doc, id)?.sharedBy === '900000000042', `sharedBy=${findJob(doc, id)?.sharedBy}`],
+      ['own contract has no sharedBy', !findJob(doc, solo)?.sharedBy, `sharedBy=${findJob(doc, solo)?.sharedBy}`]
+    ]
+  },
+
+  // J-refs never repeat, also after jobs move to history
+  'refs-unique': async () => {
+    const e = setup('refs-unique', {}, { jobs: [], history: [histEntry('old-1', { ref: 'J01', missionId: undefined, source: 'manual' }), histEntry('old-2', { ref: 'J02', missionId: undefined, source: 'manual', outcome: 'completed' })] })
+    const stop = await launch(e)
+    const a = mission()
+    const b = mission()
+    const c = mission()
+    e.append(L.accept(a, 'Bounty Hunt'), L.accept(b, 'Patrol'))
+    await sleep(2000)
+    e.append(L.end(a, 'Complete'))
+    await sleep(2000)
+    e.append(L.accept(c, 'Package Recovery'))
+    await sleep(2500)
+    await stop()
+    const refs = allJobs(e.jobs()).map((j) => j.ref)
+    const dupes = refs.filter((r, i) => refs.indexOf(r) !== i)
+    return [
+      ['five jobs in all', refs.length === 5, `refs=${refs.join(',')}`],
+      ['no repeated ref', dupes.length === 0, `dupes=${dupes.join(',')}`]
+    ]
   },
 
   // #10 place names keep their full stops
@@ -210,11 +590,12 @@ const scenarios = {
   }
 }
 
-// --log <file> [--mode live|scan] replays a real Game.log and prints what Other mode made of each mission
-async function replayRealLog(file, mode) {
+// --log <file> [--mode live|scan] [--since ISO] [--out result.json] replays a real Game.log and prints
+// what Other mode made of each mission. --since seeds lastLogEventAt (scan mode watermark).
+async function replayRealLog(file, mode, since, outFile) {
   const text = fs.readFileSync(file, 'utf8')
   const name = `real-${mode}-${path.basename(file).replace(/\W+/g, '_').slice(0, 40)}`
-  const e = setup(name)
+  const e = setup(name, {}, since ? { jobs: [], history: [], lastLogEventAt: since } : undefined)
   let stop
   if (mode === 'scan') {
     fs.writeFileSync(e.gameLog, text)
@@ -230,16 +611,17 @@ async function replayRealLog(file, mode) {
   }
   await stop()
   const doc = e.jobs() ?? { jobs: [], history: [] }
-  const out = { file, mode, jobs: doc.jobs ?? [], history: doc.history ?? [], log: e.log() }
-  fs.writeFileSync(path.join(runRoot, `${name}.json`), JSON.stringify(out, null, 1))
-  console.log(`${name}: jobs=${out.jobs.length} history=${out.history.length} -> ${path.join(runRoot, name + '.json')}`)
+  const out = { file, mode, since: since ?? null, lastLogEventAt: doc.lastLogEventAt ?? null, jobs: doc.jobs ?? [], history: doc.history ?? [], log: e.log() }
+  const dest = outFile ?? path.join(runRoot, `${name}.json`)
+  fs.writeFileSync(dest, JSON.stringify(out, null, 1))
+  console.log(`${name}: jobs=${out.jobs.length} history=${out.history.length} -> ${dest}`)
   return out
 }
 
 const argv = process.argv.slice(2)
+const opt = (k) => (argv.includes(k) ? argv[argv.indexOf(k) + 1] : undefined)
 if (argv[0] === '--log') {
-  const mode = argv.includes('--mode') ? argv[argv.indexOf('--mode') + 1] : 'live'
-  await replayRealLog(argv[1], mode)
+  await replayRealLog(argv[1], opt('--mode') ?? 'live', opt('--since'), opt('--out'))
   process.exit(0)
 }
 
@@ -247,9 +629,24 @@ const pick = argv
 const names = pick.length ? pick : Object.keys(scenarios)
 let failed = 0
 console.log(`replay: ${names.length} scenario(s), data under ${runRoot}${useXvfb ? ' (xvfb)' : ''}`)
+// scenarios are independent (own data dir, own X display), so run REPLAY_JOBS at once
+const jobs = Math.max(1, Number(process.env.REPLAY_JOBS) || os.cpus().length)
+const results = new Map()
+let next = 0
+await Promise.all(
+  Array.from({ length: Math.min(jobs, names.length) }, async () => {
+    while (next < names.length) {
+      const name = names[next++]
+      try {
+        results.set(name, scenarios[name] ? await scenarios[name]() : [['unknown scenario', false, `try: ${Object.keys(scenarios).join(' ')}`]])
+      } catch (e) {
+        results.set(name, [['scenario threw', false, String(e?.stack ?? e)]])
+      }
+    }
+  })
+)
 for (const name of names) {
-  const checks = await scenarios[name]()
-  for (const [what, ok, detail] of checks) {
+  for (const [what, ok, detail] of results.get(name)) {
     if (!ok) failed++
     console.log(`${ok ? 'PASS' : 'FAIL'}  ${name}: ${what}  (${detail})`)
   }

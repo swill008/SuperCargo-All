@@ -4,7 +4,9 @@ import { C, F } from '@renderer/theme'
 import { Btn } from '@renderer/components/ui'
 import Typeahead from '@renderer/components/Typeahead'
 import { type OtherJobDraft } from '../state/otherJobs'
-import { OTHER_KIND_LABEL, type OtherJobKind } from '@other/otherJob'
+import { OTHER_KIND_LABEL, type OtherJobKind, type OtherJob, type OtherStep } from '@other/otherJob'
+import { otherSetting } from '@other/workMode'
+import type { AppSettings } from '@shared/types'
 
 const KINDS: OtherJobKind[] = ['delivery', 'collection', 'mining', 'salvage', 'hauling']
 
@@ -20,6 +22,77 @@ export const tagStyle: React.CSSProperties = {
   fontFamily: F.display, fontSize: 11, letterSpacing: '0.12em', color: C.acc,
   border: `1px solid ${C.accBorder}`, padding: '3px 8px', textAlign: 'center'
 }
+/** small inline tag (rep, shared) */
+export const smallTag: React.CSSProperties = {
+  fontFamily: F.display, fontSize: 10, letterSpacing: '0.1em', color: C.acc,
+  border: `1px solid ${C.accBorder}`, padding: '1px 6px', whiteSpace: 'nowrap'
+}
+
+/** display options read once per render from settings */
+export interface OtherView {
+  showRep: boolean
+  sharedBadge: boolean
+  withdrawn: 'grey' | 'hide'
+  shortLoopSec: number
+  sessionSummary: boolean
+}
+
+export function otherView(settings: AppSettings | undefined): OtherView {
+  return {
+    showRep: !!otherSetting(settings, 'otherShowRep'),
+    sharedBadge: !!otherSetting(settings, 'otherSharedBadge'),
+    withdrawn: otherSetting(settings, 'otherWithdrawnSteps') === 'hide' ? 'hide' : 'grey',
+    shortLoopSec: Math.max(0, Number(otherSetting(settings, 'otherHideShortLoopsSec')) || 0),
+    sessionSummary: !!otherSetting(settings, 'otherSessionSummary')
+  }
+}
+
+/** rep / shared tags for a job or history entry */
+export function JobTags({ rep, sharedBy, view }: { rep?: number; sharedBy?: string; view: OtherView }): React.ReactElement | null {
+  const showRep = view.showRep && !!rep
+  const showShared = view.sharedBadge && !!sharedBy
+  if (!showRep && !showShared) return null
+  return (
+    <span style={{ display: 'inline-flex', gap: 6, alignItems: 'center' }}>
+      {showRep && <span style={smallTag}>{`${rep! > 0 ? '+' : ''}${rep!.toLocaleString()} REP`}</span>}
+      {showShared && <span style={{ ...smallTag, color: C.dim, borderColor: C.lineStrong }}>SHARED</span>}
+    </span>
+  )
+}
+
+/** steps to list: withdrawn ones dropped in 'hide' mode */
+export function shownSteps(steps: OtherStep[], view: OtherView): OtherStep[] {
+  return view.withdrawn === 'hide' ? steps.filter((s) => !s.withdrawn) : steps
+}
+
+/** same job with withdrawn steps removed, so they are never picked as next */
+export function withoutWithdrawn(job: OtherJob): OtherJob {
+  return job.steps.some((s) => s.withdrawn) ? { ...job, steps: job.steps.filter((s) => !s.withdrawn) } : job
+}
+
+/** abandoned quickly after accept (party accept/drop loop) */
+export function isShortLoop(
+  row: { acceptedAt?: string; endedAt?: string },
+  abandoned: boolean,
+  sec: number
+): boolean {
+  if (!abandoned || sec <= 0 || !row.acceptedAt || !row.endedAt) return false
+  const a = Date.parse(row.acceptedAt)
+  const e = Date.parse(row.endedAt)
+  if (Number.isNaN(a) || Number.isNaN(e)) return false
+  return e - a < sec * 1000
+}
+
+/** "N hidden (party drops)" toggle */
+export function HiddenToggle({ count, shown, onToggle }: { count: number; shown: boolean; onToggle: () => void }): React.ReactElement | null {
+  if (count === 0) return null
+  return (
+    <Btn onClick={onToggle} style={{ ...miniBtn, margin: '10px 0' }}>
+      {shown ? `HIDE ${count} PARTY DROPS` : `${count} hidden (party drops)`}
+    </Btn>
+  )
+}
+
 const inputStyle: React.CSSProperties = {
   background: 'rgba(0,0,0,0.4)', border: `1px solid ${C.lineStrong}`, color: C.text,
   fontFamily: F.body, fontSize: 14, padding: '6px 8px', width: '100%'

@@ -9,6 +9,7 @@ import { useOtherHistory } from '../state/otherHistory'
 import { useOtherCapture } from '../state/otherCapture'
 import { mergeLocations } from '../state/otherPlaces'
 import { JobRow, AddForm, miniBtn, outlineBtn } from './JobsParts'
+import { otherView, isShortLoop, HiddenToggle } from './JobsPartsStyles'
 
 const emptyDraft = (): OtherJobDraft => ({
   title: '', kind: 'delivery', reward: 0, location: '', item: '', need: 1
@@ -43,6 +44,10 @@ export default function JobsPage(): React.ReactElement {
   const openOtherCapture = useOtherCapture((s) => s.openFor)
   const autoOcr = !!useStore((s) => s.settings.ocrAutoCapture)
   const updateSettings = useStore((s) => s.updateSettings)
+  const view = otherView(useStore((s) => s.settings))
+  const [showDrops, setShowDrops] = useState(false)
+  const drops = jobs.filter((j) => isShortLoop(j, j.status === 'abandoned', view.shortLoopSec))
+  const listed = showDrops ? jobs : jobs.filter((j) => !drops.includes(j))
 
   useEffect(() => {
     const onEsc = (e: KeyboardEvent): void => {
@@ -88,7 +93,7 @@ export default function JobsPage(): React.ReactElement {
           No Other-mode jobs yet. Add one by hand. Haul contracts stay on Haul work mode.
         </div>
       )}
-      {jobs.map((job) => (
+      {listed.map((job) => (
         <JobRow
           key={job.id}
           job={job}
@@ -106,6 +111,7 @@ export default function JobsPage(): React.ReactElement {
           onStep={(stepId) => toggleStep(job.id, stepId)}
         />
       ))}
+      <HiddenToggle count={drops.length} shown={showDrops} onToggle={() => setShowDrops((v) => !v)} />
     </div>
   )
 }

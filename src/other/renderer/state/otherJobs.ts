@@ -1,27 +1,29 @@
 /**
  * Renderer store for Other-mode jobs.
  * Kept out of state/store.ts so haul pack/route merges stay clean.
+ * Job rules: src/other/STANDALONE.md. One reducer (applyEvent) for live log events and the start-up scan.
  */
 import { create } from 'zustand'
 import {
-  otherJobRef,
+  nextJobRef,
+  type OtherHistoryEntry,
   type OtherJob,
   type OtherJobKind,
   type OtherJobsDoc,
+  type OtherMarkerZone,
   type OtherStep
 } from '@other/otherJob'
+import { calibrateZone, resolveMarker, type MarkerPos } from '@other/otherMarkers'
+import { findRosterLocation } from '@other/otherNext'
+import type { OtherLogEvent } from '@other/otherEvents'
+import type { OtherAction } from '@other/otherActions'
 import { useStore } from '@renderer/state/store'
 import { dlog } from '@renderer/state/log'
-import { resolveWorkMode } from '@other/workMode'
+import { otherSetting, resolveWorkMode } from '@other/workMode'
 import { useOtherHistory } from './otherHistory'
 import { requestAutoOcrIfEnabled } from './otherCapture'
-import {
-  kindFromGenerator,
-  parseOtherObjectiveText,
-  stepFromParse,
-  stepKey
-} from '@other/otherLog'
-import type { ContractAcceptedEvent, ContractEndedEvent, ObjectiveEvent, ScannedContract } from '@shared/types'
+import { findStepByText, kindFromGenerator, stepFromObjectiveText, stepKey } from '@other/otherLog'
+import type { AppSettings } from '@shared/types'
 
 export interface OtherJobDraft {
   title: string
@@ -41,14 +43,34 @@ export interface OtherJobEdit {
 
 interface OtherJobsState {
   ready: boolean
+  /** overlay: shows jobs, never applies log events */
+  passive: boolean
   jobs: OtherJob[]
   expandedId: string | null
   startLocation: string
   groupBy: 'location' | 'job'
   listOrder: 'distance' | 'manual'
   jobOrder: string[]
-  init: () => Promise<void>
+  lastLogEventAt?: string
+  /** events applied at exactly lastLogEventAt (doc field) */
+  lastLogEventCount: number
+  rev: number
+  /** game session id (log start time) of the current session */
+  sessionAt?: string
+  /** marker zone centres per build (doc field) */
+  markerZones: Record<string, Record<string, OtherMarkerZone>>
+  /** build of the newest log session (doc field) */
+  markerBuild?: string
+  /** start-up: last game session crashed and active log jobs were kept (rule 6) */
+  crashNotice: { kept: number } | null
+  dismissCrashNotice: () => void
+  init: (opts?: { passive?: boolean }) => Promise<void>
+  /** debounced save of the whole doc */
   persist: () => void
+  /** reload every doc field from disk (the other window saved) */
+  reloadFromDisk: () => Promise<void>
+  applyEvent: (e: OtherLogEvent) => void
+  applyEvents: (events: OtherLogEvent[], live?: boolean) => void
   setExpanded: (id: string | null) => void
   setStartLocation: (v: string) => void
   setGroupBy: (v: 'location' | 'job') => void
@@ -61,10 +83,6 @@ interface OtherJobsState {
   restoreJob: (id: string) => void
   completeJob: (id: string) => void
   toggleStep: (jobId: string, stepId: string) => void
-  ingestAccepted: (e: ContractAcceptedEvent) => void
-  ingestObjective: (e: ObjectiveEvent) => void
-  ingestEnded: (e: ContractEndedEvent) => void
-  dropLogSession: () => void
 }
 
 let seq = 0
@@ -126,22 +144,8 @@ function stepsFor(draft: OtherJobDraft): OtherStep[] {
   ]
 }
 
-function stepFromObjective(e: ObjectiveEvent): OtherStep | null {
-  const raw =
-    e.destination && !e.commodity
-      ? `Go to ${e.destination}`
-      : e.commodity && e.destination
-        ? `Deliver 0/${e.scuAmount || 1} ${e.commodity} to ${e.destination}`
-        : e.destination || e.commodity || ''
-  const parsed = parseOtherObjectiveText(raw)
-  if (!parsed) return null
-  const locations = useStore.getState().locations ?? []
-  return stepFromParse(nid('step'), parsed, locations)
-}
-
-let listenersBound = false
-
 const short = (id?: string): string | undefined => id?.slice(0, 8)
+const isMain = (): boolean => window.location.hash.replace(/^#\/?/, '') !== 'compact'
 
 function activeJobOrder(s: { jobs: OtherJob[]; jobOrder: string[] }): string[] {
   const active = s.jobs.filter((j) => j.status === 'active').map((j) => j.id)
@@ -149,398 +153,787 @@ function activeJobOrder(s: { jobs: OtherJob[]; jobOrder: string[] }): string[] {
   return [...saved, ...active.filter((x) => !saved.includes(x))]
 }
 
-export const useOtherJobs = create<OtherJobsState>((set, get) => ({
-  ready: false,
-  jobs: [],
-  expandedId: null,
-  startLocation: '',
-  groupBy: 'location',
-  listOrder: 'distance',
-  jobOrder: [],
+// settings: the upstream store until it has loaded, then the copy read at init
+let bootSettings: AppSettings | null = null
+function settingsNow(): AppSettings {
+  const st = useStore.getState()
+  return st.ready || !bootSettings ? st.settings : bootSettings
+}
 
-  init: async () => {
-    if (!window.supercargo.loadOtherJobs) {
-      dlog.warn('other', 'init: no loadOtherJobs bridge')
-      set({ ready: true, jobs: [] })
-      return
-    }
-    const doc = await window.supercargo.loadOtherJobs()
-    dlog.info('other', 'init loaded', {
-      jobs: doc.jobs?.length ?? 0,
-      active: (doc.jobs ?? []).filter((j) => j.status === 'active').length,
-      history: doc.history?.length ?? 0,
-      listOrder: doc.listOrder,
-      jobOrder: doc.jobOrder?.length,
-      listenersBound
+const undone = (steps: OtherStep[]): OtherStep[] =>
+  steps.map((s) => ({ ...s, done: false, have: 0, pickedUp: s.pickupLocation ? false : s.pickedUp }))
+
+function fromHistory(h: OtherHistoryEntry): OtherJob {
+  return {
+    id: h.id,
+    ref: h.ref,
+    title: h.title,
+    kind: h.kind,
+    reward: h.reward,
+    status: h.outcome === 'completed' ? 'complete' : 'abandoned',
+    steps: h.steps,
+    createdAt: h.createdAt,
+    missionId: h.missionId,
+    generator: h.generator,
+    contractName: h.contractName,
+    source: h.source,
+    rep: h.rep,
+    sharedBy: h.sharedBy,
+    sessionAt: h.sessionAt,
+    acceptedAt: h.acceptedAt,
+    endedAt: h.endedAt,
+    filledBy: h.filledBy,
+    edited: h.edited
+  }
+}
+
+// ---- reducer ---------------------------------------------------------------
+
+interface Draft {
+  jobs: OtherJob[]
+  history: OtherHistoryEntry[]
+  lastLogEventAt?: string
+  lastLogEventCount: number
+  sessionAt?: string
+  expandedId: string | null
+  markerZones: Record<string, Record<string, OtherMarkerZone>>
+  markerBuild?: string
+}
+
+// latest marker per objective, per mission; this run only (markers come before their objectives)
+const missionMarkers = new Map<string, Map<string, MarkerPos>>()
+
+/**
+ * Marker -> step: by ObjectiveId. "New Objective" and CreateMarker both carry the objective's id,
+ * so a step takes the position of its own objective's latest marker, and nothing else. Only steps
+ * whose place has no UEX coords get one; a step whose marker can't be placed keeps none (or the
+ * last one it had). jobId limits the pass to one job.
+ */
+function placeSteps(d: Draft, ctx: Ctx, jobId?: string): void {
+  if (!otherSetting(ctx.settings, 'otherMarkerDistance') || !d.markerBuild) return
+  const zones = d.markerZones[d.markerBuild] ?? {}
+  const locations = useStore.getState().locations ?? []
+  d.jobs = d.jobs.map((j) => {
+    if ((jobId && j.id !== jobId) || !j.missionId) return j
+    const marks = missionMarkers.get(j.missionId)
+    if (!marks) return j
+    let changed = false
+    const steps = j.steps.map((s) => {
+      const m = s.objectiveId ? marks.get(s.objectiveId) : undefined
+      if (!m) return s
+      const named = findRosterLocation(s.location, locations)
+      if (named && named.x != null && named.y != null && named.z != null) return s
+      const pos = resolveMarker(zones, m)
+      if (!pos || (s.position && s.position.x === pos.x && s.position.y === pos.y && s.position.z === pos.z)) return s
+      changed = true
+      dlog.debug('other', 'marker position on step', { ref: j.ref, stepKey: stepKey(s), zone: m.zoneHostId, build: d.markerBuild })
+      return { ...s, position: pos }
     })
-    set({
-      ready: true,
-      jobs: doc.jobs ?? [],
-      startLocation: doc.startLocation ?? '',
-      listOrder: doc.listOrder === 'manual' ? 'manual' : 'distance',
-      jobOrder: Array.isArray(doc.jobOrder) ? doc.jobOrder : []
-    })
-    useOtherHistory.getState().load(doc)
+    return changed ? { ...j, steps } : j
+  })
+}
 
-    if (!listenersBound) {
-      listenersBound = true
-      dlog.info('other', 'binding log listeners (accepted/objective/ended/sessionDrop)')
-      window.supercargo.onOtherAccepted?.((e) => {
-        dlog.info('other', 'evt accepted received', { id: short(e.missionId), title: e.title })
-        get().ingestAccepted(e)
-        const job = get().jobs.find((j) => j.missionId === e.missionId || j.id === e.missionId)
-        if (job) requestAutoOcrIfEnabled(job.id)
-      })
-      window.supercargo.onOtherSessionDrop?.(() => {
-        dlog.info('other', 'evt sessionDrop received')
-        get().dropLogSession()
-      })
-      window.supercargo.onObjective((e) => get().ingestObjective(e))
-      window.supercargo.onContractEnded((e) => get().ingestEnded(e))
+interface Ctx {
+  live: boolean
+  settings: AppSettings
+  /** job ids accepted live, for auto-OCR after the set */
+  accepted: string[]
+  toast?: string
+}
+
+function setStep(d: Draft, jobId: string, idx: number, patch: Partial<OtherStep>): void {
+  d.jobs = d.jobs.map((j) =>
+    j.id === jobId ? { ...j, steps: j.steps.map((s, i) => (i === idx ? { ...s, ...patch } : s)) } : j
+  )
+}
+
+/** job + step index for an Objective Complete / Withdrawn line; missionId may be missing */
+function findObjective(d: Draft, missionId: string | undefined, text: string): { job: OtherJob; idx: number } | null {
+  const pool = missionId
+    ? d.jobs.filter((j) => j.missionId === missionId)
+    : d.jobs.filter((j) => j.status === 'active' && j.source !== 'manual')
+  for (const job of pool) {
+    const idx = findStepByText(job.steps, text)
+    if (idx >= 0) return { job, idx }
+  }
+  return null
+}
+
+function reduce(d: Draft, e: OtherLogEvent, ctx: Ctx): void {
+  const mode = resolveWorkMode(ctx.settings.workMode)
+  switch (e.kind) {
+    case 'session':
+      d.sessionAt = e.at
+      if (e.build) d.markerBuild = e.build
+      dlog.info('other', 'log session', { at: e.at, build: e.build })
+      break
+
+    case 'marker': {
+      const m: MarkerPos = { zoneHostId: e.zoneHostId, x: e.x, y: e.y, z: e.z }
+      const marks = missionMarkers.get(e.missionId) ?? new Map<string, MarkerPos>()
+      marks.set(e.objectiveId, m)
+      missionMarkers.set(e.missionId, marks)
+      if (!d.markerBuild) {
+        dlog.debug('other', 'marker: no game build yet, not calibrated', { id: short(e.missionId) })
+        break
+      }
+      const table = d.markerZones[d.markerBuild] ?? {}
+      const r = calibrateZone(table, m, useStore.getState().locations ?? [])
+      if (r.zones !== table) {
+        d.markerZones = { ...d.markerZones, [d.markerBuild]: r.zones }
+        dlog.debug('other', 'marker zone calibration', { build: d.markerBuild, zone: e.zoneHostId, change: r.change, place: r.place, n: r.zones[e.zoneHostId]?.n })
+      }
+      // a newly learned zone can place earlier markers too
+      const job = d.jobs.find((j) => j.missionId === e.missionId)
+      if (r.change === 'new' || r.change === 'root') placeSteps(d, ctx)
+      else if (job) placeSteps(d, ctx, job.id)
+      break
     }
 
-    const saved = await window.supercargo.getSettings()
-    const logPath = saved.gameLogPath
-    dlog.info('other', 'init mode', { workMode: resolveWorkMode(saved.workMode), hasLogPath: !!logPath })
-    if (resolveWorkMode(saved.workMode) === 'other' && logPath && window.supercargo.scanOtherJobs) {
-      const scanned = await window.supercargo.scanOtherJobs(logPath)
-      const contracts: ScannedContract[] = Array.isArray(scanned) ? scanned : scanned.contracts
-      const live = new Set(contracts.map((c) => c.accepted.missionId))
-      const byMission = Array.isArray(scanned) ? {} : (scanned.objectivesByMission ?? {})
-      dlog.info('other', 'startup scan result', {
-        live: contracts.map((c) => short(c.accepted.missionId)),
-        objectives: contracts.reduce((n, c) => n + c.objectives.length, 0),
-        jobsBefore: get().jobs.length
-      })
-      for (const c of contracts) {
-        get().ingestAccepted(c.accepted)
-        for (const o of c.objectives) get().ingestObjective(o)
+    case 'accepted': {
+      // rule 1: Haul mode never creates or reactivates Other jobs
+      if (mode !== 'other') {
+        dlog.debug('other', 'accepted ignored: haul mode', { id: short(e.missionId) })
+        break
       }
-      for (const j of get().jobs) {
-        if (j.source === 'manual' || j.objectivesLocked) continue
-        if (!j.missionId || j.steps.length > 0) continue
-        for (const o of byMission[j.missionId] ?? []) get().ingestObjective(o)
-      }
-      for (const j of get().jobs) {
-        if (j.status === 'active' && j.source !== 'manual' && j.missionId && !live.has(j.missionId)) {
+      const existing = d.jobs.find((j) => j.missionId === e.missionId)
+      const archived = existing ? undefined : d.history.find((h) => h.missionId === e.missionId)
+      if (existing || archived) {
+        // rule 4: re-share reactivates, even from history
+        const base = existing ?? fromHistory(archived!)
+        const job: OtherJob = {
+          ...base,
+          status: 'active',
+          objectivesLocked: undefined,
+          steps: base.status === 'complete' ? undone(base.steps) : base.steps,
+          rep: e.rep ?? base.rep,
+          sharedBy: e.sharedBy ?? base.sharedBy,
+          acceptedAt: e.at,
+          endedAt: undefined
+        }
+        if (base.status !== 'active') {
           dlog.info('other', 'job status change', {
-            ref: j.ref,
-            id: short(j.missionId),
-            from: 'active',
-            to: 'abandoned',
-            reason: 'startup scan: not live in Game.log'
+            ref: job.ref,
+            id: short(e.missionId),
+            from: archived ? `history:${archived.outcome}` : base.status,
+            to: 'active',
+            reason: 'accepted again (re-share)'
           })
         }
+        if (archived) {
+          d.history = d.history.filter((h) => h !== archived)
+          d.jobs = [...d.jobs, job]
+        } else d.jobs = d.jobs.map((j) => (j.id === base.id ? job : j))
+        if (ctx.live && base.status !== 'active') ctx.accepted.push(job.id)
+        break
+      }
+      const kind = kindFromGenerator(e.generator || '', e.title || '', e.contractName || '')
+      const job: OtherJob = {
+        id: e.missionId,
+        ref: nextJobRef(d.jobs, d.history),
+        title: e.title || 'Contract',
+        kind,
+        reward: 0,
+        status: 'active',
+        steps: [],
+        createdAt: Date.now(),
+        missionId: e.missionId,
+        generator: e.generator || undefined,
+        contractName: e.contractName || undefined,
+        source: 'log',
+        rep: e.rep,
+        sharedBy: e.sharedBy,
+        sessionAt: d.sessionAt,
+        acceptedAt: e.at
+      }
+      dlog.info('other', 'job created', {
+        ref: job.ref,
+        id: short(e.missionId),
+        source: 'log',
+        kind,
+        title: job.title,
+        generator: e.generator,
+        rep: e.rep,
+        shared: !!e.sharedBy,
+        live: ctx.live
+      })
+      d.jobs = [...d.jobs, job]
+      if (ctx.live) {
+        d.expandedId = job.id
+        ctx.accepted.push(job.id)
+      }
+      break
+    }
+
+    case 'objective': {
+      const job = d.jobs.find((j) => j.missionId === e.missionId)
+      if (!job) {
+        dlog.debug('other', 'objective: no job', { id: short(e.missionId) })
+        break
+      }
+      if (job.source === 'manual' || job.objectivesLocked) {
+        dlog.info('other', 'objective dropped: job locked/manual', { ref: job.ref, source: job.source, locked: !!job.objectivesLocked })
+        break
+      }
+      if (job.steps.some((s) => s.logText === e.text)) {
+        dlog.debug('other', 'objective dropped: duplicate step', { ref: job.ref, text: e.text })
+        break
+      }
+      const step: OtherStep = { ...stepFromObjectiveText(e.text, useStore.getState().locations ?? []), logText: e.text }
+      if (e.objectiveId) step.objectiveId = e.objectiveId
+      dlog.info('other', 'step added from objective', { ref: job.ref, id: short(e.missionId), stepKey: stepKey(step), steps: job.steps.length + 1 })
+      d.jobs = d.jobs.map((j) => (j.id === job.id ? { ...j, steps: [...j.steps, step] } : j))
+      if (e.objectiveId) placeSteps(d, ctx, job.id)
+      break
+    }
+
+    case 'objectiveComplete': {
+      if (!otherSetting(ctx.settings, 'otherAutoTickObjectives')) break
+      const hit = findObjective(d, e.missionId, e.text)
+      if (!hit) {
+        dlog.debug('other', 'objective complete: no step', { id: short(e.missionId), text: e.text })
+        break
+      }
+      const s = hit.job.steps[hit.idx]
+      if (s.done) break
+      dlog.info('other', 'step ticked from log', { ref: hit.job.ref, stepKey: stepKey(s) })
+      setStep(d, hit.job.id, hit.idx, { done: true, have: s.need, pickedUp: s.pickupLocation ? true : s.pickedUp })
+      break
+    }
+
+    case 'objectiveWithdrawn': {
+      const hit = findObjective(d, e.missionId, e.text)
+      if (!hit) {
+        dlog.debug('other', 'objective withdrawn: no step', { id: short(e.missionId), text: e.text })
+        break
+      }
+      dlog.info('other', 'step withdrawn', { ref: hit.job.ref, stepKey: stepKey(hit.job.steps[hit.idx]) })
+      setStep(d, hit.job.id, hit.idx, { withdrawn: true })
+      break
+    }
+
+    case 'ended': {
+      // rules 2-3: two outcomes, latest ending wins (also on archived entries)
+      const to = e.outcome === 'complete' ? 'complete' : 'abandoned'
+      const job = d.jobs.find((j) => j.missionId === e.missionId)
+      if (job) {
+        dlog.info('other', 'job status change', {
+          ref: job.ref,
+          id: short(e.missionId),
+          from: job.status,
+          to,
+          reason: `EndMission ${e.completionType}${e.reason ? ` (${e.reason})` : ''}`
+        })
+        d.jobs = d.jobs.map((j) =>
+          j.id === job.id
+            ? {
+                ...j,
+                status: to,
+                endedAt: e.at,
+                steps: to === 'complete' ? j.steps.map((s) => ({ ...s, done: true, have: s.need })) : j.steps
+              }
+            : j
+        )
+        break
+      }
+      const h = d.history.find((x) => x.missionId === e.missionId)
+      if (h) {
+        const outcome = to === 'complete' ? 'completed' : 'abandoned'
+        dlog.info('other', 'history outcome change', { ref: h.ref, id: short(e.missionId), from: h.outcome, to: outcome, reason: `EndMission ${e.completionType}` })
+        d.history = d.history.map((x) => (x === h ? { ...x, outcome, endedAt: e.at } : x))
+      } else dlog.debug('other', 'ended: no job', { id: short(e.missionId), completion: e.completionType })
+      break
+    }
+
+    case 'disconnect':
+    case 'quit': {
+      // rule 5: quitting ends every active log job
+      const hit = d.jobs.filter((j) => j.status === 'active' && j.source === 'log')
+      for (const j of hit) {
+        dlog.info('other', 'job status change', { ref: j.ref, id: short(j.missionId), from: 'active', to: 'abandoned', reason: e.kind === 'quit' ? 'game quit' : 'player disconnect' })
+      }
+      if (hit.length) {
+        d.jobs = d.jobs.map((j) =>
+          j.status === 'active' && j.source === 'log' ? { ...j, status: 'abandoned' as const, endedAt: e.at } : j
+        )
+      }
+      break
+    }
+
+    case 'contractLimit':
+      dlog.info('other', 'contract limit', { at: e.at, live: ctx.live })
+      if (ctx.live && mode === 'other' && otherSetting(ctx.settings, 'otherContractLimitToast')) {
+        ctx.toast = 'Contract not accepted: contract limit reached.'
+      }
+      break
+  }
+  // exact watermark: the scan skips the first lastLogEventCount events at lastLogEventAt
+  if (e.at === d.lastLogEventAt) d.lastLogEventCount += 1
+  else if (!d.lastLogEventAt || e.at > d.lastLogEventAt) {
+    d.lastLogEventAt = e.at
+    d.lastLogEventCount = 1
+  }
+}
+
+/** the scan returns events with at >= since; drop the ones already applied at exactly since */
+function skipApplied(events: OtherLogEvent[], since: string | undefined, count: number): OtherLogEvent[] {
+  if (!since || count <= 0) return events
+  let left = count
+  const out = events.filter((e) => {
+    if (left > 0 && e.at === since) {
+      left -= 1
+      return false
+    }
+    return true
+  })
+  dlog.debug('other', 'scan: skipped events already applied', { since, skipped: count - left })
+  return out
+}
+
+// ---- persistence -----------------------------------------------------------
+
+let saveTimer: number | null = null
+
+/** the one doc builder: every save writes every field */
+export function buildOtherDoc(): OtherJobsDoc {
+  const s = useOtherJobs.getState()
+  return {
+    jobs: s.jobs,
+    history: useOtherHistory.getState().history,
+    startLocation: s.startLocation,
+    listOrder: s.listOrder,
+    jobOrder: s.jobOrder,
+    lastLogEventAt: s.lastLogEventAt,
+    lastLogEventCount: s.lastLogEventCount,
+    markerZones: s.markerZones,
+    markerBuild: s.markerBuild,
+    rev: s.rev
+  }
+}
+
+function saveNow(): void {
+  if (saveTimer !== null) {
+    window.clearTimeout(saveTimer)
+    saveTimer = null
+  }
+  // rule 8: the overlay never writes
+  if (useOtherJobs.getState().passive) return
+  const rev = (useOtherJobs.getState().rev ?? 0) + 1
+  useOtherJobs.setState({ rev })
+  const doc = buildOtherDoc()
+  dlog.debug('other', 'persist', {
+    rev,
+    jobs: doc.jobs.length,
+    active: doc.jobs.filter((j) => j.status === 'active').length,
+    history: doc.history.length,
+    listOrder: doc.listOrder,
+    jobOrder: doc.jobOrder?.length,
+    lastLogEventAt: doc.lastLogEventAt,
+    lastLogEventCount: doc.lastLogEventCount
+  })
+  void window.supercargo.saveOtherJobs?.(doc)
+}
+
+/** flush a pending debounced save now (main window closing) */
+function flushSave(): void {
+  if (saveTimer !== null) saveNow()
+}
+
+/** overlay: send a job action to the main window, which applies and saves it (rule 8) */
+function sendAction(a: OtherAction): void {
+  dlog.debug('other', 'overlay action sent to main window', a)
+  window.supercargo.otherAction?.(a)
+}
+
+let listenersBound = false
+let jobsChangedBound = false
+let mainBound = false
+
+export const useOtherJobs = create<OtherJobsState>((set, get) => {
+  /** one set + one save for a batch of events */
+  const commit = (events: OtherLogEvent[], live: boolean): void => {
+    if (!events.length) return
+    const s = get()
+    const d: Draft = {
+      jobs: s.jobs,
+      history: useOtherHistory.getState().history,
+      lastLogEventAt: s.lastLogEventAt,
+      lastLogEventCount: s.lastLogEventCount,
+      sessionAt: s.sessionAt,
+      expandedId: s.expandedId,
+      markerZones: s.markerZones,
+      markerBuild: s.markerBuild
+    }
+    const ctx: Ctx = { live, settings: settingsNow(), accepted: [] }
+    for (const e of events) reduce(d, e, ctx)
+    set({
+      jobs: d.jobs,
+      lastLogEventAt: d.lastLogEventAt,
+      lastLogEventCount: d.lastLogEventCount,
+      sessionAt: d.sessionAt,
+      expandedId: d.expandedId,
+      markerZones: d.markerZones,
+      markerBuild: d.markerBuild
+    })
+    if (d.history !== useOtherHistory.getState().history) useOtherHistory.setState({ history: d.history })
+    get().persist()
+    if (ctx.toast) useStore.setState({ notice: ctx.toast })
+    for (const id of ctx.accepted) requestAutoOcrIfEnabled(id)
+  }
+
+  const loadDoc = (doc: OtherJobsDoc): void => {
+    set({
+      jobs: doc.jobs ?? [],
+      startLocation: typeof doc.startLocation === 'string' ? doc.startLocation : '',
+      listOrder: doc.listOrder === 'manual' ? 'manual' : 'distance',
+      jobOrder: Array.isArray(doc.jobOrder) ? doc.jobOrder : [],
+      lastLogEventAt: doc.lastLogEventAt,
+      lastLogEventCount: typeof doc.lastLogEventCount === 'number' ? doc.lastLogEventCount : 0,
+      markerZones: doc.markerZones && typeof doc.markerZones === 'object' ? doc.markerZones : {},
+      markerBuild: typeof doc.markerBuild === 'string' ? doc.markerBuild : undefined,
+      rev: doc.rev ?? 0
+    })
+    useOtherHistory.getState().load(doc)
+  }
+
+  return {
+    ready: false,
+    passive: false,
+    jobs: [],
+    expandedId: null,
+    startLocation: '',
+    groupBy: 'location',
+    listOrder: 'distance',
+    jobOrder: [],
+    lastLogEventAt: undefined,
+    lastLogEventCount: 0,
+    rev: 0,
+    sessionAt: undefined,
+    markerZones: {},
+    markerBuild: undefined,
+    crashNotice: null,
+    dismissCrashNotice: () => set({ crashNotice: null }),
+
+    init: async (opts) => {
+      // rule 8: only the main window applies log events
+      const passive = !!opts?.passive || !isMain()
+      set({ passive })
+      // rule 8: the main window is the only writer, so only the overlay reloads on a save.
+      // The main window never reloads: its memory is the newest state, and a reload could drop
+      // a pending debounced save (an external edit of the file while the app runs is not supported).
+      if (passive && !jobsChangedBound) {
+        jobsChangedBound = true
+        window.supercargo.onOtherJobsChanged?.((p) => {
+          dlog.debug('other', 'jobs saved by main window; reloading', { rev: p?.rev })
+          void get().reloadFromDisk()
+        })
+      }
+      if (!passive && !mainBound) {
+        mainBound = true
+        window.supercargo.onOtherAction?.((a) => {
+          dlog.info('other', 'overlay action', a)
+          if (a.type === 'toggleStep') get().toggleStep(a.jobId, a.stepId)
+          else if (a.type === 'complete') get().completeJob(a.jobId)
+          else if (a.type === 'abandon') get().abandonJob(a.jobId)
+        })
+        window.addEventListener('beforeunload', flushSave)
+        // job rule 1: contracts accepted while in Haul mode stay ignored after switching to Other
+        useStore.subscribe((st, prev) => {
+          if (!st.ready || !prev.ready || !get().ready) return
+          if (resolveWorkMode(st.settings.workMode) !== 'other' || resolveWorkMode(prev.settings.workMode) === 'other') return
+          const at = new Date().toISOString()
+          dlog.info('other', 'work mode haul -> other: watermark moved to now', { from: get().lastLogEventAt, to: at })
+          set({ lastLogEventAt: at, lastLogEventCount: 0 })
+          saveNow()
+        })
+      }
+      if (!window.supercargo.loadOtherJobs) {
+        dlog.warn('other', 'init: no loadOtherJobs bridge')
+        set({ ready: true, jobs: [] })
+        return
+      }
+      const doc = await window.supercargo.loadOtherJobs()
+      dlog.info('other', 'init loaded', {
+        passive,
+        jobs: doc.jobs?.length ?? 0,
+        active: (doc.jobs ?? []).filter((j) => j.status === 'active').length,
+        history: doc.history?.length ?? 0,
+        listOrder: doc.listOrder,
+        jobOrder: doc.jobOrder?.length,
+        lastLogEventAt: doc.lastLogEventAt,
+        rev: doc.rev
+      })
+      loadDoc(doc)
+      // current session until a session event says otherwise: newest one on record
+      const sessions = [...(doc.jobs ?? []), ...(doc.history ?? [])].map((j) => j.sessionAt ?? '').sort()
+      set({ sessionAt: sessions[sessions.length - 1] || undefined })
+      if (passive) {
+        set({ ready: true })
+        return
+      }
+
+      bootSettings = await window.supercargo.getSettings()
+
+      // live events that arrive during the scan wait here, then skip any the scan already had
+      let buffer: OtherLogEvent[] | null = []
+      if (!listenersBound) {
+        listenersBound = true
+        dlog.info('other', 'binding log events')
+        window.supercargo.onOtherLogEvent?.((e) => {
+          if (buffer) buffer.push(e)
+          else get().applyEvent(e)
+        })
+      }
+
+      // rule 7: replay only events newer than the watermark, in one batch
+      let scanned: OtherLogEvent[] = []
+      if (window.supercargo.scanOtherEvents) {
+        try {
+          const res = await window.supercargo.scanOtherEvents(doc.lastLogEventAt)
+          scanned = skipApplied(res.events ?? [], doc.lastLogEventAt, doc.lastLogEventCount ?? 0)
+          // the session/build line sits above the watermark when the app starts mid-session
+          if (res.currentSession) {
+            const d0 = get()
+            if (d0.sessionAt !== res.currentSession.at || (res.currentSession.build && d0.markerBuild !== res.currentSession.build)) {
+              set({ sessionAt: res.currentSession.at, ...(res.currentSession.build ? { markerBuild: res.currentSession.build } : {}) })
+            }
+          }
+          dlog.info('other', 'startup scan result', {
+            since: doc.lastLogEventAt,
+            events: scanned.length,
+            files: res.files,
+            previousEnd: res.previousEnd,
+            jobsBefore: get().jobs.length
+          })
+          get().applyEvents(scanned, false)
+          // rule 6: a crash keeps jobs; say so once
+          const kept = get().jobs.filter((j) => j.status === 'active' && j.source === 'log').length
+          if (res.previousEnd === 'crash' && kept > 0 && otherSetting(settingsNow(), 'otherCrashNotice')) {
+            dlog.info('other', 'crash notice', { kept })
+            set({ crashNotice: { kept } })
+          }
+        } catch (err) {
+          dlog.warn('other', 'startup scan failed', { error: (err as Error)?.message ?? String(err) })
+        }
+      } else dlog.warn('other', 'startup scan skipped: no scanOtherEvents bridge')
+
+      const seen = new Set(scanned.map((e) => JSON.stringify(e)))
+      const late = (buffer ?? []).filter((e) => !seen.has(JSON.stringify(e)))
+      buffer = null
+      if (late.length) get().applyEvents(late, true)
+      set({ ready: true })
+    },
+
+    persist: () => {
+      if (saveTimer !== null) window.clearTimeout(saveTimer)
+      saveTimer = window.setTimeout(saveNow, 150)
+    },
+
+    reloadFromDisk: async () => {
+      const doc = await window.supercargo.loadOtherJobs?.()
+      if (!doc) return
+      // loads can finish out of order; never step back to an older save
+      if ((doc.rev ?? 0) < get().rev) return
+      dlog.debug('other', 'reload from disk', { rev: doc.rev, jobs: doc.jobs?.length ?? 0 })
+      loadDoc(doc)
+    },
+
+    applyEvent: (e) => {
+      if (get().passive) return
+      commit([e], true)
+    },
+    applyEvents: (events, live = false) => {
+      if (get().passive) return
+      commit(events, live)
+    },
+
+    setExpanded: (id) => set({ expandedId: id }),
+    setStartLocation: (v) => {
+      set({ startLocation: v })
+      get().persist()
+    },
+    setGroupBy: (v) => set({ groupBy: v }),
+    setListOrder: (v) => {
+      set({ listOrder: v, groupBy: v === 'manual' ? 'job' : get().groupBy })
+      get().persist()
+    },
+    moveJob: (id, dir) => {
+      const order = activeJobOrder(get())
+      const i = order.indexOf(id)
+      const j = i + dir
+      if (i < 0 || j < 0 || j >= order.length) return
+      const next = [...order]
+      const tmp = next[i]
+      next[i] = next[j]
+      next[j] = tmp
+      set({ jobOrder: next, listOrder: 'manual', groupBy: 'job' })
+      get().persist()
+    },
+    placeJob: (id, beforeId) => {
+      if (id === beforeId) return
+      const order = activeJobOrder(get())
+      const from = order.indexOf(id)
+      const to = order.indexOf(beforeId)
+      if (from < 0 || to < 0) return
+      const next = order.filter((x) => x !== id)
+      const insertAt = next.indexOf(beforeId)
+      if (insertAt < 0) return
+      next.splice(insertAt, 0, id)
+      set({ jobOrder: next, listOrder: 'manual', groupBy: 'job' })
+      get().persist()
+    },
+
+    addJob: (draft) => {
+      const jobs = get().jobs
+      const job: OtherJob = {
+        id: nid('job'),
+        ref: nextJobRef(jobs, useOtherHistory.getState().history),
+        title: draft.title.trim() || `${draft.kind} job`,
+        kind: draft.kind,
+        reward: Math.max(0, Number(draft.reward) || 0),
+        status: 'active',
+        steps: stepsFor(draft),
+        createdAt: Date.now(),
+        source: 'manual',
+        sessionAt: get().sessionAt
+      }
+      dlog.info('other', 'job created', { ref: job.ref, source: 'manual', kind: job.kind, title: job.title, steps: job.steps.length })
+      set({ jobs: [...jobs, job], expandedId: job.id })
+      get().persist()
+    },
+
+    applyEdit: (id, edit) => {
+      {
+        const j = get().jobs.find((x) => x.id === id)
+        dlog.info('other', 'job edited by user', {
+          ref: j?.ref,
+          id: short(j?.missionId),
+          steps: edit.steps.length,
+          found: !!j,
+          willComplete: !!j && j.status === 'active' && edit.steps.length > 0 && edit.steps.every((r) => j.steps.find((s) => s.id === r.id)?.done)
+        })
+      }
+      set({
+        jobs: get().jobs.map((j) => {
+          if (j.id !== id) return j
+          const prevById = new Map(j.steps.map((s) => [s.id, s]))
+          const steps: OtherStep[] = edit.steps.map((row) => {
+            const prev = prevById.get(row.id)
+            const location = row.location.trim()
+            const item = row.item.trim()
+            const need = Math.max(1, Number(row.need) || 1)
+            const kind = item ? 'turnin' : 'go'
+            return {
+              id: prev?.id ?? nid('step'),
+              kind,
+              label: (row.label || '').trim() || labelFor(edit.kind, location, item, need),
+              location,
+              pickupLocation: prev?.pickupLocation,
+              pickupLocationRaw: prev?.pickupLocationRaw,
+              pickupLocationSnapped: prev?.pickupLocationSnapped,
+              pickedUp: prev?.pickedUp,
+              item: item || undefined,
+              have: prev?.done ? need : 0,
+              need,
+              done: prev?.done ?? false,
+              withdrawn: prev?.withdrawn,
+              logText: prev?.logText,
+              objectiveId: prev?.objectiveId,
+              // a marker position belongs to the place it was set for
+              position: prev && prev.location === location ? prev.position : undefined
+            }
+          })
+          const before = j.steps.map((s) => `${s.label}|${s.location}|${s.item || ''}|${s.need}`).join('\n')
+          const after = steps.map((s) => `${s.label}|${s.location}|${s.item || ''}|${s.need}`).join('\n')
+          return {
+            ...j,
+            title: edit.title.trim() || j.title,
+            kind: edit.kind,
+            reward: Math.max(0, Number(edit.reward) || 0),
+            steps,
+            status: j.status === 'active' && steps.length > 0 && steps.every((s) => s.done) ? 'complete' : j.status,
+            objectivesLocked: true,
+            edited: j.edited || before !== after
+          }
+        })
+      })
+      get().persist()
+    },
+
+    abandonJob: (id) => {
+      if (get().passive) return sendAction({ type: 'abandon', jobId: id })
+      {
+        const j = get().jobs.find((x) => x.id === id)
+        dlog.info('other', 'job status change', { ref: j?.ref, id: short(j?.missionId), from: j?.status, to: 'abandoned', reason: 'user abandon' })
+      }
+      set({ jobs: get().jobs.map((j) => (j.id === id ? { ...j, status: 'abandoned' as const, objectivesLocked: true } : j)) })
+      get().persist()
+    },
+    // #8: abandoned -> active (log may fill steps again); complete -> active with steps un-done
+    restoreJob: (id) => {
+      {
+        const j = get().jobs.find((x) => x.id === id)
+        dlog.info('other', 'job status change', { ref: j?.ref, id: short(j?.missionId), from: j?.status, to: 'active', reason: 'user restore' })
+      }
+      set({
+        jobs: get().jobs.map((j) => {
+          if (j.id !== id || j.status === 'active') return j
+          if (j.status === 'complete') return { ...j, status: 'active' as const, endedAt: undefined, steps: undone(j.steps) }
+          return { ...j, status: 'active' as const, endedAt: undefined, objectivesLocked: undefined }
+        })
+      })
+      get().persist()
+    },
+
+    completeJob: (id) => {
+      if (get().passive) return sendAction({ type: 'complete', jobId: id })
+      {
+        const j = get().jobs.find((x) => x.id === id)
+        dlog.info('other', 'job status change', { ref: j?.ref, id: short(j?.missionId), from: j?.status, to: 'complete', reason: 'user complete' })
       }
       set({
         jobs: get().jobs.map((j) =>
-          j.status === 'active' && j.source !== 'manual' && j.missionId && !live.has(j.missionId)
-            ? { ...j, status: 'abandoned' as const }
+          j.id === id
+            ? { ...j, status: 'complete', objectivesLocked: true, steps: j.steps.map((s) => ({ ...s, done: true, have: s.need })) }
             : j
         )
       })
       get().persist()
-    } else {
-      dlog.info('other', 'startup scan skipped', {
-        workMode: resolveWorkMode(saved.workMode),
-        hasLogPath: !!logPath,
-        hasBridge: !!window.supercargo.scanOtherJobs
-      })
-    }
-  },
+    },
 
-  persist: () => {
-    const doc: OtherJobsDoc = {
-      jobs: get().jobs,
-      history: useOtherHistory.getState().history,
-      startLocation: get().startLocation,
-      listOrder: get().listOrder,
-      jobOrder: get().jobOrder
-    }
-    dlog.debug('other', 'persist', {
-      by: 'otherJobs',
-      jobs: doc.jobs.length,
-      active: doc.jobs.filter((j) => j.status === 'active').length,
-      history: doc.history.length,
-      startLocation: true,
-      listOrder: doc.listOrder,
-      jobOrder: doc.jobOrder?.length
-    })
-    void window.supercargo.saveOtherJobs?.(doc)
-  },
-
-  setExpanded: (id) => set({ expandedId: id }),
-  setStartLocation: (v) => {
-    set({ startLocation: v })
-    get().persist()
-  },
-  setGroupBy: (v) => set({ groupBy: v }),
-  setListOrder: (v) => {
-    set({ listOrder: v, groupBy: v === 'manual' ? 'job' : get().groupBy })
-    get().persist()
-  },
-  moveJob: (id, dir) => {
-    const order = activeJobOrder(get())
-    const i = order.indexOf(id)
-    const j = i + dir
-    if (i < 0 || j < 0 || j >= order.length) return
-    const next = [...order]
-    const tmp = next[i]
-    next[i] = next[j]
-    next[j] = tmp
-    set({ jobOrder: next, listOrder: 'manual', groupBy: 'job' })
-    get().persist()
-  },
-  placeJob: (id, beforeId) => {
-    if (id === beforeId) return
-    const order = activeJobOrder(get())
-    const from = order.indexOf(id)
-    const to = order.indexOf(beforeId)
-    if (from < 0 || to < 0) return
-    const next = order.filter((x) => x !== id)
-    const insertAt = next.indexOf(beforeId)
-    if (insertAt < 0) return
-    next.splice(insertAt, 0, id)
-    set({ jobOrder: next, listOrder: 'manual', groupBy: 'job' })
-    get().persist()
-  },
-
-  addJob: (draft) => {
-    const jobs = get().jobs
-    const job: OtherJob = {
-      id: nid('job'),
-      ref: otherJobRef(jobs.length),
-      title: draft.title.trim() || `${draft.kind} job`,
-      kind: draft.kind,
-      reward: Math.max(0, Number(draft.reward) || 0),
-      status: 'active',
-      steps: stepsFor(draft),
-      createdAt: Date.now(),
-      source: 'manual'
-    }
-    dlog.info('other', 'job created', { ref: job.ref, source: 'manual', kind: job.kind, title: job.title, steps: job.steps.length })
-    set({ jobs: [...jobs, job], expandedId: job.id })
-    get().persist()
-  },
-
-  applyEdit: (id, edit) => {
-    {
-      const j = get().jobs.find((x) => x.id === id)
-      dlog.info('other', 'job edited by user', {
-        ref: j?.ref,
-        id: short(j?.missionId),
-        steps: edit.steps.length,
-        found: !!j,
-        willComplete: !!j && j.status === 'active' && edit.steps.length > 0 && edit.steps.every((r) => j.steps.find((s) => s.id === r.id)?.done)
-      })
-    }
-    set({
-      jobs: get().jobs.map((j) => {
-        if (j.id !== id) return j
-        const prevById = new Map(j.steps.map((s) => [s.id, s]))
-        const steps: OtherStep[] = edit.steps.map((row) => {
-          const prev = prevById.get(row.id)
-          const location = row.location.trim()
-          const item = row.item.trim()
-          const need = Math.max(1, Number(row.need) || 1)
-          const kind = item ? 'turnin' : 'go'
-          return {
-            id: prev?.id ?? nid('step'),
-            kind,
-            label: (row.label || '').trim() || labelFor(edit.kind, location, item, need),
-            location,
-            pickupLocation: prev?.pickupLocation,
-            pickupLocationRaw: prev?.pickupLocationRaw,
-            pickupLocationSnapped: prev?.pickupLocationSnapped,
-            pickedUp: prev?.pickedUp,
-            item: item || undefined,
-            have: prev?.done ? need : 0,
-            need,
-            done: prev?.done ?? false
-          }
-        })
-        const before = j.steps.map((s) => `${s.label}|${s.location}|${s.item || ''}|${s.need}`).join('\n')
-        const after = steps.map((s) => `${s.label}|${s.location}|${s.item || ''}|${s.need}`).join('\n')
-        return {
-          ...j,
-          title: edit.title.trim() || j.title,
-          kind: edit.kind,
-          reward: Math.max(0, Number(edit.reward) || 0),
-          steps,
-          status: j.status === 'active' && steps.length > 0 && steps.every((s) => s.done) ? 'complete' : j.status,
-          objectivesLocked: true,
-          edited: j.edited || before !== after
-        }
-      })
-    })
-    get().persist()
-  },
-
-  ingestAccepted: (e) => {
-    {
-      const existing = get().jobs.find((j) => j.missionId === e.missionId)
-      if (existing) dlog.info('other', 'accepted: job exists, skipped', { ref: existing.ref, id: short(e.missionId), status: existing.status })
-    }
-    if (get().jobs.find((j) => j.missionId === e.missionId)) return
-    const kind = kindFromGenerator(e.generator || '', e.title || '', e.contractName || '')
-    const jobs = get().jobs
-    const job: OtherJob = {
-      id: e.missionId,
-      ref: otherJobRef(jobs.length),
-      title: e.title || 'Contract',
-      kind,
-      reward: 0,
-      status: 'active',
-      steps: [],
-      createdAt: Date.now(),
-      missionId: e.missionId,
-      generator: e.generator || undefined,
-      contractName: e.contractName || undefined,
-      source: 'log'
-    }
-    dlog.info('other', 'job created', {
-      ref: job.ref,
-      id: short(e.missionId),
-      source: 'log',
-      kind,
-      title: job.title,
-      generator: e.generator,
-      workMode: resolveWorkMode(useStore.getState().settings.workMode)
-    })
-    set({ jobs: [...jobs, job], expandedId: job.id })
-    get().persist()
-  },
-
-  ingestObjective: (e) => {
-    const job = get().jobs.find((j) => j.missionId === e.missionId && j.status === 'active')
-    if (!job) dlog.debug('other', 'objective: no active job', { id: short(e.missionId) })
-    if (!job) return
-    if (job.source === 'manual' || job.objectivesLocked) {
-      dlog.info('other', 'objective dropped: job locked/manual', { ref: job.ref, source: job.source, locked: !!job.objectivesLocked })
-    }
-    if (job.source === 'manual' || job.objectivesLocked) return
-    const step = stepFromObjective(e)
-    if (!step) dlog.warn('other', 'objective dropped: unparseable', { ref: job.ref, commodity: e.commodity, destination: e.destination })
-    if (!step) return
-    const key = stepKey(step)
-    if (job.steps.some((s) => stepKey(s) === key)) {
-      dlog.info('other', 'objective dropped: duplicate step', { ref: job.ref, stepKey: key })
-    }
-    if (job.steps.some((s) => stepKey(s) === key)) return
-    dlog.info('other', 'step added from objective', { ref: job.ref, id: short(e.missionId), stepKey: key, steps: job.steps.length + 1 })
-    set({
-      jobs: get().jobs.map((j) => (j.id === job.id ? { ...j, steps: [...j.steps, step] } : j))
-    })
-    get().persist()
-  },
-
-  dropLogSession: () => {
-    for (const j of get().jobs) {
-      if (j.status === 'active' && j.source !== 'manual') {
-        dlog.info('other', 'job status change', { ref: j.ref, id: short(j.missionId), from: 'active', to: 'abandoned', reason: 'session drop' })
-      }
-    }
-    set({
-      jobs: get().jobs.map((j) =>
-        j.status === 'active' && j.source !== 'manual' ? { ...j, status: 'abandoned' as const } : j
-      )
-    })
-    get().persist()
-    void useOtherHistory.getState().reconcileFromLog()
-  },
-
-  ingestEnded: (e) => {
-    if (!get().jobs.find((j) => j.missionId === e.missionId && j.status === 'active')) {
-      dlog.debug('other', 'ended: no active job', { id: short(e.missionId), completion: e.completion })
-    }
-    if (!get().jobs.find((j) => j.missionId === e.missionId && j.status === 'active')) return
-    const abandoned = e.completion === 'Abandon' || e.completion === 'Fail'
-    dlog.info('other', 'job status change', {
-      ref: get().jobs.find((j) => j.missionId === e.missionId)?.ref,
-      id: short(e.missionId),
-      from: 'active',
-      to: abandoned ? 'abandoned' : 'complete',
-      reason: `EndMission ${e.completion}${e.reason ? ` (${e.reason})` : ''}`
-    })
-    set({
-      jobs: get().jobs.map((j) =>
-        j.missionId === e.missionId
-          ? {
-              ...j,
-              status: abandoned ? 'abandoned' : 'complete',
-              steps: abandoned ? j.steps : j.steps.map((s) => ({ ...s, done: true, have: s.need }))
+    toggleStep: (jobId, stepId) => {
+      if (get().passive) return sendAction({ type: 'toggleStep', jobId, stepId })
+      set({
+        jobs: get().jobs.map((j) => {
+          if (j.id !== jobId) return j
+          const steps = j.steps.map((s) => {
+            if (s.id !== stepId) return s
+            if (s.pickupLocation && !s.pickedUp && !s.done) {
+              return { ...s, pickedUp: true }
             }
-          : j
-      )
-    })
-    get().persist()
-  },
-
-  abandonJob: (id) => {
-    {
-      const j = get().jobs.find((x) => x.id === id)
-      dlog.info('other', 'job status change', { ref: j?.ref, id: short(j?.missionId), from: j?.status, to: 'abandoned', reason: 'user abandon' })
-    }
-    set({ jobs: get().jobs.map((j) => (j.id === id ? { ...j, status: 'abandoned' as const, objectivesLocked: true } : j)) })
-    get().persist()
-  },
-  restoreJob: (id) => {
-    {
-      const j = get().jobs.find((x) => x.id === id)
-      dlog.info('other', 'job status change', { ref: j?.ref, id: short(j?.missionId), from: j?.status, to: 'active', reason: 'user restore' })
-    }
-    set({
-      jobs: get().jobs.map((j) =>
-        j.id === id && j.status !== 'active' ? { ...j, status: 'active' as const } : j
-      )
-    })
-    get().persist()
-  },
-
-  completeJob: (id) => {
-    {
-      const j = get().jobs.find((x) => x.id === id)
-      dlog.info('other', 'job status change', { ref: j?.ref, id: short(j?.missionId), from: j?.status, to: 'complete', reason: 'user complete' })
-    }
-    set({
-      jobs: get().jobs.map((j) =>
-        j.id === id
-          ? { ...j, status: 'complete', objectivesLocked: true, steps: j.steps.map((s) => ({ ...s, done: true, have: s.need })) }
-          : j
-      )
-    })
-    get().persist()
-  },
-
-  toggleStep: (jobId, stepId) => {
-    set({
-      jobs: get().jobs.map((j) => {
-        if (j.id !== jobId) return j
-        const steps = j.steps.map((s) => {
-          if (s.id !== stepId) return s
-          if (s.pickupLocation && !s.pickedUp && !s.done) {
-            return { ...s, pickedUp: true }
+            const done = !s.done
+            return { ...s, done, pickedUp: done ? true : s.pickupLocation ? false : s.pickedUp, have: done ? s.need : 0 }
+          })
+          const allDone = steps.length > 0 && steps.every((s) => s.done || s.withdrawn)
+          const s0 = j.steps.find((s) => s.id === stepId)
+          const s1 = steps.find((s) => s.id === stepId)
+          dlog.info('other', 'step toggled by user', {
+            ref: j.ref,
+            stepKey: s1 ? stepKey(s1) : stepId,
+            pickedUp: s1?.pickedUp,
+            done: s1?.done,
+            wasDone: s0?.done
+          })
+          // #8: a finished job stays finished; only an active one can complete here
+          if (j.status !== 'active') return { ...j, steps }
+          if (allDone) {
+            dlog.info('other', 'job status change', { ref: j.ref, id: short(j.missionId), from: j.status, to: 'complete', reason: 'step toggle' })
+            return { ...j, steps, status: 'complete' as const }
           }
-          const done = !s.done
-          return { ...s, done, pickedUp: done ? true : s.pickupLocation ? false : s.pickedUp, have: done ? s.need : 0 }
+          return { ...j, steps }
         })
-        const allDone = steps.length > 0 && steps.every((s) => s.done)
-        const s0 = j.steps.find((s) => s.id === stepId)
-        const s1 = steps.find((s) => s.id === stepId)
-        dlog.info('other', 'step toggled by user', {
-          ref: j.ref,
-          stepKey: s1 ? stepKey(s1) : stepId,
-          pickedUp: s1?.pickedUp,
-          done: s1?.done,
-          wasDone: s0?.done
-        })
-        const nextStatus = allDone ? 'complete' : 'active'
-        if (nextStatus !== j.status) {
-          dlog.info('other', 'job status change', { ref: j.ref, id: short(j.missionId), from: j.status, to: nextStatus, reason: 'step toggle' })
-        }
-        return { ...j, steps, status: allDone ? 'complete' : 'active' }
       })
-    })
-    get().persist()
+      get().persist()
+    }
   }
-}))
+})

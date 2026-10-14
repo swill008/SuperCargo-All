@@ -18,7 +18,6 @@ import type {
   CommodityRoster,
   GridFacesRoster,
   SessionScan,
-  ScannedContract,
   DisplayInfo,
   OcrEngineInfo,
   OcrResult,
@@ -33,6 +32,7 @@ import type {
 } from '@shared/types'
 import type { OtherJobsDoc } from '@other/otherJob'
 import type { OtherLogEvent, OtherScanResult } from '@other/otherEvents'
+import type { OtherAction } from '@other/otherActions'
 
 type Unsubscribe = () => void
 
@@ -75,16 +75,6 @@ const api = {
   loadOtherJobs: (): Promise<OtherJobsDoc> => ipcRenderer.invoke(IPC.otherJobsLoad),
   saveOtherJobs: (doc: OtherJobsDoc): Promise<boolean> =>
     ipcRenderer.invoke(IPC.otherJobsSave, doc),
-  scanOtherJobs: (
-    logPath: string
-  ): Promise<
-    | {
-        contracts: ScannedContract[]
-        ended: ContractEndedEvent[]
-        objectivesByMission?: Record<string, ObjectiveEvent[]>
-      }
-    | ScannedContract[]
-  > => ipcRenderer.invoke(IPC.otherJobsScan, logPath),
 
   getUexShips: (): Promise<ShipRoster | null> => ipcRenderer.invoke(IPC.uexGetShips),
   getUexLocations: (): Promise<LocationRoster | null> => ipcRenderer.invoke(IPC.uexGetLocations),
@@ -166,13 +156,12 @@ const api = {
     on(IPC.evtWatcherStatus, cb),
   onContractAccepted: (cb: (e: ContractAcceptedEvent) => void): Unsubscribe =>
     on(IPC.evtContractAccepted, cb),
-  onOtherAccepted: (cb: (e: ContractAcceptedEvent) => void): Unsubscribe =>
-    on(IPC.evtOtherAccepted, cb),
-  onOtherSessionDrop: (cb: () => void): Unsubscribe =>
-    on(IPC.evtOtherSessionDrop, cb),
   onOtherJobsChanged: (cb: (p: { rev?: number; sender?: number }) => void): Unsubscribe =>
     on(IPC.evtOtherJobsChanged, cb),
   onOtherLogEvent: (cb: (e: OtherLogEvent) => void): Unsubscribe => on(IPC.evtOtherLogEvent, cb),
+  /** overlay: ask the main window to apply a job action (rule 8) */
+  otherAction: (a: OtherAction): void => ipcRenderer.send(IPC.otherAction, a),
+  onOtherAction: (cb: (a: OtherAction) => void): Unsubscribe => on(IPC.evtOtherAction, cb),
   scanOtherEvents: (since?: string): Promise<OtherScanResult> => ipcRenderer.invoke(IPC.otherJobsScanEvents, since),
   onObjective: (cb: (e: ObjectiveEvent) => void): Unsubscribe => on(IPC.evtObjective, cb),
   onContractEnded: (cb: (e: ContractEndedEvent) => void): Unsubscribe =>

@@ -5,10 +5,12 @@ import PageHeader, { PAGE_PADDING } from '@renderer/components/PageHeader'
 import { Btn } from '@renderer/components/ui'
 import Typeahead from '@renderer/components/Typeahead'
 import { useStore } from '@renderer/state/store'
+import { otherSetting } from '@other/workMode'
 import { useOtherJobs } from '../state/otherJobs'
 import { type OtherJob, type OtherStep } from '@other/otherJob'
-import { listOpenStops, distanceFromStart, formatMapDistance, stepActivePlace, stepActionLabel, formatPlaceWithBodySystem } from '@other/otherNext'
+import { listOpenStops, stepDistanceFromStart, formatMapDistance, stepActionLabel, formatPlaceWithBodySystem } from '@other/otherNext'
 import { mergeLocations } from '../state/otherPlaces'
+import { otherView, withoutWithdrawn, JobTags } from './JobsPartsStyles'
 
 interface OpenStop { job: OtherJob; step: OtherStep }
 
@@ -32,21 +34,40 @@ export default function NextPage(): React.ReactElement {
   const locations = useMemo(() => mergeLocations(haulLocs), [haulLocs])
   const names = useMemo(() => locations.map((l) => l.name).filter(Boolean), [locations])
 
+  const settings = useStore((s) => s.settings)
+  const markerDistance = otherSetting(settings, 'otherMarkerDistance')
+  const view = otherView(settings)
+  // withdrawn steps are never next; 'grey' lists them dimmed under their group when showing all
+  const liveJobs = useMemo(() => jobs.map(withoutWithdrawn), [jobs])
   const open = useMemo(
-    () => listOpenStops(jobs, startLocation, locations, { showAll, hideCompleted, listOrder, jobOrder }),
-    [jobs, startLocation, locations, showAll, hideCompleted, listOrder, jobOrder]
+    () => listOpenStops(liveJobs, startLocation, locations, { showAll, hideCompleted, listOrder, jobOrder, markerDistance }),
+    [liveJobs, startLocation, locations, showAll, hideCompleted, listOrder, jobOrder, markerDistance]
   )
 
   const groups = useMemo(() => {
+    const keyOf = (row: OpenStop): string =>
+      groupBy === 'job' ? `${row.job.ref} ${row.job.title}` : row.step.location.trim() || 'Unspecified location'
     const map = new Map<string, OpenStop[]>()
     for (const row of open) {
-      const key = groupBy === 'job' ? `${row.job.ref} ${row.job.title}` : row.step.location.trim() || 'Unspecified location'
+      const key = keyOf(row)
       const list = map.get(key) ?? []
       list.push(row)
       map.set(key, list)
     }
-    return [...map.entries()]
-  }, [open, groupBy])
+    const greyed = new Map<string, OpenStop[]>()
+    if (showAll && view.withdrawn === 'grey') {
+      for (const job of jobs) {
+        if (job.status !== 'active') continue
+        for (const step of job.steps) {
+          if (!step.withdrawn) continue
+          const key = keyOf({ job, step })
+          if (!map.has(key)) continue
+          greyed.set(key, [...(greyed.get(key) ?? []), { job, step }])
+        }
+      }
+    }
+    return [...map.entries()].map(([k, rows]) => [k, rows, greyed.get(k) ?? []] as const)
+  }, [open, groupBy, jobs, showAll, view.withdrawn])
 
   const nearest = open[0]
   const activeCount = jobs.filter((j) => j.status === 'active').length
@@ -112,7 +133,7 @@ export default function NextPage(): React.ReactElement {
         )}
       </div>
       {groups.length === 0 && <div style={{ fontFamily: F.body, fontSize: 14, color: C.dim }}>No open stops. Add a job on the Jobs tab.</div>}
-      {groups.map(([heading, rows], gi) => (
+      {groups.map(([heading, rows, withdrawn], gi) => (
         <div
           key={heading}
           draggable={listOrder === 'manual' && groupBy === 'job'}
@@ -160,6 +181,7 @@ export default function NextPage(): React.ReactElement {
             <div style={{ fontFamily: F.display, fontSize: 16, color: rows.some((r) => r.step.locationSnapped) ? C.acc : C.text, flex: 1 }}>
               {groupBy === 'job' ? heading : formatPlaceWithBodySystem(heading, locations)}
             </div>
+            {groupBy === 'job' && rows[0] ? <JobTags rep={rows[0].job.rep} sharedBy={rows[0].job.sharedBy} view={view} /> : null}
             {listOrder === 'manual' && groupBy === 'job' && rows[0] ? (
               <span style={{ display: 'flex', gap: 4, flex: 'none' }}>
                 <Btn onClick={() => moveJob(rows[0].job.id, -1)} style={{
@@ -190,13 +212,23 @@ export default function NextPage(): React.ReactElement {
                 ) : null}
                 <div style={{ fontFamily: F.mono, fontSize: 12, color: C.dim, marginTop: 2 }}>
                   {job.ref}
-                  {startLocation.trim() ? ` \u00b7 ${formatMapDistance(distanceFromStart(startLocation, stepActivePlace(step), locations))}` : ''}
+                  {startLocation.trim() ? ` \u00b7 ${formatMapDistance(stepDistanceFromStart(startLocation, step, locations, markerDistance))}` : ''}
+                  {groupBy === 'location' ? <span style={{ marginLeft: 8 }}><JobTags rep={job.rep} sharedBy={job.sharedBy} view={view} /></span> : null}
                 </div>
               </div>
               <Btn onClick={() => toggleStep(job.id, step.id)} style={{
                 border: 0, background: C.acc, color: '#111',
                 fontFamily: F.display, fontSize: 11, fontWeight: 700, letterSpacing: '0.12em', padding: '8px 14px', cursor: 'pointer'
               }}>{stepActionLabel(step)}</Btn>
+            </div>
+          ))}
+          {withdrawn.map(({ job, step }) => (
+            <div key={step.id} style={{ display: 'grid', gridTemplateColumns: '1fr auto', gap: 12, alignItems: 'center', padding: '6px 0 2px 32px', opacity: 0.5 }}>
+              <div>
+                <div style={{ fontFamily: F.body, fontSize: 14, color: C.dim, textDecoration: 'line-through' }}>{step.label}</div>
+                <div style={{ fontFamily: F.mono, fontSize: 12, color: C.dim, marginTop: 2 }}>{job.ref}</div>
+              </div>
+              <span style={{ fontFamily: F.display, fontSize: 11, letterSpacing: '0.12em', color: C.ghost }}>WITHDRAWN</span>
             </div>
           ))}
         </div>

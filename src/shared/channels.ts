@@ -16,7 +16,6 @@ export const IPC = {
   // fork: Other-mode checklist (not the haul manifest)
   otherJobsLoad: 'otherJobs:load',
   otherJobsSave: 'otherJobs:save',
-  otherJobsScan: 'otherJobs:scan',
   otherPlacesGet: 'otherPlaces:get',
   otherOcrShotSave: 'otherOcrShot:save',
   otherOcrShotGet: 'otherOcrShot:get',
@@ -65,10 +64,10 @@ export const IPC = {
 
   evtWatcherStatus: 'evt:watcher:status',
   evtContractAccepted: 'evt:contract:accepted',
-  evtOtherAccepted: 'evt:other:accepted',
-  evtOtherSessionDrop: 'evt:other:sessionDrop',
   evtOtherJobsChanged: 'evt:other:jobsChanged',
   evtOtherLogEvent: 'evt:other:logEvent', // main -> main window only, one OtherLogEvent
+  otherAction: 'otherJobs:action', // overlay -> main (send), one OtherAction
+  evtOtherAction: 'evt:other:action', // main -> main window only, relayed OtherAction
   otherJobsScanEvents: 'otherJobs:scanEvents',
   evtObjective: 'evt:objective',
   evtContractEnded: 'evt:contract:ended',

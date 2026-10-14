@@ -33,3 +33,6 @@ scripts/train/auto/runs/
 .scunpacked-cache/
 
 *~lock~
+
+# cleaned real-log fixtures for the replay test (no player names or ids)
+!test/replay/fixtures/*.log

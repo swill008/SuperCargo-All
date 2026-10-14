@@ -1,80 +1,154 @@
-/** Other session scan. Haul scanSessionLog stays in src/main/scanLog.ts. */
-import * as fs from 'node:fs'
-import { parseLine, type MarkerEntry } from '../../main/logParser'
-import type { ScannedContract, ContractEndedEvent } from '@shared/types'
+/** Other start-up scan (rule 7). Haul scanSessionLog stays in src/main/scanLog.ts. */
+import { promises as fsp } from 'node:fs'
+import * as path from 'node:path'
+import type { OtherLogEvent, OtherScanResult } from '@other/otherEvents'
+import { createOtherLineParser } from '@other/otherLogParse'
 import { logger } from '../../main/logger'
 
-export type OtherSessionScan = {
-  contracts: ScannedContract[]
-  ended: ContractEndedEvent[]
-  objectivesByMission: Record<string, ScannedContract['objectives']>
+type Parser = ReturnType<typeof createOtherLineParser>
+
+function ms(at: string): number {
+  const t = Date.parse(at)
+  return Number.isNaN(t) ? 0 : t
 }
 
-export function scanOtherSessionLog(logPath: string): OtherSessionScan {
-  const t0 = Date.now()
-  let content: string
+/** >= : several log lines share one ms, so the watermark's own ms is replayed (the reducer skips repeats). */
+function newer(at: string, since?: string): boolean {
+  return !since || ms(at) >= ms(since)
+}
+
+/** strictly after the watermark: used for crash judgement so a replayed last line isn't "new activity" */
+function after(at: string, since?: string): boolean {
+  return !since || ms(at) > ms(since)
+}
+
+/** Game.log untouched this long at scan time = the game isn't running. */
+const STALE_MS = 60_000
+
+async function newestBackup(logPath: string): Promise<string | null> {
+  const d = path.join(path.dirname(logPath), 'logbackups')
+  let names: string[]
   try {
-    content = fs.readFileSync(logPath, 'utf8')
+    names = await fsp.readdir(d)
+  } catch {
+    logger.debug('other', 'scan: no logbackups folder', { dir: d })
+    return null
+  }
+  let best: { file: string; mtime: number } | null = null
+  for (const n of names) {
+    if (!n.toLowerCase().endsWith('.log')) continue
+    const f = path.join(d, n)
+    try {
+      const st = await fsp.stat(f)
+      if (st.isFile() && (!best || st.mtimeMs > best.mtime)) best = { file: f, mtime: st.mtimeMs }
+    } catch {
+      /* vanished */
+    }
+  }
+  return best?.file ?? null
+}
+
+async function feedFile(file: string, parser: Parser): Promise<{ events: OtherLogEvent[]; bytes: number } | null> {
+  let text: string
+  try {
+    text = await fsp.readFile(file, 'utf8')
   } catch (e) {
-    logger.warn('other', 'session scan read failed', { path: logPath, error: (e as Error).message })
-    return { contracts: [], ended: [], objectivesByMission: {} }
+    logger.warn('other', 'scan: read failed', { file, error: (e as Error).message })
+    return null
   }
-
-  const markers = new Map<string, MarkerEntry>()
-  const active = new Map<string, ScannedContract>()
-  const ended: ContractEndedEvent[] = []
-  const objsByContract = new Map<string, ScannedContract['objectives']>()
-  const objectivesByMission = new Map<string, ScannedContract['objectives']>()
-
-  for (const line of content.split(/\r?\n/)) {
+  const events: OtherLogEvent[] = []
+  for (const line of text.split(/\r?\n/)) {
     if (!line) continue
-    const parsed = parseLine(line, markers)
-    if (!parsed) continue
-    switch (parsed.kind) {
-      case 'accepted':
-        active.set(parsed.event.missionId, { accepted: parsed.event, objectives: [] })
-        break
-      case 'objective': {
-        const list = objectivesByMission.get(parsed.event.missionId) ?? []
-        list.push(parsed.event)
-        objectivesByMission.set(parsed.event.missionId, list)
-        const contract = active.get(parsed.event.missionId)
-        if (contract) {
-          contract.objectives.push(parsed.event)
-          const key = contract.accepted.contractName || contract.accepted.title
-          if (key) objsByContract.set(key, [...contract.objectives])
-        }
-        break
-      }
-      case 'ended':
-        ended.push(parsed.event)
-        active.delete(parsed.event.missionId)
-        break
-      case 'sessionDrop':
-        logger.info('other', 'session scan: sessionDrop clears active', { cleared: active.size })
-        active.clear()
-        break
+    const ev = parser.feed(line)
+    if (ev) events.push(ev)
+  }
+  return { events, bytes: text.length }
+}
+
+const isActivity = (e: OtherLogEvent): boolean =>
+  e.kind === 'accepted' || e.kind === 'objective' || e.kind === 'objectiveComplete' || e.kind === 'objectiveWithdrawn'
+
+/**
+ * quit = SystemQuit or "Player requested disconnect" after the last contract activity (rule 5);
+ * crash = activity after since with no quit/disconnect after it (rule 6).
+ */
+function judgeEnd(events: OtherLogEvent[], since?: string): OtherScanResult['previousEnd'] {
+  let lastAct = -1
+  let lastEnd = -1
+  events.forEach((e, i) => {
+    if (isActivity(e)) lastAct = i
+    else if (e.kind === 'quit' || e.kind === 'disconnect') lastEnd = i
+  })
+  if (lastEnd > lastAct) return 'quit'
+  if (lastAct >= 0 && events.some((e) => isActivity(e) && after(e.at, since))) return 'crash'
+  return 'none'
+}
+
+async function mtimeMs(file: string): Promise<number | null> {
+  try {
+    return (await fsp.stat(file)).mtimeMs
+  } catch {
+    return null
+  }
+}
+
+export async function scanOtherEvents(logPath: string | undefined, since?: string): Promise<OtherScanResult> {
+  const t0 = Date.now()
+  const out: OtherScanResult = { events: [], files: [], previousEnd: 'none' }
+  if (!logPath) {
+    logger.warn('other', 'scan skipped: no Game.log path')
+    return out
+  }
+  const parser = createOtherLineParser() // one parser across both files, in log order
+  const all: OtherLogEvent[] = []
+
+  const backup = await newestBackup(logPath)
+  if (backup) {
+    const r = await feedFile(backup, parser)
+    const last = r?.events[r.events.length - 1]
+    if (r && last && newer(last.at, since)) {
+      out.files.push(backup)
+      all.push(...r.events)
+      out.previousEnd = judgeEnd(r.events, since)
+      logger.info('other', 'scan: backup log read', { file: backup, bytes: r.bytes, events: r.events.length, last: last.at, previousEnd: out.previousEnd })
+    } else {
+      logger.info('other', 'scan: backup log not newer than watermark, skipped', { file: backup, last: last?.at, since })
     }
   }
 
-  const contracts = [...active.values()].map((c) => {
-    if (c.objectives.length > 0) return c
-    const key = c.accepted.contractName || c.accepted.title
-    const inherited = key ? objsByContract.get(key) : undefined
-    if (!inherited?.length) return c
-    return {
-      ...c,
-      objectives: inherited.map((o) => ({ ...o, missionId: c.accepted.missionId }))
+  const cur = await feedFile(logPath, parser)
+  if (cur) {
+    out.files.push(logPath)
+    all.push(...cur.events)
+    // the session line is at the top of the log, usually before the watermark: always report it
+    const sess = cur.events.find((e) => e.kind === 'session')
+    if (sess?.kind === 'session') out.currentSession = { at: sess.at, build: sess.build }
+    // app opened after a crash, before the game: the current Game.log is the previous session
+    const mt = await mtimeMs(logPath)
+    const age = mt === null ? null : Date.now() - mt
+    let curEnd: OtherScanResult['previousEnd'] | 'running' = 'running'
+    if (age !== null && age > STALE_MS) {
+      curEnd = judgeEnd(cur.events, since)
+      if (curEnd !== 'none') out.previousEnd = curEnd // newer than the backup, so it wins
     }
-  })
+    logger.info('other', 'scan: Game.log read', {
+      file: logPath,
+      bytes: cur.bytes,
+      events: cur.events.length,
+      ageS: age === null ? null : Math.round(age / 1000),
+      end: curEnd,
+      previousEnd: out.previousEnd
+    })
+  }
 
-  const byMission: Record<string, ScannedContract['objectives']> = {}
-  for (const [id, objs] of objectivesByMission) byMission[id] = objs
-  logger.info('other', 'session scan done', {
-    active: contracts.length,
-    ids: contracts.map((c) => c.accepted.missionId.slice(0, 8)),
-    ended: ended.length,
+  out.events = all.filter((e) => newer(e.at, since))
+  logger.info('other', 'scan done', {
+    since: since || null,
+    files: out.files.length,
+    parsed: all.length,
+    returned: out.events.length,
+    previousEnd: out.previousEnd,
     ms: Date.now() - t0
   })
-  return { contracts, ended, objectivesByMission: byMission }
+  return out
 }

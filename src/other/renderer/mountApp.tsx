@@ -1,6 +1,7 @@
 /**
  * StandAlone Other — renderer adapter.
- * Re-tie after an upstream pull: render <OtherMount view={view} /> and call bootOther().
+ * Re-tie after an upstream pull: call bootOther() and useOtherEscape(), render
+ * <OtherPages view={view} />, <OtherModals /> and <OtherWorkModeBlock />.
  */
 import React, { useEffect } from 'react'
 import { useStore } from '../../renderer/src/state/store'
@@ -18,11 +19,12 @@ import WorkModeSection from './components/WorkModeSection'
 import OtherCaptureModal from './components/OtherCaptureModal'
 import OtherAutoOcrVeil from './components/OtherAutoOcrVeil'
 import HaulModeSwitchModal from './components/HaulModeSwitchModal'
+import CrashNotice from './components/CrashNotice'
 
 export function bootOther(): void {
-  void useOtherJobs.getState().init()
+  // haul-switch binds after init so jobs already on disk never prompt
+  void useOtherJobs.getState().init().finally(bindHaulModeSwitch)
   bindOtherAutoOcr()
-  bindHaulModeSwitch()
   void loadOtherPlacesFromMain()
 }
 
@@ -41,8 +43,10 @@ export function OtherPages({ view }: { view: string }): React.ReactElement | nul
 }
 
 export function OtherModals(): React.ReactElement {
+  const other = resolveWorkMode(useStore((s) => s.settings.workMode)) === 'other'
   return (
     <>
+      {other && <CrashNotice />}
       <OtherCaptureModal />
       <OtherAutoOcrVeil />
       <HaulModeSwitchModal />
@@ -74,14 +78,4 @@ export function useOtherEscape(): void {
     window.addEventListener('keydown', onEsc)
     return () => window.removeEventListener('keydown', onEsc)
   }, [])
-}
-
-export function OtherMount({ view }: { view: string }): React.ReactElement {
-  useOtherEscape()
-  return (
-    <>
-      <OtherPages view={view} />
-      <OtherModals />
-    </>
-  )
 }

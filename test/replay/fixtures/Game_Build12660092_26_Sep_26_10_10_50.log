@@ -1,0 +1,4 @@
+<2026-09-26T15:10:55.201Z> Log started on Sat Sep 26 15:10:55 2026
+<2026-09-26T15:16:27.727Z> [Notice] <Channel Disconnected> cause=30016 reason="Remote Disconnect - Player requested disconnect" frame=25773 isRemote=1 viewState=eCVS_InGame map="megamap" gamerules="SC_Default" hostType="Replicant" connection={3, 0} uptime_secs=303.539703 [Team_Network][Network][Gateway][Disconnection]
+<2026-09-26T15:16:27.728Z> [Notice] <Channel Process Disconnection> cause=30016 reason="Remote Disconnect - Player requested disconnect" frame=25773 isRemote=1 map="megamap" gamerules="SC_Default" hostType="Replicant" connection={3, 0} uptime_secs=303.541168 [Team_Network][Network][Gateway][Disconnection]
+<2026-09-26T15:16:27.734Z> [Notice] <SystemQuit> CSystem::Quit invoked with - cause=30016, reason=Quit via console command, exitCode=0, thread id=8648, main thread id=8648 [Team_Unknown][System]

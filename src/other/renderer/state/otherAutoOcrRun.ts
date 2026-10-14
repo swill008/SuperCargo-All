@@ -9,9 +9,14 @@ import { useStore } from '@renderer/state/store'
 import { dlog } from '@renderer/state/log'
 import { applyOcrRows, applyOcrRewardOnly } from './otherOcr'
 import { saveSessionOcrShot } from './otherOcrShot'
+import { resolveWorkMode } from '@other/workMode'
 
 export async function runSilentAutoOcr(jobId: string, stillLive?: () => boolean): Promise<void> {
-  const live = (): boolean => !stillLive || stillLive()
+  // Other mode is re-checked at every step: a switch to Haul stops the shot
+  const live = (): boolean =>
+    resolveWorkMode(useStore.getState().settings.workMode) === 'other' && (!stillLive || stillLive())
+  if (!live()) dlog.info('other', 'auto-ocr skip', { jobId, reason: 'not live (mode or cancelled)' })
+  if (!live()) return
   const job = useOtherJobs.getState().jobs.find((j) => j.id === jobId)
   if (!job || job.objectivesLocked) dlog.info('other', 'auto-ocr skip', { jobId, reason: !job ? 'job not found' : 'job locked' })
   if (!job || job.objectivesLocked) return

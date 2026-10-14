@@ -8,10 +8,6 @@ export function setOtherPlaces(list: Location[]): void {
   extra = Array.isArray(list) ? list : []
 }
 
-export function getOtherPlacesCached(): Location[] {
-  return extra
-}
-
 export function mergeLocations(haul: Location[] | undefined): Location[] {
   const by = new Map<string, Location>()
   for (const l of haul ?? []) by.set(l.name.toLowerCase(), l)

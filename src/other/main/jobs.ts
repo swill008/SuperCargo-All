@@ -3,116 +3,171 @@
  * Separate file on purpose: Haul mode never reads or writes this, and
  * flipping Work mode must not wipe the haul manifest.
  */
-import * as fs from 'node:fs'
+import { promises as fsp } from 'node:fs'
 import * as path from 'node:path'
 import { app, ipcMain } from 'electron'
 import { IPC } from '@shared/channels'
-import { EMPTY_OTHER_JOBS, type OtherJobsDoc } from '@other/otherJob'
-import { scanOtherSessionLog } from './scanLog'
-import { loadCachedLocations } from '../../main/uex'
-import { loadOtherPlaces, refreshOtherPlaces } from './uex'
-import { wipeOtherOcrSession, saveOtherOcrShot, loadOtherOcrShot, hookOtherOcrSessionQuit } from './ocrSession'
+import type { AppSettings } from '@shared/types'
+import type { OtherJobsDoc } from '@other/otherJob'
+import { scanOtherEvents } from './scanLog'
+import { loadOtherPlaces } from './uex'
+import { saveOtherOcrShot, loadOtherOcrShot } from './ocrSession'
 import { sendOtherJobsChanged } from './ipc'
 import { logger } from '../../main/logger'
 
 const FILE = 'other-jobs.json'
 
+function dir(): string {
+  return app.getPath('userData')
+}
 function filePath(): string {
-  return path.join(app.getPath('userData'), FILE)
+  return path.join(dir(), FILE)
 }
 
-export function loadOtherJobs(): OtherJobsDoc {
+type Parsed = { ok: true; doc: OtherJobsDoc } | { ok: false; error: string }
+
+/** Validate known fields' types; unknown fields pass through untouched. */
+function parseDoc(raw: string): Parsed {
+  let j: unknown
   try {
-    const raw = fs.readFileSync(filePath(), 'utf8')
-    const parsed = JSON.parse(raw) as Partial<OtherJobsDoc>
-    logger.info('other', 'jobs file loaded', {
-      file: filePath(),
-      jobs: Array.isArray(parsed.jobs) ? parsed.jobs.length : 'invalid',
-      history: Array.isArray(parsed.history) ? parsed.history.length : 'invalid',
-      active: Array.isArray(parsed.jobs) ? parsed.jobs.filter((j) => j.status === 'active').length : 0
-    })
-    return {
-      jobs: Array.isArray(parsed.jobs) ? parsed.jobs : [],
-      history: Array.isArray(parsed.history) ? parsed.history : [],
-      startLocation: typeof parsed.startLocation === 'string' ? parsed.startLocation : ''
+    j = JSON.parse(raw)
+  } catch (e) {
+    return { ok: false, error: (e as Error).message }
+  }
+  if (!j || typeof j !== 'object' || Array.isArray(j)) return { ok: false, error: 'not an object' }
+  const o = j as Record<string, unknown>
+  const dropped: string[] = []
+  const out: Record<string, unknown> = { ...o }
+  const check = (key: string, valid: (v: unknown) => boolean, fallback?: unknown): void => {
+    if (!(key in o)) {
+      if (fallback !== undefined) out[key] = fallback
+      return
     }
+    if (valid(o[key])) return
+    dropped.push(key)
+    if (fallback !== undefined) out[key] = fallback
+    else delete out[key]
+  }
+  const isStr = (v: unknown): boolean => typeof v === 'string'
+  check('jobs', Array.isArray, [])
+  check('history', Array.isArray, [])
+  check('startLocation', isStr)
+  check('listOrder', (v) => v === 'distance' || v === 'manual')
+  check('jobOrder', (v) => Array.isArray(v) && v.every(isStr))
+  check('lastLogEventAt', isStr)
+  check('rev', (v) => typeof v === 'number' && Number.isFinite(v))
+  if (dropped.length) logger.warn('other', 'jobs file: bad field types reset', { fields: dropped })
+  return { ok: true, doc: out as unknown as OtherJobsDoc }
+}
+
+async function readIfExists(file: string): Promise<string | null> {
+  try {
+    return await fsp.readFile(file, 'utf8')
   } catch (e) {
-    const err = e as NodeJS.ErrnoException
-    if (err?.code === 'ENOENT') logger.info('other', 'jobs file missing, starting empty', { file: filePath() })
-    else logger.warn('other', 'jobs file unreadable, starting empty', { file: filePath(), error: err?.message ?? String(e) })
-    return { jobs: [], history: [] }
+    if ((e as NodeJS.ErrnoException)?.code === 'ENOENT') return null
+    throw e
   }
 }
 
-export function saveOtherJobs(doc: OtherJobsDoc): void {
+/** Keep the bad file before anything can replace it. */
+async function quarantine(raw: string, error: string): Promise<void> {
+  const stamp = new Date().toISOString().replace(/[:.]/g, '-')
+  const dest = path.join(dir(), `other-jobs.corrupt-${stamp}.json`)
+  await fsp.writeFile(dest, raw, 'utf8')
+  logger.warn('other', 'jobs file corrupt, copied aside, starting empty', { file: filePath(), copy: dest, error })
+}
+
+export async function loadOtherJobs(): Promise<OtherJobsDoc> {
+  const empty: OtherJobsDoc = { jobs: [], history: [] }
+  let raw: string | null
   try {
-    fs.mkdirSync(app.getPath('userData'), { recursive: true })
-    fs.writeFileSync(filePath(), JSON.stringify(doc, null, 2), 'utf8')
-    logger.info('other', 'jobs file saved', {
-      jobs: doc.jobs.length,
-      active: doc.jobs.filter((j) => j.status === 'active').length,
-      history: doc.history?.length ?? 0,
-      startLocation: doc.startLocation !== undefined
-    })
+    raw = await readIfExists(filePath())
   } catch (e) {
-    console.error('[other-jobs] failed to write:', e)
-    logger.error('other', 'jobs file write failed', { file: filePath(), error: (e as Error)?.message ?? String(e) })
+    logger.warn('other', 'jobs file unreadable, starting empty', { file: filePath(), error: (e as Error)?.message ?? String(e) })
+    return empty
   }
+  if (raw === null) {
+    logger.info('other', 'jobs file missing, starting empty', { file: filePath() })
+    return empty
+  }
+  const p = parseDoc(raw)
+  if (!p.ok) {
+    try {
+      await quarantine(raw, p.error)
+    } catch (e) {
+      logger.error('other', 'jobs corrupt copy failed', { error: (e as Error)?.message ?? String(e) })
+    }
+    return empty
+  }
+  const d = p.doc
+  logger.info('other', 'jobs file loaded', {
+    file: filePath(),
+    jobs: d.jobs.length,
+    active: d.jobs.filter((j) => j?.status === 'active').length,
+    history: d.history.length,
+    rev: d.rev,
+    lastLogEventAt: d.lastLogEventAt
+  })
+  return d
+}
+
+let chain: Promise<unknown> = Promise.resolve()
+
+/** Atomic: tmp then rename; previous good file kept as .bak; a corrupt file is copied aside first. */
+async function writeDoc(doc: OtherJobsDoc): Promise<void> {
+  const file = filePath()
+  const tmp = `${file}.tmp`
+  await fsp.mkdir(dir(), { recursive: true })
+  const prev = await readIfExists(file)
+  if (prev !== null) {
+    const p = parseDoc(prev)
+    if (p.ok) await fsp.copyFile(file, path.join(dir(), 'other-jobs.json.bak'))
+    else await quarantine(prev, p.error)
+  }
+  await fsp.writeFile(tmp, JSON.stringify(doc, null, 2), 'utf8')
+  await fsp.rename(tmp, file)
+}
+
+export function saveOtherJobs(doc: OtherJobsDoc): Promise<boolean> {
+  const run = chain.then(async () => {
+    try {
+      await writeDoc(doc)
+      logger.info('other', 'jobs file saved', {
+        jobs: doc.jobs.length,
+        active: doc.jobs.filter((j) => j.status === 'active').length,
+        history: doc.history?.length ?? 0,
+        rev: doc.rev,
+        lastLogEventAt: doc.lastLogEventAt
+      })
+      return true
+    } catch (e) {
+      logger.error('other', 'jobs file write failed', { file: filePath(), error: (e as Error)?.message ?? String(e) })
+      return false
+    }
+  })
+  chain = run
+  return run
 }
 
 let registered = false
 
-export function ensureOtherJobsIpc(): void {
+export function registerOtherJobsIpc(getSettings: () => AppSettings): void {
   if (registered) return
   registered = true
   ipcMain.handle(IPC.otherJobsLoad, () => loadOtherJobs())
-  ipcMain.handle(IPC.otherJobsSave, (e, doc: OtherJobsDoc) => {
-    logger.debug('other', 'save requested by window', { senderId: e.sender.id, jobs: doc?.jobs?.length })
-    saveOtherJobs(doc)
-    sendOtherJobsChanged()
-    return true
-  })
-  ipcMain.handle(IPC.otherJobsScan, (_e, logPath: string) => {
-    if (!logPath) logger.warn('other', 'startup scan skipped: no log path')
-    if (!logPath) return []
-    const { contracts, ended, objectivesByMission } = scanOtherSessionLog(logPath)
-    const still = new Set(contracts.map((c) => c.accepted.missionId))
-    const doc = loadOtherJobs()
-    let changed = false
-    const jobs = doc.jobs.map((j) => {
-      if (!j.missionId || j.status !== 'active' || still.has(j.missionId)) return j
-      if (j.source === 'manual') return j
-      const ev = ended.find((e) => e.missionId === j.missionId)
-      changed = true
-      const abandoned = !ev || ev.completion === 'Abandon' || ev.completion === 'Fail'
-      logger.info('other', 'job status change (reason: startup scan)', {
-        ref: j.id,
-        id: j.missionId.slice(0, 8),
-        to: abandoned ? 'abandoned' : 'complete',
-        why: ev ? `ended ${ev.completion}` : 'not active in Game.log and no end seen'
-      })
-      return {
-        ...j,
-        status: abandoned ? 'abandoned' : 'complete',
-        steps: abandoned ? j.steps : j.steps.map((s) => ({ ...s, done: true, have: s.need }))
-      }
-    })
-    logger.info('other', 'startup scan (main) result', {
-      active: contracts.length,
-      ended: ended.length,
-      jobs: doc.jobs.length,
-      changed
-    })
-    if (changed) {
-      saveOtherJobs({ jobs, history: doc.history ?? [], startLocation: doc.startLocation ?? '' })
-      sendOtherJobsChanged()
+  ipcMain.handle(IPC.otherJobsSave, async (e, doc: OtherJobsDoc) => {
+    if (!doc || !Array.isArray(doc.jobs)) {
+      logger.warn('other', 'save rejected: bad doc', { sender: e.sender.id })
+      return false
     }
-    return { contracts, ended, objectivesByMission }
+    logger.debug('other', 'save requested by window', { sender: e.sender.id, jobs: doc.jobs.length, rev: doc.rev })
+    const ok = await saveOtherJobs(doc)
+    if (ok) sendOtherJobsChanged({ rev: doc.rev, sender: e.sender.id })
+    return ok
   })
+  ipcMain.handle(IPC.otherJobsScanEvents, (_e, since?: string) => scanOtherEvents(getSettings().gameLogPath, since))
   ipcMain.handle(IPC.otherPlacesGet, () => loadOtherPlaces())
   ipcMain.handle(IPC.otherOcrShotSave, (_e, jobId: string, dataUrl: string) => saveOtherOcrShot(jobId, dataUrl))
   ipcMain.handle(IPC.otherOcrShotGet, (_e, jobId: string) => loadOtherOcrShot(jobId))
-  wipeOtherOcrSession()
-  hookOtherOcrSessionQuit()
-  void refreshOtherPlaces(loadCachedLocations()?.locations ?? [])
+  logger.info('other', 'jobs ipc registered')
 }

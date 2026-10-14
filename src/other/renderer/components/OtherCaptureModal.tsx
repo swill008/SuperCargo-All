@@ -50,6 +50,19 @@ export default function OtherCaptureModal(): React.ReactElement | null {
   const [overwrite, setOverwrite] = useState(false)
   const [updateAuecOnly, setUpdateAuecOnly] = useState(false)
 
+  // fresh draft on every open / job change; also covers Esc close (store close only)
+  useEffect(() => {
+    setStatus('')
+    setRawText('')
+    setPreview(null)
+    setReward(0)
+    setRows([])
+    setBusy(false)
+    setCalibrating(false)
+    setOverwrite(false)
+    setUpdateAuecOnly(false)
+  }, [open, jobId])
+
   useEffect(() => {
     if (!open || !autoRun || !jobId) return
     const j = useOtherJobs.getState().jobs.find((x) => x.id === jobId)

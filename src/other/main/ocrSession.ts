@@ -1,6 +1,6 @@
 /**
  * Session-only Other OCR screenshots.
- * Folder is wiped on startup (ensureOtherJobsIpc) and on app quit.
+ * Folder is wiped on startup (registerOther) and on app quit.
  */
 import { app } from 'electron'
 import fs from 'node:fs'

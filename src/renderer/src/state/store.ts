@@ -53,7 +53,7 @@ import type { PackBox } from '@shared/packer'
 // fallback before first uex sync
 const ROSTER_SHIPS = withModules(SHIPS.filter((s) => isRosterShip(s.name)))
 
-export type ViewId = 'manifest' | 'contracts' | 'grid' | 'history' | 'settings'
+export type ViewId = 'manifest' | 'contracts' | 'grid' | 'history' | 'settings' | 'jobs' | 'next'
 
 export interface ManualObjectiveInput {
   commodity: string

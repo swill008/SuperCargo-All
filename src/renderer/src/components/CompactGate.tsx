@@ -2,14 +2,11 @@
 import React, { useEffect } from 'react'
 import { useStore } from '../state/store'
 import { useOtherJobs } from '@other/renderer/state/otherJobs'
-import { useOtherHistory } from '@other/renderer/state/otherHistory'
 import { resolveWorkMode } from '@other/workMode'
 import CompactWindowApp from './CompactWindowApp'
 import CrashGuard from './CrashGuard'
 import OtherOverlay from '@other/renderer/components/OtherOverlay'
 import { loadOtherPlacesFromMain } from '@other/renderer/state/otherPlaces'
-
-let jobsChangedBound = false
 
 export default function CompactGate(): React.ReactElement {
   const initOther = useOtherJobs((s) => s.init)
@@ -19,19 +16,9 @@ export default function CompactGate(): React.ReactElement {
 
   useEffect(() => {
     void initHaul()
-    void initOther()
+    // passive: no log events, no scan, no auto-OCR; reloads every doc field when the main window saves
+    void initOther({ passive: true })
     void loadOtherPlacesFromMain()
-    if (jobsChangedBound) return
-    jobsChangedBound = true
-    window.supercargo.onOtherJobsChanged?.(() => {
-      void window.supercargo.loadOtherJobs?.().then((doc) => {
-        useOtherJobs.setState({
-          jobs: doc.jobs ?? [],
-          startLocation: typeof doc.startLocation === 'string' ? doc.startLocation : useOtherJobs.getState().startLocation
-        })
-        useOtherHistory.getState().load(doc)
-      })
-    })
   }, [initOther, initHaul])
 
   return <CrashGuard compact>{workMode === 'other' ? <OtherOverlay /> : <CompactWindowApp />}</CrashGuard>

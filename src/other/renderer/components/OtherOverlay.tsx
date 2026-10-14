@@ -6,18 +6,20 @@
 import React, { useEffect, useMemo, useState } from 'react'
 import { C, F } from '@renderer/theme'
 import { useStore } from '@renderer/state/store'
+import { otherSetting } from '@other/workMode'
 import { useOtherJobs } from '../state/otherJobs'
 import { mergeLocations } from '../state/otherPlaces'
 import { listOpenStops, stepActivePlace, stepActionLabel, formatPlaceWithBodySystem, findNextTravelStop } from '@other/otherNext'
-import { miniBtn } from '../pages/JobsPartsStyles'
+import { miniBtn, otherView, withoutWithdrawn, JobTags } from '../pages/JobsPartsStyles'
 
 const WHITE = '#eaf1f7'
 
 export default function OtherOverlay(): React.ReactElement {
   const jobs = useOtherJobs((s) => s.jobs)
   const startLocation = useOtherJobs((s) => s.startLocation)
-  const toggleStep = useOtherJobs((s) => s.toggleStep)
-  const abandonJob = useOtherJobs((s) => s.abandonJob)
+  // rule 8: the overlay only sends actions; the main window applies and saves them
+  const toggleStep = (jobId: string, stepId: string): void => window.supercargo.otherAction({ type: 'toggleStep', jobId, stepId })
+  const abandonJob = (jobId: string): void => window.supercargo.otherAction({ type: 'abandon', jobId })
   const settings = useStore((s) => s.settings)
   const haulLocs = useStore((s) => s.locations) ?? []
   const locations = useMemo(() => mergeLocations(haulLocs), [haulLocs])
@@ -30,9 +32,13 @@ export default function OtherOverlay(): React.ReactElement {
   const hideCompleted = settings.overlayHideCompletedObjectives !== false
   const listOrder = useOtherJobs((s) => s.listOrder)
   const jobOrder = useOtherJobs((s) => s.jobOrder)
+  const view = otherView(settings)
+  const markerDistance = otherSetting(settings, 'otherMarkerDistance')
+  // withdrawn steps never become the current stop
+  const liveJobs = useMemo(() => jobs.map(withoutWithdrawn), [jobs])
   const open = useMemo(
-    () => listOpenStops(jobs, startLocation, locations, { showAll, hideCompleted, listOrder, jobOrder }),
-    [jobs, startLocation, locations, showAll, hideCompleted, listOrder, jobOrder]
+    () => listOpenStops(liveJobs, startLocation, locations, { showAll, hideCompleted, listOrder, jobOrder, markerDistance }),
+    [liveJobs, startLocation, locations, showAll, hideCompleted, listOrder, jobOrder, markerDistance]
   )
 
   useEffect(() => {
@@ -144,6 +150,9 @@ export default function OtherOverlay(): React.ReactElement {
         <div style={{ fontSize: 14, lineHeight: 1.45 }}>
           {current.job.reward > 0 ? `${current.job.reward.toLocaleString()} aUEC \u00b7 ` : ''}
           {current.step.label}
+          {(view.showRep && current.job.rep) || (view.sharedBadge && current.job.sharedBy) ? (
+            <span style={{ marginLeft: 8 }}><JobTags rep={current.job.rep} sharedBy={current.job.sharedBy} view={view} /></span>
+          ) : null}
         </div>
       ) : (
         <div style={{ fontSize: 13, color: C.dim }}>Add an Other-mode job in the main window.</div>

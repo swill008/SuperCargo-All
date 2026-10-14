@@ -39,6 +39,23 @@ export interface OtherStep {
   withdrawn?: boolean
   /** raw "New Objective" text from the log, matched against Objective Complete / Withdrawn */
   logText?: string
+  /** the game's ObjectiveId from "New Objective"; joins the step to its CreateMarker */
+  objectiveId?: string
+  /** system-frame meters from the objective's marker, set only when the place has no UEX coords */
+  position?: { x: number; y: number; z: number }
+}
+
+/** A marker zone's centre in the system frame, learned from markers at UEX places. */
+export interface OtherMarkerZone {
+  x: number
+  y: number
+  z: number
+  /** how many UEX matches agreed on this centre */
+  n: number
+  /** true = the zone is already the system frame (positions used as they are) */
+  root?: boolean
+  /** true = matches disagreed by over 1 km; never used */
+  bad?: boolean
 }
 
 export interface OtherJob {
@@ -92,6 +109,8 @@ export interface OtherHistoryEntry {
   sessionAt?: string
   acceptedAt?: string
   endedAt?: string
+  filledBy?: 'log' | 'ocr'
+  edited?: boolean
 }
 
 export interface OtherJobsDoc {
@@ -105,6 +124,12 @@ export interface OtherJobsDoc {
   jobOrder?: string[]
   /** timestamp of the newest Game.log event already applied; the start-up scan only applies newer ones */
   lastLogEventAt?: string
+  /** how many events with at === lastLogEventAt are applied; the scan skips that many at the watermark */
+  lastLogEventCount?: number
+  /** marker zone centres per game build, then per zoneHostId (zone ids change between builds) */
+  markerZones?: Record<string, Record<string, OtherMarkerZone>>
+  /** game build of the newest log session seen, so markers after a restart use the right zones */
+  markerBuild?: string
   /** bumped on every save so a window can tell its own save from the other window's */
   rev?: number
 }

@@ -3,7 +3,7 @@
 import * as fs from 'node:fs'
 import { parseLine, type MarkerEntry } from './logParser'
 import { logger } from './logger'
-import type { ScannedContract, ScanShare, SessionScan, ContractEndedEvent } from '@shared/types'
+import type { ScannedContract, ScanShare, SessionScan } from '@shared/types'
 
 export function scanSessionLog(logPath: string): SessionScan {
   const t0 = Date.now()

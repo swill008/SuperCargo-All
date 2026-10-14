@@ -2,7 +2,9 @@
 // stream, and one reducer in the renderer applies it, so both paths behave the same.
 
 export type OtherLogEvent =
-  | { kind: 'session'; at: string } // "Log started on": a new game launch, used as the session id
+  | { kind: 'session'; at: string; build?: string } // "Log started on": a new game launch, used as the session id; build from the log's first line
+  // CreateMarker with a position: where an objective's marker sits, in its zone's frame (zone ids hold for one game build)
+  | { kind: 'marker'; at: string; missionId: string; objectiveId: string; zoneHostId: string; x: number; y: number; z: number }
   | {
       kind: 'accepted'
       at: string // log timestamp, ISO
@@ -14,7 +16,7 @@ export type OtherLogEvent =
       isHauling: boolean
       sharedBy?: string // ownerId of the most recent MissionShared push for this mission
     }
-  | { kind: 'objective'; at: string; missionId: string; text: string } // raw "New Objective" text, no trailing colon
+  | { kind: 'objective'; at: string; missionId: string; text: string; objectiveId?: string } // raw "New Objective" text, no trailing colon
   | { kind: 'objectiveComplete'; at: string; missionId?: string; text: string } // "Objective Complete: …"
   | { kind: 'objectiveWithdrawn'; at: string; missionId?: string; text: string } // "Objective Withdrawn: …"
   | { kind: 'ended'; at: string; missionId: string; outcome: 'complete' | 'abandoned'; completionType: string; reason?: string }
@@ -31,6 +33,8 @@ export interface OtherScanResult {
   // how the previous game session ended, judged from the end of the newest logbackups file:
   // quit = it ends with SystemQuit; crash = it has contract activity but no SystemQuit; none = no previous log or nothing newer than the watermark
   previousEnd: 'quit' | 'crash' | 'none'
+  // the current Game.log's session line, even when it is older than the watermark
+  currentSession?: { at: string; build?: string }
 }
 
 // Stateful line parser (CreateMarker and MissionShared lines carry data for the next accept).

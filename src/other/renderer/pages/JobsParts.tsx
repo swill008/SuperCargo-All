@@ -6,9 +6,9 @@ import { useStore } from '@renderer/state/store'
 import { type OtherJobEdit } from '../state/otherJobs'
 import { mergeLocations } from '../state/otherPlaces'
 import { formatPlaceWithBodySystem } from '@other/otherNext'
-import { OTHER_KIND_LABEL, jobProgress, type OtherJob } from '@other/otherJob'
+import { OTHER_KIND_LABEL, type OtherJob } from '@other/otherJob'
 import { EditForm } from './JobsPartsUi'
-import { miniBtn, tagStyle } from './JobsPartsStyles'
+import { miniBtn, tagStyle, otherView, shownSteps, JobTags } from './JobsPartsStyles'
 export { AddForm, miniBtn, outlineBtn } from './JobsPartsStyles'
 
 export function JobRow({ job, uex, expanded, editing, onToggle, onEdit, onCancelEdit, onSaveEdit, onAbandon, onRestore, onComplete, onImportOcr, onStep }: {
@@ -26,7 +26,12 @@ export function JobRow({ job, uex, expanded, editing, onToggle, onEdit, onCancel
   onImportOcr: () => void
   onStep: (id: string) => void
 }): React.ReactElement {
-  const { done, total } = jobProgress(job)
+  const view = otherView(useStore((s) => s.settings))
+  // withdrawn steps don't count toward progress
+  const live = job.steps.filter((s) => !s.withdrawn)
+  const done = live.filter((s) => s.done).length
+  const total = live.length
+  const steps = shownSteps(job.steps, view)
   const haulLocs = useStore((s) => s.locations) ?? []
   const roster = useMemo(() => mergeLocations(haulLocs), [haulLocs])
   const statusColor = job.status === 'active' ? C.green : job.status === 'complete' ? C.dim : C.amber
@@ -44,7 +49,10 @@ export function JobRow({ job, uex, expanded, editing, onToggle, onEdit, onCancel
         </span>
         <div>
           <div style={{ fontFamily: F.body, fontSize: 15, color: C.text }}>{job.title}</div>
-          <div style={{ fontFamily: F.body, fontSize: 12, color: C.dim }}>{done}/{total} objectives</div>
+          <div style={{ display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap' }}>
+            <span style={{ fontFamily: F.body, fontSize: 12, color: C.dim }}>{done}/{total} objectives</span>
+            <JobTags rep={job.rep} sharedBy={job.sharedBy} view={view} />
+          </div>
         </div>
         <span style={tagStyle}>{OTHER_KIND_LABEL[job.kind]}</span>
         <span style={{ fontFamily: F.mono, fontSize: 13, color: C.text }}>{job.reward ? `${job.reward.toLocaleString()} aUEC` : '\u2014'}</span>
@@ -56,16 +64,16 @@ export function JobRow({ job, uex, expanded, editing, onToggle, onEdit, onCancel
       )}
       {expanded && !editing && (
         <div style={{ padding: '0 0 16px 70px' }}>
-          {job.steps.length === 0 && (
+          {steps.length === 0 && (
             <div style={{ fontFamily: F.body, fontSize: 13, color: C.dim, padding: '8px 0' }}>
               No objectives yet. Use EDIT or IMPORT FROM OCR.
             </div>
           )}
-          {job.steps.map((step) => (
-            <div key={step.id} style={{ display: 'flex', alignItems: 'center', gap: 12, padding: '7px 0', borderBottom: `1px dotted ${C.lineFaint}` }}>
-              <span style={{ color: step.done ? C.green : C.acc }}>{step.done ? '\u25c6' : '\u25c7'}</span>
+          {steps.map((step) => (
+            <div key={step.id} style={{ display: 'flex', alignItems: 'center', gap: 12, padding: '7px 0', borderBottom: `1px dotted ${C.lineFaint}`, opacity: step.withdrawn ? 0.5 : 1 }}>
+              <span style={{ color: step.withdrawn ? C.ghost : step.done ? C.green : C.acc }}>{step.done ? '\u25c6' : '\u25c7'}</span>
               <span style={{ flex: 1, minWidth: 0 }}>
-                <span style={{ display: 'block', fontFamily: F.body, fontSize: 14, color: step.done ? C.dim : C.textBody }}>{step.label}</span>
+                <span style={{ display: 'block', fontFamily: F.body, fontSize: 14, color: step.done || step.withdrawn ? C.dim : C.textBody, textDecoration: step.withdrawn ? 'line-through' : undefined }}>{step.label}</span>
                 {step.pickupLocation ? (
                   <span
                     title={step.pickupLocationSnapped && step.pickupLocationRaw ? `Log: ${step.pickupLocationRaw}` : undefined}
@@ -91,7 +99,10 @@ export function JobRow({ job, uex, expanded, editing, onToggle, onEdit, onCancel
                   >{step.pickupLocation ? `Deliver: ${formatPlaceWithBodySystem(step.location, roster)}` : formatPlaceWithBodySystem(step.location, roster)}</span>
                 ) : null}
               </span>
-              {job.status === 'active' && (
+              {step.withdrawn && (
+                <span style={{ fontFamily: F.display, fontSize: 11, letterSpacing: '0.12em', color: C.ghost }}>WITHDRAWN</span>
+              )}
+              {job.status === 'active' && !step.withdrawn && (
                 <Btn onClick={() => onStep(step.id)} style={miniBtn}>{step.done ? 'UNDO' : step.pickupLocation && !step.pickedUp ? 'GO HERE' : step.kind === 'turnin' ? 'TURN IN' : 'DONE'}</Btn>
               )}
             </div>

@@ -1,14 +1,13 @@
 import React, { useState } from 'react'
-import { useStore } from '../state/store'
+import { useStore, type ViewId } from '../state/store'
 import { useNarrow } from '../state/useViewport'
 import { C, F } from '../theme'
 import { Btn } from './ui'
 import { MADE_BY_COMMUNITY } from '@shared/legal'
 import { resolveWorkMode } from '@other/workMode'
 
-type TabId = 'manifest' | 'contracts' | 'grid' | 'history' | 'settings' | 'jobs' | 'next'
 
-const HAUL_NAV: Array<{ id: TabId; label: string }> = [
+const HAUL_NAV: Array<{ id: ViewId; label: string }> = [
   { id: 'manifest', label: 'MANIFEST' },
   { id: 'contracts', label: 'CONTRACTS' },
   { id: 'grid', label: 'CARGO GRID' },
@@ -16,7 +15,7 @@ const HAUL_NAV: Array<{ id: TabId; label: string }> = [
   { id: 'settings', label: 'SETTINGS' }
 ]
 
-const OTHER_NAV: Array<{ id: TabId; label: string }> = [
+const OTHER_NAV: Array<{ id: ViewId; label: string }> = [
   { id: 'next', label: 'NEXT' },
   { id: 'jobs', label: 'JOBS' },
   { id: 'history', label: 'HISTORY' },
@@ -24,7 +23,7 @@ const OTHER_NAV: Array<{ id: TabId; label: string }> = [
 ]
 
 export default function BottomNav(): React.ReactElement {
-  const view = useStore((s) => s.view) as TabId
+  const view = useStore((s) => s.view)
   const setView = useStore((s) => s.setView)
   const workMode = resolveWorkMode(useStore((s) => s.settings.workMode))
   const NAV = workMode === 'other' ? OTHER_NAV : HAUL_NAV
@@ -37,7 +36,7 @@ export default function BottomNav(): React.ReactElement {
         return (
           <Btn
             key={item.id}
-            onClick={() => setView(item.id as typeof view)}
+            onClick={() => setView(item.id)}
             style={{
               flex: 1,
               border: 0,

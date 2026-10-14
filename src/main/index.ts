@@ -18,7 +18,8 @@ import { prunePending } from './ocr/samples'
 import * as contractData from './contractData'
 import * as telemetry from './telemetry'
 import * as usageStats from './usageStats'
-import { ensureOtherIpc, routeAccepted } from '@other/main/register'
+import { registerOther, routeAccepted } from '@other/main/register'
+import { EventEmitter } from 'node:events'
 import * as boxReports from './boxReports'
 import * as crew from './crew'
 import appIcon from '../../resources/icon.png?asset'
@@ -34,7 +35,8 @@ installCrashHooks()
 let mainWindow: BrowserWindow | null = null
 let compactWindow: BrowserWindow | null = null
 let watcher: LogWatcher | null = null
-ensureOtherIpc()
+// stable relay: watchers get replaced, Other keeps one subscription + parser
+const otherLines = new EventEmitter()
 let settings: AppSettings = loadSettings()
 
 function isExternalUrl(url: string): boolean {
@@ -539,6 +541,7 @@ function startWatcher(): void {
   const channel = channelFromPath(logPath)
   watcher = new LogWatcher(logPath, channel)
   watcher.on('status', (s) => send(IPC.evtWatcherStatus, s))
+  watcher.on('line', (l) => otherLines.emit('line', l))
   watcher.on('accepted', (e, isHauling) => {
     const dest = routeAccepted(e, isHauling, settings)
     logger.info('app', 'contract accepted, routed', {
@@ -892,6 +895,7 @@ if (!gotLock) {
 
   app.whenReady().then(() => {
     registerIpc()
+    registerOther({ watcher: otherLines, getSettings: () => settings, getMainWindow: () => mainWindow })
     autoDetectLogPath()
     setReportSource({ info: debugInfo, settings: () => settings })
     {

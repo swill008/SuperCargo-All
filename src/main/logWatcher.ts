@@ -4,7 +4,6 @@ import { EventEmitter } from 'node:events'
 import * as fs from 'node:fs'
 import { parseLine, type MarkerEntry } from './logParser'
 import { logger } from './logger'
-import { sendOtherAccepted, sendOtherSessionDrop } from '@other/main/ipc'
 import type {
   ContractAcceptedEvent,
   ObjectiveEvent,
@@ -24,6 +23,7 @@ export interface LogWatcherEvents {
   paid: (e: ContractPaidEvent) => void
   share: (e: ShareEvent) => void
   sessionDrop: () => void
+  line: (line: string) => void // every raw line, before parsing
 }
 
 export class LogWatcher extends EventEmitter {
@@ -176,6 +176,7 @@ export class LogWatcher extends EventEmitter {
     this.buffer = this.buffer.slice(nl + 1)
     for (const raw of block.split(/\r?\n/)) {
       if (!raw) continue
+      this.emit('line', raw)
       this.processLine(raw)
     }
   }
@@ -210,7 +211,6 @@ export class LogWatcher extends EventEmitter {
           isHauling: parsed.isHauling
         })
         this.emit('accepted', parsed.event, parsed.isHauling)
-        if (!parsed.isHauling) sendOtherAccepted(parsed.event)
         break
       case 'objective':
         logger.info('watch', 'event objective', { id: parsed.event.missionId.slice(0, 8) })
@@ -227,7 +227,6 @@ export class LogWatcher extends EventEmitter {
       case 'sessionDrop':
         logger.info('watch', 'event sessionDrop')
         this.emit('sessionDrop')
-        sendOtherSessionDrop()
         break
       case 'completeNotice':
         logger.info('watch', 'event completeNotice', { id: parsed.missionId.slice(0, 8) })

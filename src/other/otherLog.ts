@@ -4,11 +4,7 @@
  * Haul generators stay with stock SuperCargo (isHaulingContract).
  * This file only classifies everything else.
  *
- * Tested against Stacie's LIVE Game.log (2026-09-12):
- *   Rayari_RecoverItem  → Deliver 0/5 Ranta Dung to Rayari Cantwell…
- *   Shubin_…FPSMining   → Deliver 0/56 Hadanite to Shubin…
- *   Adagio ship salvage → Deliver N SCU / Deliver N component
- *   Go to X / Neutralize X
+ * Objective forms checked against real Game.logs (2026-09, 2026-10); see parseOtherObjectiveText.
  */
 import type { Location } from '@shared/types'
 import { isHaulingContract } from '@shared/contract'
@@ -27,11 +23,6 @@ export type OtherObjectiveParse = {
   need: number
 }
 
-/** Any logged generator may become an Other checklist job, including haul. */
-export function isOtherGenerator(generator: string | undefined | null): boolean {
-  return !!generator
-}
-
 export function kindFromGenerator(generator: string, title = '', contractName = ''): OtherJobKind {
   const g = generator.toLowerCase()
   const t = title.toLowerCase()
@@ -43,73 +34,76 @@ export function kindFromGenerator(generator: string, title = '', contractName = 
   return 'delivery'
 }
 
+const go = (label: string, location: string, item?: string): OtherObjectiveParse =>
+  item ? { kind: 'go', label, location, item, have: 0, need: 1 } : { kind: 'go', label, location, have: 0, need: 1 }
+
+/**
+ * One objective sentence (log "New Objective" or OCR) to a step.
+ * Forms seen in real logs: Deliver 0/N SCU of X to Y, Deliver X To Y, Collect X From Y,
+ * Go to / Reach / Return to X, Neutralize X, Salvage the X at Y, Dock With X, Refuel X,
+ * Clear X of All Hostiles, Locate Salvage Claim #N, Protect the Ship, Continue Search.
+ * Place names keep inner full stops (NB Int. Spaceport); only the trailing one goes.
+ */
 export function parseOtherObjectiveText(raw: string): OtherObjectiveParse | null {
-  const text = raw.replace(/<[^>]+>/g, '').replace(/[:.]+$/, '').trim()
+  const text = raw.replace(/<[^>]+>/g, '').replace(/\s+/g, ' ').replace(/[\s:.]+$/, '').trim()
   if (!text) return null
+  // "OPTIONAL: Neutralize …" parses as the rest, label keeps the prefix
+  const opt = /^OPTIONAL:\s*/i.exec(text)
+  const body = opt ? text.slice(opt[0].length) : text
+  const pre = opt ? 'OPTIONAL: ' : ''
 
-  let m = text.match(/^Go\s+to\s+(.+)$/i)
-  if (m) {
-    const location = m[1].trim()
-    return { kind: 'go', label: `Go to ${location}`, location, have: 0, need: 1 }
-  }
-
-  m = text.match(/^Travel\s+to\s+(.+?)(?:\s+and\b|$)/i)
-  if (m) {
-    const location = m[1].trim()
-    return { kind: 'go', label: text, location, have: 0, need: 1 }
-  }
-
-  m = text.match(/^Neutralize\s+(.+)$/i)
-  if (m) {
-    const item = m[1].trim()
-    return { kind: 'go', label: `Neutralize ${item}`, location: item, item, have: 0, need: 1 }
-  }
-
-  m = text.match(/^Deliver\s+(\d+)\s*\/\s*(\d+)\s+SCU\s+of\s+(.+?)\s+to\s+(.+)$/i)
+  let m = body.match(/^Deliver\s+(\d+)\s*\/\s*(\d+)\s+SCU\s+of\s+(.+?)\s+to\s+(.+)$/i)
   if (m) {
     const have = parseInt(m[1], 10)
     const need = parseInt(m[2], 10)
     const item = m[3].trim()
     const location = m[4].trim()
-    return {
-      kind: 'turnin',
-      label: `Deliver ${have}/${need} SCU of ${item} to ${location}`,
-      location,
-      item,
-      have,
-      need
-    }
+    return { kind: 'turnin', label: `${pre}Deliver ${have}/${need} SCU of ${item} to ${location}`, location, item, have, need }
   }
 
-  m = text.match(/^Deliver\s+(\d+)\s*\/\s*(\d+)\s+(.+?)\s+to\s+(.+)$/i)
+  m = body.match(/^Deliver\s+(\d+)\s*\/\s*(\d+)\s+(.+?)\s+to\s+(.+)$/i)
   if (m) {
     const have = parseInt(m[1], 10)
     const need = parseInt(m[2], 10)
     const item = m[3].trim()
     const location = m[4].trim()
-    return {
-      kind: 'turnin',
-      label: `Deliver ${have}/${need} ${item} to ${location}`,
-      location,
-      item,
-      have,
-      need
-    }
+    return { kind: 'turnin', label: `${pre}Deliver ${have}/${need} ${item} to ${location}`, location, item, have, need }
   }
 
-  m = text.match(/^(?:Deliver|Bring|Turn\s*in)\s+(.+?)\s+to\s+(.+)$/i)
+  // "Deliver Medical Supplies To RSI Event Platform"
+  m = body.match(/^(?:Deliver|Bring|Turn\s*in)\s+(.+?)\s+to\s+(.+)$/i)
+  if (m) return { kind: 'turnin', label: text, location: m[2].trim(), item: m[1].trim(), have: 0, need: 1 }
+
+  // "Collect Food Supplies From Green Glade Station at Hurston's L1 Lagrange point"
+  m = body.match(/^(?:Collect|Recover)\s+(.+?)\s+from\s+(.+)$/i)
+  if (m) return { kind: 'pickup', label: text, location: m[2].trim(), item: m[1].trim(), have: 0, need: 1 }
+
+  m = body.match(/^Go\s+to\s+(.+)$/i)
+  if (m) return go(`${pre}Go to ${m[1].trim()}`, m[1].trim())
+
+  m = body.match(/^Travel\s+to\s+(.+?)(?:\s+and\b|$)/i)
+  if (m) return go(text, m[1].trim())
+
+  m = body.match(/^(?:Reach|Return\s+to)\s+(.+)$/i)
+  if (m) return go(text, m[1].trim())
+
+  // a target, never a place or a turn-in
+  m = body.match(/^Neutralize\s+(.+)$/i)
   if (m) {
     const item = m[1].trim()
-    const location = m[2].trim()
-    return { kind: 'turnin', label: text, location, item, have: 0, need: 1 }
+    return /^targets$/i.test(item) ? go(text, '') : go(text, item, item)
   }
 
-  m = text.match(/^(?:Collect|Recover)\s+(.+?)\s+from\s+(.+)$/i)
-  if (m) {
-    const item = m[1].trim()
-    const location = m[2].trim()
-    return { kind: 'pickup', label: text, location, item, have: 0, need: 1 }
-  }
+  m = body.match(/^Salvage\s+(?:the\s+)?(.+?)\s+at\s+(.+)$/i)
+  if (m) return go(text, m[2].trim(), m[1].trim())
+
+  m = body.match(/^Clear\s+(.+?)\s+of\s+all\s+hostiles$/i)
+  if (m) return go(text, m[1].trim())
+
+  // ship, claim or person, not a place
+  m = body.match(/^(?:Dock\s+with|Refuel|Investigate)\s+(.+)$/i)
+  if (m) return go(text, '', m[1].trim())
+  if (/^(?:Locate\s+Salvage\s+Claim\b|Protect\s+the\s+Ship$|Continue\s+Search$)/i.test(body)) return go(text, '')
 
   return {
     kind: 'go',
@@ -152,7 +146,7 @@ export function mergeCollectIntoDeliver<T extends OtherObjectiveParse>(rows: T[]
 }
 
 export function stepFromParse(id: string, parsed: OtherObjectiveParse, locations?: Location[]): OtherStep {
-  const skipSnap = /^Neutralize\s/i.test(parsed.label)
+  const skipSnap = /^(?:OPTIONAL:\s*)?Neutralize\s/i.test(parsed.label)
   const snap = !skipSnap && locations
     ? snapOtherLocation(parsed.location, locations)
     : {
@@ -186,4 +180,26 @@ export function stepFromParse(id: string, parsed: OtherObjectiveParse, locations
 
 export function stepKey(step: Pick<OtherStep, 'kind' | 'location' | 'item'>): string {
   return `${step.kind}|${(step.location || '').toLowerCase()}|${(step.item || '').toLowerCase()}`
+}
+
+let logSeq = 0
+
+/** A log "New Objective" text to a step; logText keeps the raw text for Complete / Withdrawn. */
+export function stepFromObjectiveText(text: string, locations: Location[]): OtherStep {
+  logSeq += 1
+  const id = `step-${Date.now().toString(36)}-l${logSeq}`
+  const label = text.replace(/[\s:]+$/, '').trim()
+  const parsed = parseOtherObjectiveText(text) ?? { kind: 'go' as const, label, location: '', have: 0, need: 1 }
+  return { ...stepFromParse(id, parsed, locations), logText: text }
+}
+
+const textKey = (s: string): string => s.toLowerCase().replace(/\s+/g, ' ').replace(/[\s:.]+$/, '').trim()
+
+/** Index of the step an Objective Complete / Withdrawn text names, open steps first; -1 if none. */
+export function findStepByText(steps: OtherStep[], text: string): number {
+  const key = textKey(text)
+  if (!key) return -1
+  const hit = (s: OtherStep): boolean => (!!s.logText && textKey(s.logText) === key) || textKey(s.label) === key
+  const open = steps.findIndex((s) => !s.done && !s.withdrawn && hit(s))
+  return open >= 0 ? open : steps.findIndex(hit)
 }

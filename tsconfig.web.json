@@ -3,7 +3,11 @@
     "composite": true,
     "noEmit": true,
     "target": "ES2022",
-    "lib": ["ES2022", "DOM", "DOM.Iterable"],
+    "lib": [
+      "ES2022",
+      "DOM",
+      "DOM.Iterable"
+    ],
     "module": "ESNext",
     "moduleResolution": "Bundler",
     "jsx": "react-jsx",
@@ -12,11 +16,19 @@
     "strict": true,
     "skipLibCheck": true,
     "noUnusedLocals": true,
-    "types": ["node"],
+    "types": [
+      "node"
+    ],
     "paths": {
-      "@renderer/*": ["./src/renderer/src/*"],
-      "@shared/*": ["./src/shared/*"],
-      "@other/*": ["./src/other/*"]
+      "@renderer/*": [
+        "./src/renderer/src/*"
+      ],
+      "@shared/*": [
+        "./src/shared/*"
+      ],
+      "@other/*": [
+        "./src/other/*"
+      ]
     }
   },
   "include": [
@@ -24,7 +36,11 @@
     "src/renderer/src/**/*.tsx",
     "src/preload/index.d.ts",
     "src/shared/**/*.ts",
-    "src/other/**/*.ts",
-    "src/other/**/*.tsx"
+    "src/other/*.ts",
+    "src/other/renderer/**/*.ts",
+    "src/other/renderer/**/*.tsx"
+  ],
+  "exclude": [
+    "src/other/main/**"
   ]
 }
