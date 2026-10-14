@@ -18,7 +18,7 @@ Read these before doing anything. The user's decisions about the program are in 
 ## Plan, ask, then build
 
 1. **Plan first.** For any change, give the plan with options, your recommendation and the effort of each.
-   There is no timing table for this repo: label every figure "rough guess".
+   Quote efforts from `docs/timings.md` (rule 10 below); with no matching row say "rough guess".
 2. **Build only after an explicit go** ("approved", "code it", "go", "do it"). A question, "I like that" or
    "let's keep planning" is not a go. The user has stopped unasked coding more than once
    ("why are you coding? i never told you do so"; "I didnt say go..."). While waiting, don't build ahead.
@@ -89,6 +89,9 @@ Read these before doing anything. The user's decisions about the program are in 
   commits (`Co-Authored-By: ...` and `Claude-Session: ...`; see `git log -1`).
 - Release notes: each batch commit adds its lines to `release-notes/<next version>.md` (format and release
   steps in `release-notes/README.md`). The release workflow refuses missing, placeholder or repeated notes.
+- **No push and no release unless the user says so** (user, 2026-10-14: "do not do another release until I tell
+  you"; "do not push until I tell you to"). Commit locally when a batch passes its tests, then wait for the user's
+  go before pushing. After a push the user asked for, watching CI is fine ("after a push, you can watch CI").
 - Releases are run from the `features` branch, and `main` is updated to match it (user, 2026-10-14).
 - Releases: version line "R1" (e.g. R1 1.0.0; `package.json` stays plain semver), built by the
   "Release Windows (Setup + Portable)" workflow started by hand, published from this fork's repo, never
@@ -101,3 +104,56 @@ Read these before doing anything. The user's decisions about the program are in 
 - Update `docs/SYSTEM-MAP.md`, `src/other/STANDALONE.md` (rules and re-tie points), `docs/DECISIONS.md`,
   `docs/TODO.md`, README/FAQ where users see a change, and the release notes, in the same commit.
 - Tell the user what changed in plain words, what the tests showed, and what to try in game.
+
+## Rules carried over from Gremlin-Platforms (user, 2026-10-14: "use its rules etc, so we dont have to be retrained")
+
+The user works the same way in both repos. These are Gremlin-Platforms' `.claude/CLAUDE.md` rules, mapped to this
+repo. Where a rule here and one above disagree, the newer user instruction wins (dates in brackets).
+
+1. **Status line.** Start every message to the user with a one-line status, e.g.
+   `[Overlay fix ▓▓▓▓░░░░░░ 40% · e2e test running · next: full test run]`.
+2. **Change control.** The intended behaviour is the spec: `src/other/STANDALONE.md` (numbered rules and re-tie
+   points) plus `docs/DECISIONS.md`; `docs/SYSTEM-MAP.md` says where things live. Before changing behaviour, read
+   them. A change that adds, changes, removes or contradicts a rule or decision goes to the user first; update the
+   spec with their answer, then code. Code that differs from the spec is a gap to fix (failing test first), not a
+   spec change.
+3. **Spec line in commits.** Every commit touching `src/` has a line `Spec: <file> <rule/decision refs>` naming
+   what it implements, or `Spec: none (no behaviour change)`.
+4. **Keep the map current.** Every batch updates the docs it touches (SYSTEM-MAP files and IPC, STANDALONE rules and
+   re-tie points, DECISIONS, TODO, README/FAQ, release notes) in the same commit. Before every release, do a full
+   map check (counts, gaps, anything stale).
+5. **How we work.** Trace end to end first; fix at the shared owner; tests drive the real path and fail on the old
+   code; an independent re-trace of a fix; build in a batch, then test.
+6. **Agents: parallel by default.** Before any task, and whenever new work appears mid-task, split it into
+   independent pieces, one agent each, running at the same time. Contract first, one owner per file; the lead keeps
+   shared files (`src/main/index.ts`, `src/shared/*`, `src/preload/index.ts`). Show the split table (above) before
+   spawning, with the agent count coming from the file analysis, and a "Left out:" line. Give every agent the rules
+   in this section and a time budget from `docs/timings.md`.
+7. **Overseeing agents.** Watch commands, not only results. When an agent's fix is proven (fails on old code,
+   passes on new), stop further proof runs. Tell the user about any agent step over 5 min when it starts.
+8. **Live output.** Agents log every step to `/home/user/SuperCargo-activity.log`
+   (`echo "$(date +%H:%M)  <agent> <what>"`), and a status line (doing / ETA / finding / plan) at least every 30 s
+   when the user is watching. (Gremlin's PowerShell log window is for the user's PC; this cloud session can't open
+   one.)
+9. **Commits and test runs.** One commit per batch of approved work; small fixes found mid-batch ride along.
+   Before a batch commit, run the quick tests: `npm run typecheck`, every `test/replay/*_checks.mjs`,
+   `next_order.mjs`, `resolver_guard.mjs` and the replay scenarios for what changed
+   (`node test/replay/replay.mjs <names>`). The full run (`npm run test:replay` + `run_all.mjs`, ~7 min) is for a
+   very complex batch, and before a push the user asked for; say why when you run it.
+10. **Timing table.** `docs/timings.md` is the source for every time quoted. Note the clock when a step starts; add
+    a row when it ends (agents, test runs, CI, release runs, the lead's own steps). Every option, recommendation or
+    plan shown to the user carries its effort quoted from the table, naming the kind (e.g. "Effort: 3-8 min
+    (timings.md: agent fix)"); with no matching kind say "no timing data yet; rough guess N min". Why (user,
+    2026-10-10): "I decide what to put into the program based on the effort it requires."
+11. **Recommend the cleanest design first.** Compatibility with an old layout (migrations, shims, "keep the old
+    behaviour") is offered only as an alternative, never added without the user asking. Note: R1 1.0.0 is released,
+    so a change to saved data now needs the user's call on existing data.
+12. **One-time code** (code that runs once or reads an old layout), when the user approves it: mark it
+    `// ONE-TIME: <what, when it can go>` at the code and list it in `docs/TODO.md` under "One-time code", same
+    commit. Before each release, list the open one-time items to the user.
+13. **Mock-ups** are drawn inline in the chat, never made by running code; a script-made picture may be offered with
+    its effort and made only if the user says yes.
+14. **Reports, studies and plans** go to the user in the chat (text, tables, pictures). Don't publish artifacts or
+    pages for this repo unless the user asks. (Gremlin's single tracker artifact is Gremlin's; this repo has no
+    tracker: open items live in `docs/TODO.md`, decisions in `docs/DECISIONS.md`.)
+15. **Pass this section on to every agent you start.**

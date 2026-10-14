@@ -69,7 +69,7 @@ The compact overlay is the same renderer bundle at `#compact`, in a second alway
   - evt:watcher:status, evt:contract:{accepted, ended, paid, share}, evt:objective
   - evt:ships / locations / commodities / gridFaces
   - evt:window:state, evt:ocr:result / status, evt:update, evt:refData
-  - broadcast to every window: evt:manifest:changed, evt:compact:state, evt:loading:state, evt:settings
+  - broadcast to every window: evt:manifest:changed, evt:compact:state, evt:loading:state, evt:settings (every settings change goes to the other windows, so the overlay follows the work mode and the Other-mode settings; R1 1.0.1)
   - `evt:openCapture` is declared but never sent.
 
 ### Network calls

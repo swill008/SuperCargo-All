@@ -31,7 +31,7 @@ const base = `SuperCargo-OtherModes-R1-${version}`
 
 // --- version + notes --------------------------------------------------------
 check('package.json version is plain semver', /^\d+\.\d+\.\d+$/.test(version), version)
-check('package.json version is 1.0.0 (R1 1.0.0)', version === '1.0.0', version)
+check('package.json version is on the R1 line (1.x.y)', /^1\.\d+\.\d+$/.test(version), version)
 const lock = JSON.parse(read('package-lock.json'))
 check('package-lock.json version matches', lock.version === version && lock.packages[''].version === version)
 const notesFile = path.join(root, 'release-notes', `${version}.md`)

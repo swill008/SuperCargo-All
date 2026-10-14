@@ -784,17 +784,9 @@ function registerIpc(): void {
     ) {
       applyOverlay()
     }
-    // opacity + scale are drawn in the overlay's own window, so push the new settings there
-    if (
-      patch.overlayOpacity !== undefined ||
-      patch.overlayScale !== undefined ||
-      patch.overlayReturnToFirst !== undefined ||
-      patch.overlayReturnSeconds !== undefined ||
-      patch.overlayShowAllObjectives !== undefined ||
-      patch.overlayHideCompletedObjectives !== undefined
-    ) {
-      broadcast(IPC.evtSettings, settings, e.sender.id)
-    }
+    // every other window (the overlay) gets every change: it reads the work mode and many Other-mode settings,
+    // and a hand-kept list of keys missed the work mode (overlay stayed on the Haul card after switching to Other)
+    broadcast(IPC.evtSettings, settings, e.sender.id)
     if (
       patch.gameLogPath !== undefined &&
       patch.gameLogPath !== prev.gameLogPath

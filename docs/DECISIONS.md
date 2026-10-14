@@ -193,6 +193,11 @@ Marked **NOT DOING**: decided against, or left out on purpose.
   - Q9: rep shows exactly what the contract says ("just show what the contract says, nothing more"); no range totals.
   - Q10: a file missing from the author's list or one that can't be saved counts as a failure and shows the warning.
 
+- R1 1.0.0 released 2026-10-14 (from `features`, `main` updated to match).
+- Overlay follows the work mode (2026-10-14, "approved as recommend", option A): every settings change is sent to the
+  other windows, not only six overlay keys; ships in R1 1.0.1. Found on the user's first run of the 1.0.0 installer:
+  the overlay kept the Haul card after switching to Other until "show all objectives" was toggled.
+
 ## 9. Reference data (ships, places, cargo grids, contract box sizes)
 
 - Reference data keeps coming from the original author's repo, "since I still use thier program"; the

@@ -1279,6 +1279,53 @@ const scenarios = {
     return [['no Other job from a bounty in Haul mode', n === 0, `jobs=${n}`]]
   },
 
+  // R1 1.0.0 bug: started in Haul with the overlay open, Work mode switched to Other in the main window; the overlay kept
+  // the Haul card (main pushed settings to the overlay only for six overlay keys, not workMode). Every settings change
+  // now reaches the overlay: the mode switch, and an Other-mode overlay setting changed later.
+  'overlay-follows-mode': async () => {
+    const e = setup('overlay-follows-mode', { workMode: 'haul', otherStartMode: 'fixed', overlayStartWithApp: true }, { jobs: [], history: [], startLocation: 'Seraphim Station', startTypedAt: iso(ago(60)), listOrder: 'distance' })
+    // the card's distance line, e.g. "57.5 Gm from start" (the stop header's "FROM START" tag is not it)
+    const DIST = /[\d.,]+\s*[kMG]?m\s*from start/
+    const port = await freePort()
+    const stop = await launch(e, cdpArgs(port))
+    const r = {}
+    let err = ''
+    try {
+      r.overlayBefore = await until(() => windowText(port, 'overlay'), 10000)
+      // the WORK MODE block above Settings in Haul mode: click "○ Other — …"
+      r.settingsPage = await clickButton(port, 'main', /^SETTINGS$/)
+      r.otherClick = !!(await until(() => clickButton(port, 'main', /^\u25cb\s*Other\b/).then((ok) => ok || null), 8000))
+      r.mode = (await until(() => settingsGet(port).then((s) => (s?.workMode === 'other' ? s.workMode : null)), 8000)) ?? (await settingsGet(port))?.workMode
+      const id = mission()
+      e.append(L.accept(id, 'Bounty Hunt'), L.objective(id, 'Go to Port Tressler'))
+      r.job = !!(await until(() => (findJob(e.jobs(), id)?.steps?.length ? true : null)))
+      // nothing else touched: the overlay shows the Other card with the job's stop and its distance line
+      r.overlay = (await until(() => windowText(port, 'overlay').then((t) => (/Port Tressler/.test(t) && DIST.test(t) ? t : '')), 12000)) || (await windowText(port, 'overlay'))
+      // Settings -> OTHER MODE -> "Distances on the overlay" off: the overlay's distance line goes
+      r.tab = await openSettingsTab(port, 'OTHER MODE')
+      r.toggle = await until(() =>
+        cdpEval(
+          port,
+          'main',
+          `(() => { const s = [...document.querySelectorAll('span')].find((x) => /^Distances on the overlay/.test(x.textContent.trim())); const t = s?.parentElement?.lastElementChild; if (!t || t === s) return null; t.click(); return true })()`
+        ), 8000)
+      r.distSetting = (await until(() => settingsGet(port).then((s) => (s?.otherOverlayDistance === false ? 'off' : null)), 8000)) ?? String((await settingsGet(port))?.otherOverlayDistance)
+      r.overlayOff = (await until(() => windowText(port, 'overlay').then((t) => (/Port Tressler/.test(t) && !DIST.test(t) ? t : '')), 10000)) || (await windowText(port, 'overlay'))
+    } catch (x) {
+      err = String(x?.message ?? x)
+    }
+    await stop()
+    const ov = (t) => JSON.stringify((t ?? '').slice(0, 300))
+    return [
+      ['Work mode switched to Other from the main window (WORK MODE block)', r.otherClick && r.mode === 'other', `click=${r.otherClick} workMode=${r.mode} ${err}`],
+      ['Other job created from the log', r.job === true, `job=${r.job}`],
+      ['overlay shows the Other card with the job stop (no other setting touched)', /Port Tressler/.test(r.overlay ?? ''), `overlay=${ov(r.overlay)} before=${ov(r.overlayBefore)}`],
+      ['overlay shows the stop distance ("from start")', DIST.test(r.overlay ?? ''), `overlay=${ov(r.overlay)}`],
+      ['"Distances on the overlay" switched off in Settings', r.distSetting === 'off', `toggle=${r.toggle} tab=${short(r.tab)} setting=${r.distSetting}`],
+      ['overlay drops the distance line once it is off', /Port Tressler/.test(r.overlayOff ?? '') && !DIST.test(r.overlayOff ?? ''), `overlay=${ov(r.overlayOff)}`]
+    ]
+  },
+
   // #4 a job that ended Complete while the app was closed is not recorded as abandoned
   'complete-while-closed': async () => {
     const id = mission()
@@ -1336,7 +1383,8 @@ const scenarios = {
     await sleep(2000)
     e.append(L.end(id, 'Abandon'))
     await sleep(2000)
-    const afterAbandon = findJob(e.jobs(), id)?.status
+    // poll: one read 2 s after the append raced the watcher on a busy CI runner (status=active)
+    const afterAbandon = (await until(() => (findJob(e.jobs(), id)?.status === 'abandoned' ? 'abandoned' : null))) ?? findJob(e.jobs(), id)?.status
     e.append(L.shared('900000000001', id), L.accept(id, 'Bounty Hunt'))
     await sleep(2000)
     const mid = e.jobs()
@@ -1891,8 +1939,10 @@ const scenarios = {
       e.append(L.arrive('1510935576'), L.inventory('RR_CRU_L1'))
       const text = await waitForFile(out)
       let overlay = ''
+      // AUTO waits for the clue to reach the overlay too: the card can show Port Tressler from the typed start first
+      const shown = (t) => /Port Tressler/.test(t) && (mode !== 'auto' || t.includes(want) || /CRU-L1/.test(t))
       try {
-        overlay = await until(() => windowText(port, 'overlay').then((t) => (/Port Tressler/.test(t) ? t : '')), 8000)
+        overlay = (await until(() => windowText(port, 'overlay').then((t) => (shown(t) ? t : '')), 15000)) || (await windowText(port, 'overlay'))
       } catch {
         // checked below
       }
