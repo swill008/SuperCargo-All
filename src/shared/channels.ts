@@ -68,6 +68,8 @@ export const IPC = {
   evtOtherAccepted: 'evt:other:accepted',
   evtOtherSessionDrop: 'evt:other:sessionDrop',
   evtOtherJobsChanged: 'evt:other:jobsChanged',
+  evtOtherLogEvent: 'evt:other:logEvent', // main -> main window only, one OtherLogEvent
+  otherJobsScanEvents: 'otherJobs:scanEvents',
   evtObjective: 'evt:objective',
   evtContractEnded: 'evt:contract:ended',
   evtContractPaid: 'evt:contract:paid',

@@ -35,6 +35,10 @@ export interface OtherStep {
   have: number
   need: number
   done: boolean
+  /** the game withdrew this objective ("Objective Withdrawn") */
+  withdrawn?: boolean
+  /** raw "New Objective" text from the log, matched against Objective Complete / Withdrawn */
+  logText?: string
 }
 
 export interface OtherJob {
@@ -50,6 +54,16 @@ export interface OtherJob {
   generator?: string
   contractName?: string
   source?: 'log' | 'manual'
+  /** reputation from the contract title */
+  rep?: number
+  /** ownerId when a party member shared this contract */
+  sharedBy?: string
+  /** game session (log start time) the job was accepted in; groups the History summary */
+  sessionAt?: string
+  /** log time of the latest accept, for hiding short accept -> drop loops */
+  acceptedAt?: string
+  /** log time of the ending */
+  endedAt?: string
   /** How steps were first filled. Log-created jobs stay source log. */
   filledBy?: 'log' | 'ocr'
   /** True after Edit Save changed a step. LOG/OCR stay as first source. */
@@ -73,6 +87,11 @@ export interface OtherHistoryEntry {
   generator?: string
   contractName?: string
   source?: 'log' | 'manual'
+  rep?: number
+  sharedBy?: string
+  sessionAt?: string
+  acceptedAt?: string
+  endedAt?: string
 }
 
 export interface OtherJobsDoc {
@@ -84,6 +103,10 @@ export interface OtherJobsDoc {
   listOrder?: 'distance' | 'manual'
   /** Active job ids, first = first contract in Next / overlay. */
   jobOrder?: string[]
+  /** timestamp of the newest Game.log event already applied; the start-up scan only applies newer ones */
+  lastLogEventAt?: string
+  /** bumped on every save so a window can tell its own save from the other window's */
+  rev?: number
 }
 
 export const EMPTY_OTHER_JOBS: OtherJobsDoc = { jobs: [], history: [] }
@@ -108,6 +131,16 @@ export const OTHER_KIND_LABEL: Record<OtherJobKind, string> = {
 
 export function otherJobRef(index: number): string {
   return 'J' + String(index + 1).padStart(2, '0')
+}
+
+/** next free J-number across active jobs and history, so refs never repeat after Clear Finished */
+export function nextJobRef(jobs: OtherJob[], history: OtherHistoryEntry[]): string {
+  let max = 0
+  for (const ref of [...jobs.map((j) => j.ref), ...history.map((h) => h.ref)]) {
+    const n = Number(/^J(\d+)$/.exec(ref ?? '')?.[1] ?? 0)
+    if (n > max) max = n
+  }
+  return otherJobRef(max)
 }
 
 export function nextOpenStep(job: OtherJob): OtherStep | null {

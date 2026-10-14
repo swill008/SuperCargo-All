@@ -60,5 +60,49 @@ declare module '@shared/types' {
     overlayShowAllObjectives?: boolean
     /** When showing all, drop done steps. Default on. */
     overlayHideCompletedObjectives?: boolean
+    /** tick a step when the log says "Objective Complete" */
+    otherAutoTickObjectives?: boolean
+    /** what to do with a step the game withdrew */
+    otherWithdrawnSteps?: 'grey' | 'hide'
+    /** on start-up, say when the last game session crashed and jobs were kept */
+    otherCrashNotice?: boolean
+    /** toast when the game refuses a contract (contract limit) */
+    otherContractLimitToast?: boolean
+    /** show reputation on jobs */
+    otherShowRep?: boolean
+    /** badge on contracts a party member shared */
+    otherSharedBadge?: boolean
+    /** hide abandoned jobs that lasted less than this many seconds (party accept/drop loops); 0 = show all */
+    otherHideShortLoopsSec?: number
+    /** per-session summary in History */
+    otherSessionSummary?: boolean
+    /** offer to switch to Haul mode when a big haul is accepted in Other mode */
+    otherHaulSwitchPrompt?: boolean
+    /** total SCU at or above which the switch is offered */
+    otherHaulSwitchMinScu?: number
   }
+}
+
+export const OTHER_SETTING_DEFAULTS = {
+  otherAutoTickObjectives: true,
+  otherWithdrawnSteps: 'grey' as 'grey' | 'hide',
+  otherCrashNotice: true,
+  otherContractLimitToast: true,
+  otherShowRep: true,
+  otherSharedBadge: true,
+  otherHideShortLoopsSec: 10,
+  otherSessionSummary: true,
+  otherHaulSwitchPrompt: true,
+  otherHaulSwitchMinScu: 100
+}
+
+type OtherSettingKey = keyof typeof OTHER_SETTING_DEFAULTS
+
+/** a setting's value, falling back to its default when unset */
+export function otherSetting<K extends OtherSettingKey>(
+  settings: Partial<Record<OtherSettingKey, unknown>> | undefined,
+  key: K
+): (typeof OTHER_SETTING_DEFAULTS)[K] {
+  const v = settings?.[key]
+  return (v === undefined || v === null ? OTHER_SETTING_DEFAULTS[key] : v) as (typeof OTHER_SETTING_DEFAULTS)[K]
 }

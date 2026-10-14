@@ -32,6 +32,7 @@ import type {
   CrewMember
 } from '@shared/types'
 import type { OtherJobsDoc } from '@other/otherJob'
+import type { OtherLogEvent, OtherScanResult } from '@other/otherEvents'
 
 type Unsubscribe = () => void
 
@@ -169,8 +170,10 @@ const api = {
     on(IPC.evtOtherAccepted, cb),
   onOtherSessionDrop: (cb: () => void): Unsubscribe =>
     on(IPC.evtOtherSessionDrop, cb),
-  onOtherJobsChanged: (cb: () => void): Unsubscribe =>
+  onOtherJobsChanged: (cb: (p: { rev?: number; sender?: number }) => void): Unsubscribe =>
     on(IPC.evtOtherJobsChanged, cb),
+  onOtherLogEvent: (cb: (e: OtherLogEvent) => void): Unsubscribe => on(IPC.evtOtherLogEvent, cb),
+  scanOtherEvents: (since?: string): Promise<OtherScanResult> => ipcRenderer.invoke(IPC.otherJobsScanEvents, since),
   onObjective: (cb: (e: ObjectiveEvent) => void): Unsubscribe => on(IPC.evtObjective, cb),
   onContractEnded: (cb: (e: ContractEndedEvent) => void): Unsubscribe =>
     on(IPC.evtContractEnded, cb),
