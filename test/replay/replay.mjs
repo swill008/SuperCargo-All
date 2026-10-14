@@ -433,7 +433,8 @@ const scenarios = {
       L.accept(id, 'Salvage Contract'),
       `${stamp()} ${NOTE} "New Objective: Go to Caterpillar wreck site: " [4] to queue. New queue size: 1, MissionId: [${id}], ObjectiveId: [${obj}] ${TAGS}`
     )
-    await sleep(3000)
+    // wait for the result rather than a fixed time: flaky with several apps starting at once
+    for (let t0 = Date.now(); Date.now() - t0 < 12000 && !e.jobs()?.jobs?.[0]?.steps?.[0]?.position; ) await sleep(250)
     await stop()
     const step = e.jobs()?.jobs?.[0]?.steps?.[0]
     const pos = step?.position
@@ -706,6 +707,34 @@ const scenarios = {
     return [
       ['diagnostics file written within 20 s', text != null, `file=${out}`],
       ['SNAPSHOT currentLocation is CRU-L1', snap.includes(want), `snapshot=${JSON.stringify(snap.slice(0, 300))} saved currentLocation=${doc?.currentLocation}`]
+    ]
+  },
+
+  // places only in the starmap (not in UEX: aid shelters) are matched and get a distance
+  'starmap-places-distance': async () => {
+    const id = mission()
+    const step = (label, location) => ({ id: `s-${location}`, kind: 'go', label, location, have: 0, need: 1, done: false })
+    // one job per place: the distance table lists each job's next open stop
+    const a = logJob(id, { steps: [step('Go to Dunlow Ridge Aid Shelter on Daymar', 'Dunlow Ridge Aid Shelter on Daymar')] })
+    const b = logJob(mission(), { ref: 'J02', steps: [step('Go to Julep Ravine Aid Shelter on Cellin', 'Julep Ravine Aid Shelter on Cellin')] })
+    b.id = b.missionId
+    const e = setup('starmap-places-distance', {}, { jobs: [a, b], history: [], startLocation: 'Seraphim Station', listOrder: 'distance' })
+    const out = path.join(e.data, 'diag-starmap.txt')
+    const stop = await launch(e, [`--export-diagnostics=${out}`])
+    const text = await waitForFile(out)
+    await stop()
+    const snap = diagSections(text)['SNAPSHOT'] ?? ''
+    let rows = []
+    try {
+      rows = JSON.parse(snap.slice(snap.indexOf('{'), snap.lastIndexOf('}') + 1))?.other?.distanceTable?.distance ?? []
+    } catch {
+      // checked below
+    }
+    const shelter = (n) => rows.find((r) => String(r.place).startsWith(n))
+    return [
+      ['diagnostics file written', text != null, `file=${out}`],
+      ['Dunlow Ridge Aid Shelter has a distance', shelter('Dunlow Ridge')?.distance > 0, JSON.stringify(shelter('Dunlow Ridge') ?? null).slice(0, 200)],
+      ['Julep Ravine Aid Shelter has a distance', shelter('Julep Ravine')?.distance > 0, JSON.stringify(shelter('Julep Ravine') ?? null).slice(0, 200)]
     ]
   },
 

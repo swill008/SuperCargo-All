@@ -121,10 +121,31 @@ function fillFromPositions(places: Location[]): Location[] {
     if (p.x != null) return p
     const hits = idx.get(norm(p.name))
     if (!hits) return p
-    const hit = hits.find((h) => !p.system || h.system === p.system) ?? (hits.length === 1 && !p.system ? hits[0] : undefined)
+    const sys = (p.system ?? '').toLowerCase()
+    const hit = hits.find((h) => !sys || (h.system ?? '').toLowerCase() === sys) ?? (hits.length === 1 && !sys ? hits[0] : undefined)
     if (!hit) return p
     return { ...p, x: hit.x, y: hit.y, z: hit.z, system: p.system || hit.system, body: p.body || hit.body }
   })
+}
+
+const titleCase = (s: string): string => (s ? s[0].toUpperCase() + s.slice(1) : s)
+
+// UEX lists only places with terminals/services; aid shelters, wrecks, small outposts are only in the
+// starmap. Add every starmap place UEX doesn't have, so they can be matched and measured.
+function addStarmapPlaces(places: Location[]): Location[] {
+  const idx = positionIndex()
+  if (!idx.size) return places
+  const have = new Set(places.map((p) => norm(p.name)))
+  const seen = new Set<Pos>()
+  const extra: Location[] = []
+  for (const list of idx.values()) {
+    for (const h of list) {
+      if (seen.has(h) || have.has(norm(h.name)) || (h.aliases ?? []).some((a) => have.has(norm(a)))) continue
+      seen.add(h)
+      extra.push({ name: h.name, code: '', maxContainerSize: 0, uexId: 0, x: h.x, y: h.y, z: h.z, system: titleCase(h.system ?? ''), body: h.body })
+    }
+  }
+  return [...places, ...extra]
 }
 
 function dedupe(list: Location[]): Location[] {
@@ -140,9 +161,9 @@ function dedupe(list: Location[]): Location[] {
 export function loadOtherPlaces(): Location[] {
   try {
     const j = JSON.parse(fs.readFileSync(cacheFile(), 'utf8')) as { places?: Location[] }
-    return Array.isArray(j.places) ? fillFromPositions(j.places) : []
+    return addStarmapPlaces(Array.isArray(j.places) ? fillFromPositions(j.places) : [])
   } catch {
-    return []
+    return addStarmapPlaces([])
   }
 }
 
@@ -154,7 +175,7 @@ export async function refreshOtherPlaces(haul: Location[]): Promise<Location[]> 
       pull('outposts')
     ])
     const mapped = [...cities, ...stations, ...outposts].map(asLoc).filter((x): x is Location => !!x)
-    const places = dedupe(fillFromPositions(attachCoords(mapped, haul)))
+    const places = dedupe(addStarmapPlaces(fillFromPositions(attachCoords(mapped, haul))))
     fs.writeFileSync(cacheFile(), JSON.stringify({ syncedAt: new Date().toISOString(), places }, null, 2))
     console.log(`[otherUex] cached ${places.length} cities/stations/outposts`)
     logger.info('other', 'places cached', { places: places.length, withCoords: places.filter((p) => p.x != null).length })
