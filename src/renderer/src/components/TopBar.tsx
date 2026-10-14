@@ -90,7 +90,7 @@ function RunChip(): React.ReactElement {
   return (
     <div ref={ref} className="no-drag" style={{ position: 'relative', marginLeft: 26, flex: 'none' }}>
       <Btn onClick={() => setOpen((o) => !o)} title="Start a new run" style={{ display: 'flex', alignItems: 'center', gap: 7, border: `1px solid ${open ? C.acc : 'transparent'}`, background: 'transparent', color: C.dim, fontFamily: F.mono, fontSize: 11, letterSpacing: '0.04em', padding: '5px 9px', cursor: 'pointer' }} hoverStyle={{ border: `1px solid ${C.acc}`, color: C.body }}>
-        <span>RUN \u00b7 <span style={{ color: C.body }}>{runId || '-'}</span></span>
+        <span>RUN · <span style={{ color: C.body }}>{runId || '-'}</span></span>
         <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke={C.acc} strokeWidth="2.4" style={{ transform: open ? 'rotate(180deg)' : 'none', flex: 'none' }}><path d="M6 9l6 6 6-6" /></svg>
       </Btn>
       {open && (
@@ -132,7 +132,7 @@ function ShipPicker({ narrow }: { narrow?: boolean }): React.ReactElement {
     <div ref={ref} className="no-drag" style={{ display: 'flex', alignItems: 'center', gap: 9, marginLeft: narrow ? 14 : 26, position: 'relative', minWidth: 0 }}>
       {!narrow && <span style={labelStyle}>SHIP</span>}
       <Btn onClick={() => setOpen((o) => !o)} title="Change active ship / cargo modules" style={{ display: 'flex', alignItems: 'center', gap: 8, border: `1px solid ${open ? C.acc : 'rgba(255,255,255,0.16)'}`, background: 'transparent', color: C.text, fontFamily: F.body, fontSize: 14, padding: '5px 11px', cursor: 'pointer', whiteSpace: 'nowrap', minWidth: 0, overflow: 'hidden' }} hoverStyle={{ border: `1px solid ${C.acc}`, textShadow: GLOW }}>
-        {activeNeedsGrid && <span title="Cargo grid not mapped for loading yet" style={{ color: '#e8b13a', fontSize: 13, lineHeight: 1, flex: 'none' }}>\u26a0</span>}
+        {activeNeedsGrid && <span title="Cargo grid not mapped for loading yet" style={{ color: '#e8b13a', fontSize: 13, lineHeight: 1, flex: 'none' }}>⚠</span>}
         <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', minWidth: 0 }}>{shipName}</span>
         {!narrow && <span style={{ fontFamily: F.mono, fontSize: 12, color: C.dim, flex: 'none' }}>{scu} SCU</span>}
         <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke={C.acc} strokeWidth="2.4" style={{ transform: open ? 'rotate(180deg)' : 'none', flex: 'none' }}><path d="M6 9l6 6 6-6" /></svg>
@@ -168,7 +168,7 @@ function ShipPicker({ narrow }: { narrow?: boolean }): React.ReactElement {
         )
       })}
       {activeNeedsGrid && !narrow && (
-        <span title="Pick a ship without the \u26a0 for an accurate layout" style={{ flex: '0 1 auto', minWidth: 0, marginLeft: 4, fontFamily: F.body, fontSize: 12, color: '#e8b13a', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>Cargo grid not mapped for loading yet</span>
+        <span title="Pick a ship without the ⚠ for an accurate layout" style={{ flex: '0 1 auto', minWidth: 0, marginLeft: 4, fontFamily: F.body, fontSize: 12, color: '#e8b13a', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>Cargo grid not mapped for loading yet</span>
       )}
     </div>
   )

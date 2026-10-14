@@ -11,7 +11,7 @@ import { EditForm } from './JobsPartsUi'
 import { miniBtn, tagStyle } from './JobsPartsStyles'
 export { AddForm, miniBtn, outlineBtn } from './JobsPartsStyles'
 
-export function JobRow({ job, uex, expanded, editing, onToggle, onEdit, onCancelEdit, onSaveEdit, onAbandon, onComplete, onImportOcr, onStep }: {
+export function JobRow({ job, uex, expanded, editing, onToggle, onEdit, onCancelEdit, onSaveEdit, onAbandon, onRestore, onComplete, onImportOcr, onStep }: {
   job: OtherJob
   uex: { locations: string[]; items: string[] }
   expanded: boolean
