@@ -55,6 +55,8 @@ function parseDoc(raw: string): Parsed {
   check('listOrder', (v) => v === 'distance' || v === 'route' || v === 'manual')
   check('jobOrder', (v) => Array.isArray(v) && v.every(isStr))
   check('lastLogEventAt', isStr)
+  check('currentLocation', (v) => v === null || isStr(v))
+  check('currentLocationAt', isStr)
   check('rev', (v) => typeof v === 'number' && Number.isFinite(v))
   if (dropped.length) logger.warn('other', 'jobs file: bad field types reset', { fields: dropped })
   return { ok: true, doc: out as unknown as OtherJobsDoc }

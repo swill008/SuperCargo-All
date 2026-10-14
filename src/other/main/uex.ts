@@ -80,6 +80,53 @@ function attachCoords(places: Location[], haul: Location[]): Location[] {
   })
 }
 
+type Pos = { name: string; aliases?: string[]; system: string; body?: string; x: number; y: number; z: number }
+
+const norm = (s: string): string => s.toLowerCase().replace(/[^a-z0-9]+/g, '')
+
+// bundled data/uex/other-positions.json (scripts/gen-other-positions.mjs)
+let positions: Map<string, Pos[]> | null = null
+function positionIndex(): Map<string, Pos[]> {
+  if (positions) return positions
+  positions = new Map()
+  const candidates = [
+    path.join(process.resourcesPath ?? '', 'data', 'uex', 'other-positions.json'),
+    path.join(app.getAppPath(), 'data', 'uex', 'other-positions.json'),
+    path.join(app.getAppPath(), '..', '..', 'data', 'uex', 'other-positions.json')
+  ]
+  const file = candidates.find((p) => fs.existsSync(p))
+  if (!file) return positions
+  try {
+    const j = JSON.parse(fs.readFileSync(file, 'utf8')) as { places?: Pos[] }
+    const add = (k: string, p: Pos): void => {
+      if (!k) return
+      const list = positions!.get(k) ?? []
+      list.push(p)
+      positions!.set(k, list)
+    }
+    // names first, then aliases, so a name match wins over an alias
+    for (const p of j.places ?? []) add(norm(p.name), p)
+    for (const p of j.places ?? []) for (const a of p.aliases ?? []) if (!positions.has(norm(a))) add(norm(a), p)
+  } catch (e) {
+    logger.warn('other', 'other-positions.json unreadable', { error: (e as Error)?.message ?? String(e) })
+  }
+  return positions
+}
+
+// fill places the haul cache could not place from the bundled starmap positions
+function fillFromPositions(places: Location[]): Location[] {
+  const idx = positionIndex()
+  if (!idx.size) return places
+  return places.map((p) => {
+    if (p.x != null) return p
+    const hits = idx.get(norm(p.name))
+    if (!hits) return p
+    const hit = hits.find((h) => !p.system || h.system === p.system) ?? (hits.length === 1 && !p.system ? hits[0] : undefined)
+    if (!hit) return p
+    return { ...p, x: hit.x, y: hit.y, z: hit.z, system: p.system || hit.system, body: p.body || hit.body }
+  })
+}
+
 function dedupe(list: Location[]): Location[] {
   const by = new Map<string, Location>()
   for (const l of list) {
@@ -93,7 +140,7 @@ function dedupe(list: Location[]): Location[] {
 export function loadOtherPlaces(): Location[] {
   try {
     const j = JSON.parse(fs.readFileSync(cacheFile(), 'utf8')) as { places?: Location[] }
-    return Array.isArray(j.places) ? j.places : []
+    return Array.isArray(j.places) ? fillFromPositions(j.places) : []
   } catch {
     return []
   }
@@ -107,7 +154,7 @@ export async function refreshOtherPlaces(haul: Location[]): Promise<Location[]> 
       pull('outposts')
     ])
     const mapped = [...cities, ...stations, ...outposts].map(asLoc).filter((x): x is Location => !!x)
-    const places = dedupe(attachCoords(mapped, haul))
+    const places = dedupe(fillFromPositions(attachCoords(mapped, haul)))
     fs.writeFileSync(cacheFile(), JSON.stringify({ syncedAt: new Date().toISOString(), places }, null, 2))
     console.log(`[otherUex] cached ${places.length} cities/stations/outposts`)
     logger.info('other', 'places cached', { places: places.length, withCoords: places.filter((p) => p.x != null).length })

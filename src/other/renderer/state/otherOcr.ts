@@ -11,6 +11,7 @@ import { useStore } from '@renderer/state/store'
 import { dlog } from '@renderer/state/log'
 import { trace } from '@renderer/state/trace'
 import { mergeLocations } from './otherPlaces'
+import { snapOtherLocationOcr, type OtherLocationSnap } from '@other/otherLocationSnap'
 
 /** 'ocr' trace record. Text is cut to 500 chars; images never go in. */
 export function traceOcr(what: string, missionId: string | undefined, data: Record<string, unknown>, text?: string): void {
@@ -54,8 +55,14 @@ export function applyOcrRows(
 
   const incoming = mergeCollectIntoDeliver(payload.rows)
   const steps: OtherStep[] = []
+  // OCR places get the log path's snap plus OCR-misread tolerance; the text as read stays on
+  // locationRaw / pickupLocationRaw for the tooltip. Neutralize targets are not places (as in stepFromParse).
+  const snapOcr = (raw: string | undefined, label: string): OtherLocationSnap | null =>
+    raw && !/^(?:OPTIONAL:\s*)?Neutralize\s/i.test(label) ? snapOtherLocationOcr(raw, locations) : null
   for (const row of incoming) {
-    const loc = row.location || ''
+    const dest = snapOcr(row.location, row.label || '')
+    const pick = snapOcr(row.pickupLocation, row.label || '')
+    const loc = dest?.location ?? (row.location || '')
     const label = row.label || (row.item && loc
       ? `Deliver 0/${row.need || 1} ${row.item} to ${loc}`
       : loc
@@ -65,11 +72,19 @@ export function applyOcrRows(
       kind: row.kind,
       label,
       location: loc,
-      pickupLocation: row.pickupLocation,
+      pickupLocation: pick?.location ?? row.pickupLocation,
       item: row.item,
       have: row.have || 0,
       need: Math.max(1, row.need || 1)
     }, locations)
+    if (dest) {
+      step.locationRaw = dest.locationRaw
+      step.locationSnapped = dest.locationSnapped
+    }
+    if (pick && step.pickupLocation !== undefined) {
+      step.pickupLocationRaw = pick.locationRaw
+      step.pickupLocationSnapped = pick.locationSnapped
+    }
     if (steps.some((s) => stepKey(s) === stepKey(step))) continue
     steps.push(step)
   }
@@ -88,7 +103,7 @@ export function applyOcrRows(
     replacedSteps: job.steps.length,
     rewardFound: Number(payload.reward) || 0,
     reward,
-    steps: steps.map((s) => ({ kind: s.kind, label: s.label, location: s.location, item: s.item, need: s.need }))
+    steps: steps.map((s) => ({ kind: s.kind, label: s.label, location: s.location, locationRaw: s.locationSnapped ? s.locationRaw : undefined, item: s.item, need: s.need }))
   })
   dlog.info('other', 'ocr rows applied', {
     ref: job.ref,

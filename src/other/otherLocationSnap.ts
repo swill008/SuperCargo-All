@@ -76,6 +76,106 @@ export function snapOtherLocation(raw: string, locations: Location[]): OtherLoca
   return { location: cleaned, locationRaw, locationSnapped: false }
 }
 
+// ---- OCR-tolerant snap ----------------------------------------------------------------
+
+/** "CRU-LS5" / "CRU-LS" / "CRU-I5" -> "CRU-L5": OCR reads the Lagrange digit as S or adds one. */
+export function fixOcrLagrangeCodes(raw: string): string {
+  return raw
+    .replace(/\b([A-Za-z]{3})\s*-\s*[LI1|]\s*[S5]?\s*([1-5])\b/g, (_m, b: string, n: string) => `${b.toUpperCase()}-L${n}`)
+    .replace(/\b([A-Za-z]{3})\s*-\s*[LI1|]\s*S\b/g, (_m, b: string) => `${b.toUpperCase()}-L5`)
+}
+
+// words every station / port name shares; they never decide a match
+const GENERIC = new Set([
+  'station', 'spaceport', 'outpost', 'research', 'facility', 'mining', 'point', 'the', 'and', 'from',
+  'near', 'int', 'port', 'city', 'landing', 'pad', 'locker', 'zone', 'area', 'center', 'centre',
+  'plaza', 'hub', 'base', 'depot', 'site', 'system'
+])
+
+// S<->5, O<->0, l<->1<->I; rn<->m is tried as a second form
+const ocrCanon = (t: string): string => t.replace(/0/g, 'o').replace(/5/g, 's').replace(/[1i|]/g, 'l')
+const ocrForms = (t: string): string[] => {
+  const a = ocrCanon(t)
+  const b = a.replace(/rn/g, 'm')
+  return a === b ? [a] : [a, b]
+}
+
+function within1(a: string, b: string): boolean {
+  if (Math.abs(a.length - b.length) > 1) return false
+  let i = 0
+  let j = 0
+  let edits = 0
+  while (i < a.length && j < b.length) {
+    if (a[i] === b[j]) { i++; j++; continue }
+    if (++edits > 1) return false
+    if (a.length > b.length) i++
+    else if (b.length > a.length) j++
+    else { i++; j++ }
+  }
+  return edits + (a.length - i) + (b.length - j) <= 1
+}
+
+function tokenMatch(rawTok: string, locTok: string): boolean {
+  for (const r of ocrForms(rawTok)) {
+    for (const l of ocrForms(locTok)) {
+      if (r === l) return true
+      // a word whose start OCR lost: "dern" -> "modern"
+      if (r.length >= 4 && l.length > r.length && r.length >= l.length * 0.6 && (l.endsWith(r) || l.startsWith(r))) return true
+      if (Math.min(r.length, l.length) >= 5 && within1(r, l)) return true
+    }
+  }
+  return false
+}
+
+const tokens = (s: string): string[] => norm(s).split(' ').filter((t) => t.length >= 3)
+
+/** best roster place for a junk-laden OCR name, or null when not unique and confident */
+function ocrTokenMatch(raw: string, locations: Location[]): Location | null {
+  const rawToks = tokens(raw)
+  if (!rawToks.length) return null
+  let best: { loc: Location; score: number; cover: number } | null = null
+  let tie = false
+  for (const loc of locations) {
+    const own = tokens(loc.name).filter((t) => !GENERIC.has(t))
+    if (!own.length) continue
+    const matched = own.filter((t) => rawToks.some((r) => tokenMatch(r, t)))
+    const score = matched.length
+    const cover = score / own.length
+    const ok = (score >= 2 && cover >= 0.6) || (cover === 1 && matched.every((t) => t.length >= 5))
+    if (!ok) continue
+    if (!best || score > best.score || (score === best.score && cover > best.cover)) {
+      best = { loc, score, cover }
+      tie = false
+    } else if (score === best.score && cover === best.cover && loc.name !== best.loc.name) {
+      tie = true
+    }
+  }
+  return best && !tie ? best.loc : null
+}
+
+/**
+ * Same snap as the log path, made tolerant of OCR misreads (letter/digit swaps,
+ * "CRU-LS5", a lost word start, junk words). locationRaw keeps the OCR text as read.
+ * Only a unique confident match is taken; otherwise the log snap's result stands.
+ */
+export function snapOtherLocationOcr(raw: string, locations: Location[]): OtherLocationSnap {
+  const locationRaw = raw.replace(/\s+/g, ' ').replace(/[:.]+$/, '').trim()
+  if (!locationRaw) return { location: '', locationRaw: '', locationSnapped: false }
+  const fixed = fixOcrLagrangeCodes(locationRaw)
+  const plain = snapOtherLocation(fixed, locations)
+  const inRoster = (name: string): boolean => locations.some((l) => l.name.toLowerCase() === name.toLowerCase())
+  // snapped means "a roster name other than what OCR read", as on the log path
+  const done = (location: string): OtherLocationSnap => ({
+    location,
+    locationRaw,
+    locationSnapped: location !== locationRaw && inRoster(location)
+  })
+  if (!locations.length || isSystemDestination(fixed) || /patrol\s+coordinates/i.test(fixed)) return done(plain.location)
+  if (inRoster(plain.location)) return done(plain.location)
+  const hit = ocrTokenMatch(fixed, locations)
+  return done(hit ? hit.name : plain.location)
+}
+
 /** Real New Objective lines from Stacie's Game.logs (2026-09-12). */
 export const OTHER_LOCATION_SNAP_CASES: Array<{
   raw: string

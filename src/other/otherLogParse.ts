@@ -19,6 +19,27 @@ export interface OtherLineParserOptions {
 // notification kinds the parser reads; any other mission-looking notification is reported as unknown
 const HANDLED = ['Contract Accepted:', 'New Objective:', 'Objective Complete:', 'Objective Withdrawn:']
 const MISSIONISH = /^(Contract|Objective|Mission|New Objective|Bounty|Job)\b/i
+// notification kinds seen in real Game.logs that carry no job info: traced as
+// 'ignored: known (<label>)' instead of 'unknown'. Shared / Complete / Failed come from
+// <MissionShared> and <EndMission> already.
+const KNOWN: Array<[RegExp, string]> = [
+  [/^Contract Shared:/, 'contract shared'],
+  [/^Contract Complete:/, 'contract complete'],
+  [/^Contract Failed:/, 'contract failed'],
+  [/^Contract Not Accepted:/, 'contract not accepted'],
+  [/^Contract (?:Abandoned|Withdrawn|Expired|Available|Offered):/, 'contract status'],
+  [/^Mission (?:Complete|Failed|Abandoned):/, 'mission status'],
+  [/^Journal Entry Added:/, 'journal entry'],
+  [/^(?:Entered|Exited|Entering|Leaving) /, 'area change'],
+  [/^Hangar Request Completed:/, 'hangar request'],
+  [/^CrimeStat /, 'crimestat'],
+  [/^[^\n:]*\bReward:/i, 'reward'],
+  [/You've been awarded/i, 'reward'],
+  [/^(?:New Member Joined|Member Left|New Party Leader|Party Disbanded|Friend Added|You have (?:joined|left|been kicked))/, 'party'],
+  [/^Quantum Travel Calibration /, 'quantum calibration'],
+  [/^Standby, Local Emergency Services/, 'emergency services']
+]
+const knownLabel = (body: string): string | undefined => KNOWN.find(([re]) => re.test(body))?.[1]
 
 const ZERO_ID = '00000000-0000-0000-0000-000000000000'
 const ADDED = 'Added notification "'
@@ -67,7 +88,9 @@ export function createOtherLineParser(opts: OtherLineParserOptions = {}): OtherL
     if (onTrace) {
       const handled = HANDLED.some((h) => body.startsWith(h)) || (body.startsWith('Contract Not Accepted:') && body.includes('Contract Limit Exceeded'))
       if (!handled && (MISSIONISH.test(body) || missionIdOf(line))) {
-        onTrace({ what: 'unknown', line, kind: 'notification', data: { text: cleanText(body).slice(0, 200), missionId: missionIdOf(line) } })
+        const known = knownLabel(body)
+        const data = { text: cleanText(body).slice(0, 200), missionId: missionIdOf(line) }
+        onTrace({ what: known ? `ignored: known (${known})` : 'unknown', line, kind: 'notification', data })
       }
     }
 

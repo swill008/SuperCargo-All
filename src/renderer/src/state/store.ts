@@ -416,6 +416,8 @@ function nextOrder(contracts: HaulingContract[], prevOrder: string[]): string[] 
 
 // guards re-binding on repeat init
 let listenersBound = false
+/** init's promise, once per window (see init) */
+let haulInitOnce: Promise<void> | null = null
 // unsubscribes, for HMR teardown
 let listenerSubs: Array<() => void> = []
 const track = (u: () => void): void => {
@@ -704,6 +706,11 @@ export const useStore = create<StoreState>((set, get) => {
   const doReroute = async (seed?: string[]): Promise<void> => {
     const rt0 = Date.now()
     const { contracts, locations, settings, startLocation, currentLocation, isRouteAuto, stopOrder, deferredObjectives, storAlls } = get()
+    // the overlay in Other mode shows the Other checklist; Haul route planning there is wasted work
+    if (isCompactWindow && (settings.workMode ?? 'haul') === 'other') {
+      dlog.debug('haul', 'reroute skipped: compact window in other mode')
+      return
+    }
     const installed = settings.installedModules[settings.activeShip]
     const capacity = gridCapacity(settings.activeShip, installed)
     const bays = loadableGrids(settings.activeShip, installed)
@@ -715,7 +722,8 @@ export const useStore = create<StoreState>((set, get) => {
       for (const o of c.objectives)
         if ((o.pickedUpAt?.length ?? 0) > 0 && !o.delivered && o.turnedInScu === undefined) aboard.add(o.id)
     // seed (restore) pins order; else manual keeps, auto re-solves
-    const plan = computeRoutePlan(
+    // nothing to plan: no solver run
+    const plan = !active.length ? null : computeRoutePlan(
       active,
       locations,
       capacity,
@@ -1046,7 +1054,10 @@ export const useStore = create<StoreState>((set, get) => {
     loadingSteps: null,
     loadingBoxes: null,
 
-    init: async () => {
+    // once per window: StrictMode double-runs effects in dev and several components mount init;
+    // a second call gets the first call's promise (one load, one start-up reroute)
+    init: () =>
+      (haulInitOnce = haulInitOnce ?? (async (): Promise<void> => {
       const [
         settings,
         manifest,
@@ -1156,7 +1167,7 @@ export const useStore = create<StoreState>((set, get) => {
       // rebuild in the saved order, don't re-optimize
       void doReroute(get().stopOrder)
 
-      // bind once; a remount calls init again
+      // bind once (init itself runs once per window; HMR re-evaluates the module)
       if (listenersBound) return
       listenersBound = true
 
@@ -1445,7 +1456,12 @@ export const useStore = create<StoreState>((set, get) => {
       }))
       track(window.supercargo.onCompactState((s) => set({ compactOpen: s.open })))
       // overlay reflects opacity/scale changes made in the main window's settings
-      track(window.supercargo.onSettings((s) => set((st) => ({ settings: st.crew.role === 'member' ? leaderShip(s, st.settings) : s }))))
+      track(window.supercargo.onSettings((s) => {
+        const wasOther = (get().settings.workMode ?? 'haul') === 'other'
+        set((st) => ({ settings: st.crew.role === 'member' ? leaderShip(s, st.settings) : s }))
+        // the overlay skipped Haul planning while in Other mode; plan now that it shows Haul
+        if (isCompactWindow && wasOther && (get().settings.workMode ?? 'haul') !== 'other') scheduleReroute()
+      }))
 
       track(window.supercargo.onOcrStatus((s) =>
         set({ ocrStatus: (s as StoreState['ocrStatus']) ?? 'idle' })
@@ -1466,7 +1482,7 @@ export const useStore = create<StoreState>((set, get) => {
       void get().refreshOcrEngine()
       // backfill what the watcher missed
       void get().scanSession()
-    },
+    })()),
 
     setView: (view) => {
       trace({ area: 'usage', mode: 'haul', what: `view: ${view}`, data: { from: get().view } })

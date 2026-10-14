@@ -47,8 +47,8 @@ const api = {
   getSettings: (): Promise<AppSettings> => ipcRenderer.invoke(IPC.settingsGet),
   setSettings: (patch: Partial<AppSettings>): Promise<AppSettings> =>
     ipcRenderer.invoke(IPC.settingsSet, patch),
-  detectInstalls: (): Promise<{ installs: DetectedInstalls; ordered: string[] }> =>
-    ipcRenderer.invoke(IPC.detectInstalls),
+  detectInstalls: (opts?: { force?: boolean }): Promise<{ installs: DetectedInstalls; ordered: string[] }> =>
+    ipcRenderer.invoke(IPC.detectInstalls, opts),
   pickLogFile: (): Promise<string | null> => ipcRenderer.invoke(IPC.pickLogFile),
   exportRunFile: (payload: { defaultName: string; json: string }): Promise<string | null> =>
     ipcRenderer.invoke(IPC.exportRunFile, payload),

@@ -42,7 +42,8 @@ const TOGGLES: { key: BoolKey; label: string; hint: string }[] = [
   { key: 'otherSharedBadge', label: 'Shared badge', hint: 'Mark contracts a party member shared with you.' },
   { key: 'otherSessionSummary', label: 'Session summary', hint: 'Group History by game session with a per-session summary.' },
   { key: 'otherMarkerDistance', label: 'Distance from mission markers', hint: 'For a step with no named place, use its mission marker from the game log for the distance.' },
-  { key: 'otherAutoStart', label: 'Start from where I am', hint: 'Use your current station from the game log when STARTING AT is empty.' }
+  { key: 'otherAutoStart', label: 'Start from where I am', hint: 'Use your current station from the game log when STARTING AT is empty.' },
+  { key: 'otherOverlayDistance', label: 'Distances on the overlay', hint: 'Show how far the current and next stop are on the overlay card.' }
 ]
 
 export default function OtherSettingsBlock({

@@ -133,6 +133,10 @@ export interface OtherJobsDoc {
   markerZones?: Record<string, Record<string, OtherMarkerZone>>
   /** game build of the newest log session seen, so markers after a restart use the right zones */
   markerBuild?: string
+  /** where the player is, from the newest 'location' log event; null = left the known place */
+  currentLocation?: string | null
+  /** log time (ISO) of that 'location' event */
+  currentLocationAt?: string
   /** bumped on every save so a window can tell its own save from the other window's */
   rev?: number
 }

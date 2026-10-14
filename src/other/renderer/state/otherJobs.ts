@@ -61,8 +61,10 @@ interface OtherJobsState {
   sessionAt?: string
   /** marker zone centres per build (doc field) */
   markerZones: Record<string, Record<string, OtherMarkerZone>>
-  /** where the player is, from 'location' log events; not persisted */
+  /** where the player is, from 'location' log events (doc field, so the overlay sees it) */
   currentLocation: string | null
+  /** log time (ISO) of the 'location' event that set currentLocation (doc field) */
+  currentLocationAt?: string
   /** build of the newest log session (doc field) */
   markerBuild?: string
   /** start-up: last game session crashed and active log jobs were kept (rule 6) */
@@ -219,6 +221,7 @@ interface Draft {
   markerZones: Record<string, Record<string, OtherMarkerZone>>
   markerBuild?: string
   currentLocation: string | null
+  currentLocationAt?: string
 }
 
 // latest marker per objective, per mission; this run only (markers come before their objectives)
@@ -231,29 +234,52 @@ export function otherMissionMarkers(): ReadonlyMap<string, ReadonlyMap<string, M
 
 /**
  * Marker -> step: by ObjectiveId. "New Objective" and CreateMarker both carry the objective's id,
- * so a step takes the position of its own objective's latest marker, and nothing else. Only steps
- * whose place has no UEX coords get one; a step whose marker can't be placed keeps none (or the
- * last one it had). jobId limits the pass to one job.
+ * so a step takes the position of its own objective's latest marker. Steps filled by OCR (or edits)
+ * have no objectiveId: those without a UEX place take the mission's markers that no other step's
+ * objectiveId uses, in log order (a mission's markers and steps come in the same order), so the
+ * n-th such step gets the n-th unused marker; with one unused marker, the first such step gets it.
+ * Only steps whose place has no UEX coords get a position; a step whose marker can't be placed
+ * keeps none (or the last one it had). jobId limits the pass to one job.
  */
 function placeSteps(d: Draft, ctx: Ctx, jobId?: string): void {
   if (!otherSetting(ctx.settings, 'otherMarkerDistance') || !d.markerBuild) return
   const zones = d.markerZones[d.markerBuild] ?? {}
   const locations = useStore.getState().locations ?? []
+  const hasUex = (s: OtherStep): boolean => {
+    const named = findRosterLocation(s.location, locations)
+    return !!named && named.x != null && named.y != null && named.z != null
+  }
   d.jobs = d.jobs.map((j) => {
     if ((jobId && j.id !== jobId) || !j.missionId) return j
     const marks = missionMarkers.get(j.missionId)
     if (!marks) return j
+    // markers no step claims by objectiveId, in log order (Map keeps first-insert order)
+    const claimed = new Set(j.steps.map((s) => s.objectiveId).filter(Boolean))
+    const unused = [...marks.entries()].filter(([oid]) => !claimed.has(oid))
+    let nextUnused = 0
     let changed = false
     const steps = j.steps.map((s) => {
-      const m = s.objectiveId ? marks.get(s.objectiveId) : undefined
+      let m = s.objectiveId ? marks.get(s.objectiveId) : undefined
+      let byOrder: string | undefined
+      if (!m && !s.objectiveId) {
+        if (hasUex(s)) return s
+        const hit = unused[nextUnused++]
+        if (!hit) return s
+        byOrder = hit[0]
+        m = hit[1]
+      }
       if (!m) return s
-      const named = findRosterLocation(s.location, locations)
-      if (named && named.x != null && named.y != null && named.z != null) return s
+      if (!byOrder && hasUex(s)) return s
       const pos = resolveMarker(zones, m)
       if (!pos || (s.position && s.position.x === pos.x && s.position.y === pos.y && s.position.z === pos.z)) return s
       changed = true
-      decide('marker placed', j.missionId, { ref: j.ref, step: stepKey(s), objectiveId: s.objectiveId, zone: m.zoneHostId, build: d.markerBuild, pos })
-      dlog.debug('other', 'marker position on step', { ref: j.ref, stepKey: stepKey(s), zone: m.zoneHostId, build: d.markerBuild })
+      if (byOrder) {
+        decide('marker linked by order', j.missionId, { ref: j.ref, step: stepKey(s), objectiveId: byOrder, unused: unused.length, zone: m.zoneHostId, build: d.markerBuild, pos })
+        dlog.debug('other', 'marker linked to step by order', { ref: j.ref, stepKey: stepKey(s), unused: unused.length, zone: m.zoneHostId })
+      } else {
+        decide('marker placed', j.missionId, { ref: j.ref, step: stepKey(s), objectiveId: s.objectiveId, zone: m.zoneHostId, build: d.markerBuild, pos })
+        dlog.debug('other', 'marker position on step', { ref: j.ref, stepKey: stepKey(s), zone: m.zoneHostId, build: d.markerBuild })
+      }
       return { ...s, position: pos }
     })
     return changed ? { ...j, steps } : j
@@ -553,6 +579,7 @@ function reduce(d: Draft, e: OtherLogEvent, ctx: Ctx): void {
     case 'location':
       if (d.currentLocation !== e.name) decide('location', undefined, { from: d.currentLocation, to: e.name })
       d.currentLocation = e.name
+      d.currentLocationAt = e.at
       break
   }
   // exact watermark: the scan skips the first lastLogEventCount events at lastLogEventAt
@@ -596,6 +623,8 @@ export function buildOtherDoc(): OtherJobsDoc {
     lastLogEventCount: s.lastLogEventCount,
     markerZones: s.markerZones,
     markerBuild: s.markerBuild,
+    currentLocation: s.currentLocation,
+    currentLocationAt: s.currentLocationAt,
     rev: s.rev
   }
 }
@@ -635,6 +664,8 @@ function sendAction(a: OtherAction): void {
 }
 
 let listenersBound = false
+/** init's promise, once per window (see init) */
+let initOnce: Promise<void> | null = null
 let jobsChangedBound = false
 let mainBound = false
 
@@ -652,13 +683,15 @@ export const useOtherJobs = create<OtherJobsState>((set, get) => {
       expandedId: s.expandedId,
       markerZones: s.markerZones,
       markerBuild: s.markerBuild,
-      currentLocation: s.currentLocation
+      currentLocation: s.currentLocation,
+      currentLocationAt: s.currentLocationAt
     }
     const ctx: Ctx = { live, settings: settingsNow(), accepted: [] }
     for (const e of events) reduce(d, e, ctx)
     if (live) for (const e of events) sampleLatency(e)
     set({
       currentLocation: d.currentLocation,
+      currentLocationAt: d.currentLocationAt,
       jobs: d.jobs,
       lastLogEventAt: d.lastLogEventAt,
       lastLogEventCount: d.lastLogEventCount,
@@ -683,9 +716,149 @@ export const useOtherJobs = create<OtherJobsState>((set, get) => {
       lastLogEventCount: typeof doc.lastLogEventCount === 'number' ? doc.lastLogEventCount : 0,
       markerZones: doc.markerZones && typeof doc.markerZones === 'object' ? doc.markerZones : {},
       markerBuild: typeof doc.markerBuild === 'string' ? doc.markerBuild : undefined,
+      currentLocation: typeof doc.currentLocation === 'string' ? doc.currentLocation : null,
+      currentLocationAt: typeof doc.currentLocationAt === 'string' ? doc.currentLocationAt : undefined,
       rev: doc.rev ?? 0
     })
     useOtherHistory.getState().load(doc)
+  }
+
+  const runInit = async (opts?: { passive?: boolean }): Promise<void> => {
+    // rule 8: only the main window applies log events
+    const passive = !!opts?.passive || !isMain()
+    set({ passive })
+    // rule 8: the main window is the only writer, so only the overlay reloads on a save.
+    // The main window never reloads: its memory is the newest state, and a reload could drop
+    // a pending debounced save (an external edit of the file while the app runs is not supported).
+    if (passive && !jobsChangedBound) {
+      jobsChangedBound = true
+      window.supercargo.onOtherJobsChanged?.((p) => {
+        dlog.debug('other', 'jobs saved by main window; reloading', { rev: p?.rev })
+        void get().reloadFromDisk()
+      })
+    }
+    if (!passive && !mainBound) {
+      mainBound = true
+      window.supercargo.onOtherAction?.((a) => {
+        dlog.info('other', 'overlay action', a)
+        if (a.type === 'toggleStep') get().toggleStep(a.jobId, a.stepId)
+        else if (a.type === 'complete') get().completeJob(a.jobId)
+        else if (a.type === 'abandon') get().abandonJob(a.jobId)
+      })
+      window.addEventListener('beforeunload', flushSave)
+      // steps filled outside the reducer (OCR, edit) have no objectiveId: link this run's markers by order
+      let placing = false
+      useOtherJobs.subscribe((st, prev) => {
+        if (placing || st.jobs === prev.jobs || !st.markerBuild) return
+        const d: Draft = {
+          jobs: st.jobs,
+          history: useOtherHistory.getState().history,
+          lastLogEventAt: st.lastLogEventAt,
+          lastLogEventCount: st.lastLogEventCount,
+          sessionAt: st.sessionAt,
+          expandedId: st.expandedId,
+          markerZones: st.markerZones,
+          markerBuild: st.markerBuild,
+          currentLocation: st.currentLocation,
+          currentLocationAt: st.currentLocationAt
+        }
+        placeSteps(d, { live: false, settings: settingsNow(), accepted: [] })
+        if (d.jobs.every((j, i) => j === st.jobs[i])) return
+        placing = true
+        try {
+          set({ jobs: d.jobs })
+        } finally {
+          placing = false
+        }
+        get().persist()
+      })
+      // job rule 1: contracts accepted while in Haul mode stay ignored after switching to Other
+      useStore.subscribe((st, prev) => {
+        if (!st.ready || !prev.ready || !get().ready) return
+        if (resolveWorkMode(st.settings.workMode) !== 'other' || resolveWorkMode(prev.settings.workMode) === 'other') return
+        const at = new Date().toISOString()
+        decide('watermark moved: haul -> other', undefined, { from: get().lastLogEventAt, to: at })
+        dlog.info('other', 'work mode haul -> other: watermark moved to now', { from: get().lastLogEventAt, to: at })
+        set({ lastLogEventAt: at, lastLogEventCount: 0 })
+        saveNow()
+      })
+    }
+    if (!window.supercargo.loadOtherJobs) {
+      dlog.warn('other', 'init: no loadOtherJobs bridge')
+      set({ ready: true, jobs: [] })
+      return
+    }
+    const doc = await window.supercargo.loadOtherJobs()
+    dlog.info('other', 'init loaded', {
+      passive,
+      jobs: doc.jobs?.length ?? 0,
+      active: (doc.jobs ?? []).filter((j) => j.status === 'active').length,
+      history: doc.history?.length ?? 0,
+      listOrder: doc.listOrder,
+      jobOrder: doc.jobOrder?.length,
+      lastLogEventAt: doc.lastLogEventAt,
+      rev: doc.rev
+    })
+    loadDoc(doc)
+    // current session until a session event says otherwise: newest one on record
+    const sessions = [...(doc.jobs ?? []), ...(doc.history ?? [])].map((j) => j.sessionAt ?? '').sort()
+    set({ sessionAt: sessions[sessions.length - 1] || undefined })
+    if (passive) {
+      set({ ready: true })
+      return
+    }
+
+    bootSettings = await window.supercargo.getSettings()
+
+    // live events that arrive during the scan wait here, then skip any the scan already had
+    let buffer: OtherLogEvent[] | null = []
+    if (!listenersBound) {
+      listenersBound = true
+      dlog.info('other', 'binding log events')
+      window.supercargo.onOtherLogEvent?.((e) => {
+        if (buffer) buffer.push(e)
+        else get().applyEvent(e)
+      })
+    }
+
+    // rule 7: replay only events newer than the watermark, in one batch
+    let scanned: OtherLogEvent[] = []
+    if (window.supercargo.scanOtherEvents) {
+      try {
+        const res = await window.supercargo.scanOtherEvents(doc.lastLogEventAt)
+        scanned = skipApplied(res.events ?? [], doc.lastLogEventAt, doc.lastLogEventCount ?? 0)
+        // the session/build line sits above the watermark when the app starts mid-session
+        if (res.currentSession) {
+          const d0 = get()
+          if (d0.sessionAt !== res.currentSession.at || (res.currentSession.build && d0.markerBuild !== res.currentSession.build)) {
+            set({ sessionAt: res.currentSession.at, ...(res.currentSession.build ? { markerBuild: res.currentSession.build } : {}) })
+          }
+        }
+        dlog.info('other', 'startup scan result', {
+          since: doc.lastLogEventAt,
+          events: scanned.length,
+          files: res.files,
+          previousEnd: res.previousEnd,
+          jobsBefore: get().jobs.length
+        })
+        get().applyEvents(scanned, false)
+        // rule 6: a crash keeps jobs; say so once
+        const kept = get().jobs.filter((j) => j.status === 'active' && j.source === 'log').length
+        if (res.previousEnd === 'crash' && kept > 0 && otherSetting(settingsNow(), 'otherCrashNotice')) {
+          decide('crash: jobs kept', undefined, { kept })
+          dlog.info('other', 'crash notice', { kept })
+          set({ crashNotice: { kept } })
+        }
+      } catch (err) {
+        dlog.warn('other', 'startup scan failed', { error: (err as Error)?.message ?? String(err) })
+      }
+    } else dlog.warn('other', 'startup scan skipped: no scanOtherEvents bridge')
+
+    const seen = new Set(scanned.map((e) => JSON.stringify(e)))
+    const late = (buffer ?? []).filter((e) => !seen.has(JSON.stringify(e)))
+    buffer = null
+    if (late.length) get().applyEvents(late, true)
+    set({ ready: true })
   }
 
   return {
@@ -704,120 +877,13 @@ export const useOtherJobs = create<OtherJobsState>((set, get) => {
     markerZones: {},
     markerBuild: undefined,
     currentLocation: null,
+    currentLocationAt: undefined,
     crashNotice: null,
     dismissCrashNotice: () => set({ crashNotice: null }),
 
-    init: async (opts) => {
-      // rule 8: only the main window applies log events
-      const passive = !!opts?.passive || !isMain()
-      set({ passive })
-      // rule 8: the main window is the only writer, so only the overlay reloads on a save.
-      // The main window never reloads: its memory is the newest state, and a reload could drop
-      // a pending debounced save (an external edit of the file while the app runs is not supported).
-      if (passive && !jobsChangedBound) {
-        jobsChangedBound = true
-        window.supercargo.onOtherJobsChanged?.((p) => {
-          dlog.debug('other', 'jobs saved by main window; reloading', { rev: p?.rev })
-          void get().reloadFromDisk()
-        })
-      }
-      if (!passive && !mainBound) {
-        mainBound = true
-        window.supercargo.onOtherAction?.((a) => {
-          dlog.info('other', 'overlay action', a)
-          if (a.type === 'toggleStep') get().toggleStep(a.jobId, a.stepId)
-          else if (a.type === 'complete') get().completeJob(a.jobId)
-          else if (a.type === 'abandon') get().abandonJob(a.jobId)
-        })
-        window.addEventListener('beforeunload', flushSave)
-        // job rule 1: contracts accepted while in Haul mode stay ignored after switching to Other
-        useStore.subscribe((st, prev) => {
-          if (!st.ready || !prev.ready || !get().ready) return
-          if (resolveWorkMode(st.settings.workMode) !== 'other' || resolveWorkMode(prev.settings.workMode) === 'other') return
-          const at = new Date().toISOString()
-          decide('watermark moved: haul -> other', undefined, { from: get().lastLogEventAt, to: at })
-          dlog.info('other', 'work mode haul -> other: watermark moved to now', { from: get().lastLogEventAt, to: at })
-          set({ lastLogEventAt: at, lastLogEventCount: 0 })
-          saveNow()
-        })
-      }
-      if (!window.supercargo.loadOtherJobs) {
-        dlog.warn('other', 'init: no loadOtherJobs bridge')
-        set({ ready: true, jobs: [] })
-        return
-      }
-      const doc = await window.supercargo.loadOtherJobs()
-      dlog.info('other', 'init loaded', {
-        passive,
-        jobs: doc.jobs?.length ?? 0,
-        active: (doc.jobs ?? []).filter((j) => j.status === 'active').length,
-        history: doc.history?.length ?? 0,
-        listOrder: doc.listOrder,
-        jobOrder: doc.jobOrder?.length,
-        lastLogEventAt: doc.lastLogEventAt,
-        rev: doc.rev
-      })
-      loadDoc(doc)
-      // current session until a session event says otherwise: newest one on record
-      const sessions = [...(doc.jobs ?? []), ...(doc.history ?? [])].map((j) => j.sessionAt ?? '').sort()
-      set({ sessionAt: sessions[sessions.length - 1] || undefined })
-      if (passive) {
-        set({ ready: true })
-        return
-      }
-
-      bootSettings = await window.supercargo.getSettings()
-
-      // live events that arrive during the scan wait here, then skip any the scan already had
-      let buffer: OtherLogEvent[] | null = []
-      if (!listenersBound) {
-        listenersBound = true
-        dlog.info('other', 'binding log events')
-        window.supercargo.onOtherLogEvent?.((e) => {
-          if (buffer) buffer.push(e)
-          else get().applyEvent(e)
-        })
-      }
-
-      // rule 7: replay only events newer than the watermark, in one batch
-      let scanned: OtherLogEvent[] = []
-      if (window.supercargo.scanOtherEvents) {
-        try {
-          const res = await window.supercargo.scanOtherEvents(doc.lastLogEventAt)
-          scanned = skipApplied(res.events ?? [], doc.lastLogEventAt, doc.lastLogEventCount ?? 0)
-          // the session/build line sits above the watermark when the app starts mid-session
-          if (res.currentSession) {
-            const d0 = get()
-            if (d0.sessionAt !== res.currentSession.at || (res.currentSession.build && d0.markerBuild !== res.currentSession.build)) {
-              set({ sessionAt: res.currentSession.at, ...(res.currentSession.build ? { markerBuild: res.currentSession.build } : {}) })
-            }
-          }
-          dlog.info('other', 'startup scan result', {
-            since: doc.lastLogEventAt,
-            events: scanned.length,
-            files: res.files,
-            previousEnd: res.previousEnd,
-            jobsBefore: get().jobs.length
-          })
-          get().applyEvents(scanned, false)
-          // rule 6: a crash keeps jobs; say so once
-          const kept = get().jobs.filter((j) => j.status === 'active' && j.source === 'log').length
-          if (res.previousEnd === 'crash' && kept > 0 && otherSetting(settingsNow(), 'otherCrashNotice')) {
-            decide('crash: jobs kept', undefined, { kept })
-            dlog.info('other', 'crash notice', { kept })
-            set({ crashNotice: { kept } })
-          }
-        } catch (err) {
-          dlog.warn('other', 'startup scan failed', { error: (err as Error)?.message ?? String(err) })
-        }
-      } else dlog.warn('other', 'startup scan skipped: no scanOtherEvents bridge')
-
-      const seen = new Set(scanned.map((e) => JSON.stringify(e)))
-      const late = (buffer ?? []).filter((e) => !seen.has(JSON.stringify(e)))
-      buffer = null
-      if (late.length) get().applyEvents(late, true)
-      set({ ready: true })
-    },
+    // once per window: React StrictMode runs mount effects twice in dev; a second call
+    // (any opts) gets the first call's promise, so there is one load and one start-up scan
+    init: (opts) => (initOnce = initOnce ?? runInit(opts)),
 
     persist: () => {
       if (saveTimer !== null) window.clearTimeout(saveTimer)

@@ -7,7 +7,10 @@ import Typeahead from '@renderer/components/Typeahead'
 import { useStore } from '@renderer/state/store'
 import { otherSetting } from '@other/workMode'
 import { useOtherJobs } from '../state/otherJobs'
-import { listOpenStops, formatMapDistance, stepActionLabel, formatPlaceWithBodySystem, routeTotal, type OpenStopRow, type ListOrder } from '@other/otherNext'
+import {
+  listOpenStops, formatMapDistance, formatDistance, stepActionLabel, stepActivePlace, formatPlaceWithBodySystem, routeTotal,
+  resolveOrigin, groupByPlace, type OpenStopRow, type ListOrder
+} from '@other/otherNext'
 import { mergeLocations } from '../state/otherPlaces'
 import { otherView, withoutWithdrawn, JobTags } from './JobsPartsStyles'
 
@@ -18,10 +21,42 @@ const CIRCLED = ['\u2460', '\u2461', '\u2462', '\u2463', '\u2464', '\u2465', '\u
   '\u246a', '\u246b', '\u246c', '\u246d', '\u246e', '\u246f', '\u2470', '\u2471', '\u2472', '\u2473']
 const circled = (n: number): string => CIRCLED[n - 1] ?? `#${n}`
 const MARKER_TIP = 'from mission marker (estimate)'
+const NO_DISTANCE_TEXT: Record<'not-in-uex' | 'no-start', string> = {
+  'not-in-uex': 'Not found in UEX',
+  'no-start': 'open station inventory or manually set a start'
+}
 
-/** "≈" prefix for marker-based distances */
+/** short distance, "≈" prefix for marker-based ones */
 function distText(m: number | null, source: OpenStopRow['distanceSource']): string {
-  return `${source === 'marker' ? '\u2248' : ''}${formatMapDistance(m)}`
+  return `${source === 'marker' ? '\u2248' : ''}${formatDistance(m)}`
+}
+
+/** tooltip: exact distance, plus the marker note */
+function distTip(m: number | null, source: OpenStopRow['distanceSource']): string {
+  return `${formatMapDistance(m)}${source === 'marker' ? ` \u00b7 ${MARKER_TIP}` : ''}`
+}
+
+const placeKey = (p: string): string => p.toLowerCase().replace(/\s+/g, ' ').trim()
+
+/** one card on the page: a job (JOB grouping) or a stop where you go next (LOCATION grouping) */
+interface Group {
+  key: string
+  heading: string
+  rows: OpenStopRow[]
+  withdrawn: OpenStopRow[]
+  /** location grouping only: heading is a place name to format with body/system */
+  place: boolean
+  distance: number | null
+  leg: number | null
+  distanceSource: OpenStopRow['distanceSource']
+  noDistanceWhy: OpenStopRow['noDistanceWhy']
+}
+
+/** "<pickup> (pickup) → <dest>" or "→ N destinations" */
+function pickupHeading(place: string, rows: OpenStopRow[], fmt: (p: string) => string): string {
+  const dests = [...new Set(rows.map((r) => placeKey(r.dest)).filter(Boolean))]
+  const to = dests.length > 1 ? `${dests.length} destinations` : fmt(rows[0]?.dest ?? '')
+  return `${fmt(place)} (pickup) \u2192 ${to}`
 }
 
 export default function NextPage(): React.ReactElement {
@@ -29,6 +64,7 @@ export default function NextPage(): React.ReactElement {
   const typedStart = useOtherJobs((s) => s.startLocation)
   // where the game log says the player is (trace-other's store field)
   const currentLocation = useOtherJobs((s) => s.currentLocation)
+  const currentLocationAt = useOtherJobs((s) => s.currentLocationAt)
   const setStartLocation = useOtherJobs((s) => s.setStartLocation)
   const groupBy = useOtherJobs((s) => s.groupBy)
   const setGroupBy = useOtherJobs((s) => s.setGroupBy)
@@ -47,11 +83,18 @@ export default function NextPage(): React.ReactElement {
   const names = useMemo(() => locations.map((l) => l.name).filter(Boolean), [locations])
 
   const settings = useStore((s) => s.settings)
-  type Group = readonly [string, OpenStop[], OpenStop[]]
   const markerDistance = otherSetting(settings, 'otherMarkerDistance')
   // typed STARTING AT wins; empty falls back to the log's current station (otherAutoStart)
-  const autoStart = !typedStart.trim() && otherSetting(settings, 'otherAutoStart') && currentLocation ? currentLocation : null
-  const startLocation = autoStart ?? typedStart
+  const origin = resolveOrigin({
+    typed: typedStart,
+    current: currentLocation,
+    currentAt: currentLocationAt,
+    autoStart: otherSetting(settings, 'otherAutoStart')
+  })
+  const autoStart = origin.kind === 'current' ? origin.name : null
+  const startLocation = origin.name ?? ''
+  const pinned = !!typedStart.trim()
+  const station = currentLocation?.trim() || null
   const view = otherView(settings)
   // withdrawn steps are never next; 'grey' lists them dimmed under their group when showing all
   const liveJobs = useMemo(() => jobs.map(withoutWithdrawn), [jobs])
@@ -61,31 +104,49 @@ export default function NextPage(): React.ReactElement {
   )
 
   const groups = useMemo(() => {
-    const keyOf = (row: OpenStop): string =>
-      groupBy === 'job' ? `${row.job.ref} ${row.job.title}` : row.step.location.trim() || 'Unspecified location'
-    const map = new Map<string, OpenStop[]>()
-    for (const row of open) {
-      const key = keyOf(row)
-      const list = map.get(key) ?? []
-      list.push(row)
-      map.set(key, list)
+    let all: Group[]
+    if (groupBy === 'job') {
+      const map = new Map<string, OpenStop[]>()
+      for (const row of open) {
+        const key = `${row.job.ref} ${row.job.title}`
+        map.set(key, [...(map.get(key) ?? []), row])
+      }
+      all = [...map.entries()].map(([key, rows]) => {
+        const lead = rows.find((r) => r.distance != null)
+        return {
+          key, heading: key, rows, withdrawn: [], place: false,
+          distance: lead?.distance ?? null, leg: lead?.leg ?? null,
+          distanceSource: lead?.distanceSource ?? null, noDistanceWhy: rows[0]?.noDistanceWhy ?? null
+        }
+      })
+    } else {
+      // one stop per place you go next (pickup or delivery); heading and distance are that place's
+      all = groupByPlace(open).map((g) => ({
+        key: placeKey(g.place) || g.rows[0]?.step.id || 'unspecified',
+        heading: g.place.trim() || 'Unspecified location',
+        rows: g.rows, withdrawn: [], place: true,
+        distance: g.distance, leg: g.leg, distanceSource: g.distanceSource, noDistanceWhy: g.noDistanceWhy
+      }))
     }
-    const greyed = new Map<string, OpenStop[]>()
     if (showAll && view.withdrawn === 'grey') {
+      const byKey = new Map(all.map((g) => [g.key, g]))
       for (const job of jobs) {
         if (job.status !== 'active') continue
         for (const step of job.steps) {
           if (!step.withdrawn) continue
-          const key = keyOf({ job, step } as OpenStop)
-          if (!map.has(key)) continue
-          greyed.set(key, [...(greyed.get(key) ?? []), { job, step, distance: null, leg: null, distanceSource: null, noDistance: false }])
+          const key = groupBy === 'job' ? `${job.ref} ${job.title}` : placeKey(stepActivePlace(step))
+          const g = byKey.get(key)
+          if (!g) continue
+          g.withdrawn.push({
+            job, step, distance: null, leg: null, distanceSource: null, noDistance: false,
+            place: stepActivePlace(step), pickup: false, dest: step.location, noDistanceWhy: null
+          })
         }
       }
     }
-    const all = [...map.entries()].map(([k, rows]) => [k, rows, greyed.get(k) ?? []] as const)
     // groups whose stops all lack a distance go last, under their own divider
-    const placed = all.filter(([, rows]) => !rows.every((r) => r.noDistance))
-    const unplaced = all.filter(([, rows]) => rows.every((r) => r.noDistance))
+    const placed = all.filter((g) => !g.rows.every((r) => r.noDistance))
+    const unplaced = all.filter((g) => g.rows.every((r) => r.noDistance))
     return { placed, unplaced }
   }, [open, groupBy, jobs, showAll, view.withdrawn])
 
@@ -101,9 +162,18 @@ export default function NextPage(): React.ReactElement {
         : `Sorted by distance from ${startLocation.trim()}${autoStart ? ' (auto)' : ''} \u00b7 nearest first`
   const activeCount = jobs.filter((j) => j.status === 'active').length
 
-  const renderGroup = ([heading, rows, withdrawn]: Group, gi: number): React.ReactElement => (
+  const fmtPlace = (p: string): string => formatPlaceWithBodySystem(p, locations)
+  const renderGroup = (g: Group, gi: number): React.ReactElement => {
+    const { rows, withdrawn } = g
+    const pickup = g.place && rows.some((r) => r.pickup)
+    const title = !g.place ? g.heading : pickup ? pickupHeading(g.heading, rows, fmtPlace) : fmtPlace(g.heading)
+    const snapped = g.place
+      ? rows.some((r) => (r.pickup ? r.step.pickupLocationSnapped : r.step.locationSnapped))
+      : rows.some((r) => r.step.locationSnapped)
+    const why = g.distance == null && g.noDistanceWhy ? NO_DISTANCE_TEXT[g.noDistanceWhy] : null
+    return (
         <div
-          key={heading}
+          key={g.key}
           draggable={listOrder === 'manual' && groupBy === 'job'}
           onDragStart={(e) => {
             const id = rows[0]?.job.id
@@ -146,24 +216,24 @@ export default function NextPage(): React.ReactElement {
               width: 22, height: 22, borderRadius: '50%', border: `1px solid ${C.acc}`, color: C.acc,
               fontFamily: F.display, fontSize: 12, display: 'inline-flex', alignItems: 'center', justifyContent: 'center', flex: 'none'
             }}>{gi + 1}</span>
-            <div style={{ fontFamily: F.display, fontSize: 16, color: rows.some((r) => r.step.locationSnapped) ? C.acc : C.text, flex: 1 }}>
-              {groupBy === 'job' ? heading : formatPlaceWithBodySystem(heading, locations)}
+            <div style={{ fontFamily: F.display, fontSize: 16, color: snapped ? C.acc : C.text, flex: 1 }}>
+              {title}
             </div>
             {groupBy === 'job' && rows[0] ? <JobTags rep={rows[0].job.rep} sharedBy={rows[0].job.sharedBy} view={view} /> : null}
-            {(() => {
-              const lead = rows.find((r) => r.distance != null)
-              if (!lead) return null
-              return (
-                <div title={lead.distanceSource === 'marker' ? MARKER_TIP : undefined} style={{ textAlign: 'right', flex: 'none' }}>
-                  <div style={{ fontFamily: F.mono, fontSize: 14, color: C.text }}>{distText(lead.distance, lead.distanceSource)}</div>
-                  {lead.leg != null ? (
-                    <div style={{ fontFamily: F.mono, fontSize: 11, color: C.dim, marginTop: 2 }}>
-                      {`+${formatMapDistance(lead.leg)} from ${gi === 0 ? 'start' : circled(gi)}`}
-                    </div>
-                  ) : null}
+            {g.distance != null ? (
+              <div style={{ textAlign: 'right', flex: 'none' }}>
+                <div title={distTip(g.distance, g.distanceSource)} style={{ fontFamily: F.mono, fontSize: 14, color: C.text }}>
+                  {distText(g.distance, g.distanceSource)}
                 </div>
-              )
-            })()}
+                {g.leg != null ? (
+                  <div title={formatMapDistance(g.leg)} style={{ fontFamily: F.mono, fontSize: 11, color: C.dim, marginTop: 2 }}>
+                    {`+${formatDistance(g.leg)} from ${gi === 0 ? 'start' : circled(gi)}`}
+                  </div>
+                ) : null}
+              </div>
+            ) : why ? (
+              <div style={{ fontFamily: F.body, fontSize: 11, color: C.dim, textAlign: 'right', flex: 'none', maxWidth: 220 }}>{why}</div>
+            ) : null}
             {listOrder === 'manual' && groupBy === 'job' && rows[0] ? (
               <span style={{ display: 'flex', gap: 4, flex: 'none' }}>
                 <Btn onClick={() => moveJob(rows[0].job.id, -1)} style={{
@@ -195,7 +265,7 @@ export default function NextPage(): React.ReactElement {
                 <div style={{ fontFamily: F.mono, fontSize: 12, color: C.dim, marginTop: 2 }}>
                   {job.ref}
                   {distance != null ? (
-                    <span title={distanceSource === 'marker' ? MARKER_TIP : undefined}>{` \u00b7 ${distText(distance, distanceSource)}`}</span>
+                    <span title={distTip(distance, distanceSource)}>{` \u00b7 ${distText(distance, distanceSource)}`}</span>
                   ) : ''}
                   {groupBy === 'location' ? <span style={{ marginLeft: 8 }}><JobTags rep={job.rep} sharedBy={job.sharedBy} view={view} /></span> : null}
                 </div>
@@ -216,7 +286,8 @@ export default function NextPage(): React.ReactElement {
             </div>
           ))}
         </div>
-  )
+    )
+  }
 
   return (
     <div style={{ padding: PAGE_PADDING }}>
@@ -260,19 +331,25 @@ export default function NextPage(): React.ReactElement {
       <div style={{ display: 'flex', gap: 18, marginBottom: 22, flexWrap: 'wrap' }}>
         <Stat label="JOBS" value={String(activeCount)} />
         <Stat label="STOPS" value={String(open.length)} />
-        {total != null ? <Stat label="ROUTE" value={formatMapDistance(total)} /> : null}
+        {total != null ? <Stat label="ROUTE" value={formatDistance(total)} title={formatMapDistance(total)} /> : null}
         <Stat
           label="NEAREST"
-          value={!hasStart ? 'Set start' : nearest ? (nearest.step.location || nearest.step.label || '\u2014') : '\u2014'}
+          value={!hasStart ? 'Set start' : nearest ? (nearest.place || nearest.step.label || '\u2014') : '\u2014'}
           sub={nearest ? distText(nearest.distance, nearest.distanceSource) : undefined}
-          title={nearest?.distanceSource === 'marker' ? MARKER_TIP : undefined}
+          title={nearest ? distTip(nearest.distance, nearest.distanceSource) : undefined}
         />
       </div>
       <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 18, flexWrap: 'wrap' }}>
         <span style={{ fontFamily: F.display, fontSize: 11, letterSpacing: '0.16em', color: C.dim, flex: 'none' }}>STARTING AT</span>
+        <AutoToggle
+          pinned={pinned}
+          station={station}
+          onPin={() => { if (station) setStartLocation(station) }}
+          onFollow={() => setStartLocation('')}
+        />
         <div
           style={{ flex: '1 1 240px', minWidth: 220, maxWidth: 380, position: 'relative' }}
-          title={autoStart ? AUTO_TIP : undefined}
+          title={autoStart ? `${AUTO_TIP}${origin.stale ? ' \u00b7 last seen over 5 min ago' : ''}` : undefined}
         >
           <Typeahead
             value={typedStart}
@@ -286,7 +363,6 @@ export default function NextPage(): React.ReactElement {
             placeholder={autoStart ? `Auto: ${autoStart}` : 'Type city or station \u2014 e.g. New Babbage'}
           />
         </div>
-        {autoStart ? <AutoTag /> : null}
         <span style={{ fontFamily: F.body, fontSize: 12, color: C.dim }}>Type to search the full UEX list. Open list is only the first matches.</span>
         {typedStart && (
           <Btn onClick={() => setStartLocation('')} style={{
@@ -300,7 +376,7 @@ export default function NextPage(): React.ReactElement {
       {groups.unplaced.length > 0 ? (
         <div style={{ display: 'flex', alignItems: 'center', gap: 10, margin: '22px 0 12px' }}>
           <span style={{ fontFamily: F.display, fontSize: 11, letterSpacing: '0.16em', color: C.dim, flex: 'none' }}>
-            {`NO DISTANCE (${groups.unplaced.length}) \u00b7 place not in UEX and no marker`}
+            {`NO DISTANCE (${groups.unplaced.length}) \u00b7 ${NO_DISTANCE_TEXT['not-in-uex']}`}
           </span>
           <span style={{ flex: 1, borderTop: `1px solid ${C.lineStrong}` }} />
         </div>
@@ -321,18 +397,35 @@ function Stat({ label, value, sub, title }: { label: string; value: string; sub?
 }
 
 const AUTO_TIP = 'from the game log; type to override'
+const FOLLOW_TIP = 'Following your station from the game log \u2014 click to pin it'
+const PINNED_TIP = 'Pinned \u2014 click to follow the game log again'
+const NO_STATION_TIP = 'no station from the game log yet'
 
-/** small tag beside STARTING AT while it follows the game log */
-export function AutoTag(): React.ReactElement {
+/** AUTO (empty start, follows the log's station) <-> PINNED (start set); click flips it */
+export function AutoToggle({ pinned, station, onPin, onFollow }: {
+  pinned: boolean
+  station: string | null
+  onPin: () => void
+  onFollow: () => void
+}): React.ReactElement {
+  const disabled = !pinned && !station
+  const color = disabled ? C.ghost : pinned ? C.acc : C.amber
   return (
-    <span
-      title={AUTO_TIP}
+    <Btn
+      onClick={() => {
+        if (disabled) return
+        if (pinned) onFollow()
+        else onPin()
+      }}
+      aria-disabled={disabled}
+      title={disabled ? NO_STATION_TIP : pinned ? PINNED_TIP : FOLLOW_TIP}
       style={{
-        fontFamily: F.display, fontSize: 10, letterSpacing: '0.14em', color: C.amber,
-        border: `1px solid ${C.amber}`, padding: '2px 6px', flex: 'none'
+        fontFamily: F.display, fontSize: 10, letterSpacing: '0.14em', color,
+        border: `1px solid ${color}`, background: 'transparent', padding: '3px 8px', flex: 'none',
+        cursor: disabled ? 'not-allowed' : 'pointer', opacity: disabled ? 0.5 : 1
       }}
     >
-      AUTO
-    </span>
+      {pinned ? 'PINNED' : 'AUTO'}
+    </Btn>
   )
 }

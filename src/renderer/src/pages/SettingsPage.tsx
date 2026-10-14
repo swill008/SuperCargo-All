@@ -125,7 +125,7 @@ export default function SettingsPage(): React.ReactElement {
 
   const redetect = async (): Promise<void> => {
     setDetecting(true)
-    const res = await window.supercargo.detectInstalls()
+    const res = await window.supercargo.detectInstalls({ force: true })
     setInstalls(res.installs)
     setOrdered(res.ordered)
     setDetecting(false)

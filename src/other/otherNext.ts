@@ -145,6 +145,17 @@ export function formatMapDistance(meters: number | null): string {
   return `${Math.round(meters)} m`
 }
 
+/** Short form for play: "830 km", "4.7 Mm", "57.9 Gm"; under 1 km in metres. */
+export function formatDistance(m: number | null): string {
+  if (m == null || !Number.isFinite(m)) return '\u2014'
+  const km = Math.abs(m) / 1000
+  if (km < 1) return `${Math.round(Math.abs(m))} m`
+  if (Math.round(km) < 1000) return `${Math.round(km)} km`
+  const Mm = km / 1000
+  if (Number(Mm.toFixed(1)) < 1000) return `${Mm.toFixed(1)} Mm`
+  return `${(Mm / 1000).toFixed(1)} Gm`
+}
+
 export function compareByDistanceFrom(
   startName: string,
   locations: Location[],
@@ -172,12 +183,125 @@ export interface OpenStopRow {
   distanceSource: 'uex' | 'marker' | null
   /** a start is set but this row's distance can't be computed */
   noDistance: boolean
+  /** where you go next for this step (stepActivePlace) */
+  place: string
+  /** place is an uncollected pickup */
+  pickup: boolean
+  /** the step's delivery / location */
+  dest: string
+  /** why distance/leg is missing: place has no coords, or no origin to measure from */
+  noDistanceWhy: 'not-in-uex' | 'no-start' | null
+  /** place position used for distance/leg (UEX coords or marker); absent when unknown */
+  point?: { x: number; y: number; z: number }
+}
+
+/** true while the step's next place is a pickup not yet collected */
+export function stepIsPickup(step: OtherStep): boolean {
+  return !!step.pickupLocation && !step.pickedUp && !step.done
+}
+
+/** the step's delivery / location (not the pickup) */
+export function stepDest(step: OtherStep): string {
+  return step.location || step.label || ''
+}
+
+const STALE_MS = 5 * 60 * 1000
+
+/** Origin for distances: typed start wins; else the current location when autoStart. */
+export function resolveOrigin(o: {
+  typed?: string
+  current?: string | null
+  /** ISO string or epoch ms */
+  currentAt?: string | number | null
+  autoStart: boolean
+  now?: number
+}): { name: string | null; kind: 'typed' | 'current' | null; stale: boolean } {
+  const typed = o.typed?.trim()
+  if (typed) return { name: typed, kind: 'typed', stale: false }
+  const cur = o.current?.trim()
+  if (!o.autoStart || !cur) return { name: null, kind: null, stale: false }
+  const t = typeof o.currentAt === 'number' ? o.currentAt : o.currentAt ? Date.parse(o.currentAt) : NaN
+  const now = o.now ?? Date.now()
+  return { name: cur, kind: 'current', stale: Number.isFinite(t) && now - t > STALE_MS }
+}
+
+export interface StopGroup {
+  place: string
+  pickup: boolean
+  rows: OpenStopRow[]
+  distance: number | null
+  leg: number | null
+  distanceSource: 'uex' | 'marker' | null
+  noDistanceWhy: OpenStopRow['noDistanceWhy']
+}
+
+const placeKey = (p: string): string => p.toLowerCase().replace(/\s+/g, ' ').trim()
+
+/** Rows with the same place become one stop at the position of their first row; legs recomputed between stops. */
+export function groupByPlace(rows: OpenStopRow[]): StopGroup[] {
+  const groups: StopGroup[] = []
+  const byKey = new Map<string, StopGroup>()
+  const groupOfRow: StopGroup[] = []
+  for (const r of rows) {
+    const key = placeKey(r.place)
+    let g = key ? byKey.get(key) : undefined
+    if (!g) {
+      g = {
+        place: r.place,
+        pickup: false,
+        rows: [],
+        distance: r.distance,
+        leg: null,
+        distanceSource: r.distanceSource,
+        noDistanceWhy: r.noDistanceWhy
+      }
+      groups.push(g)
+      if (key) byKey.set(key, g)
+    }
+    g.rows.push(r)
+    g.pickup = g.pickup || r.pickup
+    groupOfRow.push(g)
+  }
+  groups.forEach((g, i) => {
+    const first = g.rows[0]
+    if (i === 0) {
+      g.leg = first.distance
+    } else {
+      const prev = groups[i - 1].rows[0]
+      const d = pointDistance(prev.point, first.point)
+      if (d != null) g.leg = d
+      else {
+        // no points carried: the original leg is right only when the row before it was in the previous stop
+        const at = rows.indexOf(first)
+        g.leg = at > 0 && groupOfRow[at - 1] === groups[i - 1] ? first.leg : null
+      }
+    }
+    g.noDistanceWhy =
+      first.noDistanceWhy === 'not-in-uex' ? 'not-in-uex' : g.distance == null && g.leg == null ? 'no-start' : null
+  })
+  return groups
+}
+
+/** Stops left from fromIndex (inclusive) and the sum of their legs (the leg into fromIndex included); null when any is unknown. */
+export function remainingRoute(groups: StopGroup[], fromIndex: number): { stops: number; distance: number | null } {
+  const from = Math.max(0, fromIndex)
+  const stops = Math.max(0, groups.length - from)
+  let distance: number | null = 0
+  for (let i = from; i < groups.length; i++) {
+    const leg = groups[i].leg
+    if (leg == null) {
+      distance = null
+      break
+    }
+    distance += leg
+  }
+  return { stops, distance }
 }
 
 /** Place the list should sort / show for this step's current phase. */
 export function stepActivePlace(step: OtherStep): string {
-  if (step.pickupLocation && !step.pickedUp && !step.done) return step.pickupLocation
-  return step.location || step.label || ''
+  if (stepIsPickup(step)) return step.pickupLocation!
+  return stepDest(step)
 }
 
 export function stepActionLabel(step: OtherStep): string {
@@ -253,7 +377,12 @@ function stepPointWithSource(
   return undefined
 }
 
-type Placed = BaseRow & { point?: Pos; distance: number | null; distanceSource: 'uex' | 'marker' | null }
+type Placed = BaseRow & {
+  point?: Pos
+  source?: 'uex' | 'marker'
+  distance: number | null
+  distanceSource: 'uex' | 'marker' | null
+}
 
 /** greedy nearest-neighbour from start over rows with a known point; ties keep input order */
 function routeOrder(rows: Placed[], start: Pos): Placed[] {
@@ -293,9 +422,9 @@ export function listOpenStops(
   // route chains from the log order, not the distance sort
   const base = baseOpenStops(jobs, startLocation, locations, opts, listOrder === 'route' ? 'manual-free' : listOrder)
   const placed: Placed[] = base.map((r) => {
-    const hit = start ? stepPointWithSource(r.step, locations, useMarker) : undefined
-    const distance = hit ? pointDistance(start, hit.point) : null
-    return { ...r, point: hit?.point, distance, distanceSource: distance == null ? null : hit!.source }
+    const hit = stepPointWithSource(r.step, locations, useMarker)
+    const distance = hit && start ? pointDistance(start, hit.point) : null
+    return { ...r, point: hit?.point, source: hit?.source, distance, distanceSource: distance == null ? null : hit!.source }
   })
 
   let ordered: Placed[] = placed
@@ -309,13 +438,23 @@ export function listOpenStops(
   return ordered.map((r) => {
     const leg = prev && r.point ? pointDistance(prev, r.point) : null
     prev = r.point
+    const noDistanceWhy: OpenStopRow['noDistanceWhy'] = !r.point
+      ? 'not-in-uex'
+      : !start && leg == null
+        ? 'no-start'
+        : null
     return {
       job: r.job,
       step: r.step,
       distance: r.distance,
       leg,
-      distanceSource: r.distanceSource,
-      noDistance: hasStart && r.distance == null
+      distanceSource: r.distanceSource ?? (leg != null ? r.source ?? null : null),
+      noDistance: hasStart && r.distance == null,
+      place: stepActivePlace(r.step),
+      pickup: stepIsPickup(r.step),
+      dest: stepDest(r.step),
+      noDistanceWhy,
+      ...(r.point ? { point: { x: r.point.x!, y: r.point.y!, z: r.point.z! } } : {})
     }
   })
 }

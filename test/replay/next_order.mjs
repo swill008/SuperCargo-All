@@ -37,6 +37,18 @@ esbuild.buildSync({
   alias: { '@shared': path.join(root, 'src/shared'), '@other': path.join(root, 'src/other') }
 })
 const C = await import(pathToFileURL(locFile).href)
+const snapFile = path.join(tmp, 'otherLocationSnap.mjs')
+esbuild.buildSync({
+  entryPoints: [path.join(root, 'src/other/otherLocationSnap.ts')],
+  bundle: true,
+  platform: 'node',
+  format: 'esm',
+  outfile: snapFile,
+  logLevel: 'error',
+  tsconfig: path.join(root, 'tsconfig.node.json'),
+  alias: { '@shared': path.join(root, 'src/shared'), '@other': path.join(root, 'src/other') }
+})
+const S = await import(pathToFileURL(snapFile).href)
 
 const locations = JSON.parse(fs.readFileSync(path.join(root, 'data/uex/locations.json'), 'utf8')).locations
 const byName = (n) => locations.find((l) => l.name === n)
@@ -155,6 +167,130 @@ safe('current location', () => {
   check('current location', 'tracker current after request', t.current() === 'CRU-L1 Ambitious Dream Station', `current=${t.current()}`)
   t.push(leave)
   check('current location', 'leaving clears current, keeps last', t.current() === null && t.last() === 'CRU-L1 Ambitious Dream Station', `current=${t.current()} last=${t.last()}`)
+})
+
+// ---- batch 2026-10-14: formatDistance, row place fields, legs without a start, origin, groups ----
+const has = (name, fn) => {
+  const ok = typeof N[fn] === 'function'
+  if (!ok) check(name, `${fn} exported`, false, 'missing')
+  return ok
+}
+
+safe('formatDistance', () => {
+  if (!has('formatDistance', 'formatDistance')) return
+  for (const [m, want] of [
+    [450, '450 m'],
+    [830000, '830 km'],
+    [1.9e9, '1.9 Gm'],
+    [null, '—']
+  ]) {
+    const got = N.formatDistance(m)
+    check('formatDistance', `${m} -> ${want}`, got === want, `got ${JSON.stringify(got)}`)
+  }
+})
+
+safe('row places', () => {
+  const pick = {
+    ...job(9, 'Everus Harbor'),
+    steps: [{ id: 's9', kind: 'go', label: 'Deliver to Everus Harbor', location: 'Everus Harbor', pickupLocation: 'Port Tressler', pickedUp: false, have: 0, need: 1, done: false }]
+  }
+  const [r] = N.listOpenStops([pick], START, locations, { listOrder: 'distance' })
+  check('row places', 'place is the pickup before pick-up', r?.place === 'Port Tressler', `place=${r?.place}`)
+  check('row places', 'pickup flag and dest set', r?.pickup === true && r?.dest === 'Everus Harbor', `pickup=${r?.pickup} dest=${r?.dest}`)
+  const picked = { ...pick, steps: [{ ...pick.steps[0], pickedUp: true }] }
+  const [r2] = N.listOpenStops([picked], START, locations, { listOrder: 'distance' })
+  check('row places', 'place is the dest after pick-up', r2?.place === 'Everus Harbor' && r2?.pickup === false, `place=${r2?.place} pickup=${r2?.pickup}`)
+})
+
+safe('noDistanceWhy', () => {
+  const withStart = N.listOpenStops(jobs, START, locations, { listOrder: 'distance' })
+  const off = withStart.find((r) => placeOf(r) === OFF_MAP)
+  check('noDistanceWhy', "off-map place -> 'not-in-uex'", off?.noDistanceWhy === 'not-in-uex', `why=${off?.noDistanceWhy}`)
+  const uex = withStart.filter((r) => placeOf(r) !== OFF_MAP)
+  check('noDistanceWhy', 'measured rows -> null', uex.every((r) => r.noDistanceWhy === null), uex.map((r) => r.noDistanceWhy).join(','))
+  const noStart = N.listOpenStops(jobs, '', locations, { listOrder: 'distance' })
+  const uexNo = noStart.filter((r) => placeOf(r) !== OFF_MAP)
+  // with no start a UEX row still has a leg from the stop before it; only a row with nothing to show says 'no-start'
+  check('noDistanceWhy', "UEX rows with no start and no leg -> 'no-start', with a leg -> null", uexNo.some((r) => r.leg == null) && uexNo.every((r) => r.noDistanceWhy === (r.leg == null ? 'no-start' : null)), uexNo.map((r) => `${r.leg == null ? '-' : 'leg'}:${r.noDistanceWhy}`).join(','))
+  const offNo = noStart.find((r) => placeOf(r) === OFF_MAP)
+  check('noDistanceWhy', "off-map with no start -> 'not-in-uex'", offNo?.noDistanceWhy === 'not-in-uex', `why=${offNo?.noDistanceWhy}`)
+})
+
+safe('legs without a start', () => {
+  for (const listOrder of ['distance', 'route', 'manual']) {
+    const rows = N.listOpenStops(jobs, '', locations, { listOrder, jobOrder: jobs.map((j) => j.id) })
+    const pairs = rows.map((r, i) => [rows[i - 1], r]).slice(1).filter(([a, b]) => placeOf(a) !== OFF_MAP && placeOf(b) !== OFF_MAP)
+    const ok = pairs.length > 0 && pairs.every(([a, b]) => near(b.leg, dist(byName(placeOf(a)), byName(placeOf(b)))))
+    check(`no start/${listOrder}`, 'legs between UEX stops still computed', ok, rows.map((r) => (r.leg == null ? '-' : Math.round(r.leg / 1e6))).join(',') + ' Mm')
+    check(`no start/${listOrder}`, 'first row has no leg', rows[0]?.leg == null, `leg0=${rows[0]?.leg}`)
+  }
+})
+
+safe('resolveOrigin', () => {
+  if (!has('resolveOrigin', 'resolveOrigin')) return
+  const now = Date.parse('2026-10-14T12:00:00Z')
+  const min = 60000
+  const typed = N.resolveOrigin({ typed: 'Port Tressler', current: 'Everus Harbor', currentAt: now - min, autoStart: true, now })
+  check('resolveOrigin', 'typed start wins over current', typed?.name === 'Port Tressler' && typed?.kind === 'typed', JSON.stringify(typed))
+  const cur = N.resolveOrigin({ typed: '', current: 'Everus Harbor', currentAt: now - 4 * min, autoStart: true, now })
+  check('resolveOrigin', 'no typed + auto -> current, not stale at 4 min', cur?.name === 'Everus Harbor' && cur?.kind === 'current' && cur?.stale === false, JSON.stringify(cur))
+  const old = N.resolveOrigin({ typed: '', current: 'Everus Harbor', currentAt: now - 6 * min, autoStart: true, now })
+  check('resolveOrigin', 'current older than 5 min is stale', old?.name === 'Everus Harbor' && old?.stale === true, JSON.stringify(old))
+  const off = N.resolveOrigin({ typed: '', current: 'Everus Harbor', currentAt: now - min, autoStart: false, now })
+  check('resolveOrigin', 'auto start off ignores current', !off?.name && off?.kind !== 'current', JSON.stringify(off))
+  const none = N.resolveOrigin({ typed: '  ', current: null, currentAt: null, autoStart: true, now })
+  check('resolveOrigin', 'nothing set -> no name', !none?.name && none?.stale !== true, JSON.stringify(none))
+  const iso = N.resolveOrigin({ typed: '', current: 'Everus Harbor', currentAt: new Date(now - 6 * min).toISOString(), autoStart: true, now })
+  check('resolveOrigin', 'currentAt as ISO string also goes stale', iso?.stale === true, JSON.stringify(iso))
+  const typedOld = N.resolveOrigin({ typed: 'Port Tressler', current: 'Everus Harbor', currentAt: now - 60 * min, autoStart: true, now })
+  check('resolveOrigin', 'typed start is never stale', typedOld?.stale === false, JSON.stringify(typedOld))
+})
+
+// two jobs pick up at Port Tressler: one stop group there, then the two drop-offs; no 0 km leg
+const groupJobs = [
+  { ...job(20, 'Everus Harbor'), steps: [{ id: 'g20', kind: 'go', label: 'Deliver to Everus Harbor', location: 'Everus Harbor', pickupLocation: 'Port Tressler', pickedUp: false, have: 0, need: 1, done: false }] },
+  { ...job(21, 'Baijini Point'), steps: [{ id: 'g21', kind: 'go', label: 'Deliver to Baijini Point', location: 'Baijini Point', pickupLocation: 'Port Tressler', pickedUp: false, have: 0, need: 1, done: false }] },
+  job(22, 'Seraphim Station')
+]
+const gRows = (g) => g?.rows ?? g?.items ?? g?.stops ?? []
+safe('groupByPlace', () => {
+  if (!has('groupByPlace', 'groupByPlace')) return
+  for (const listOrder of ['distance', 'route']) {
+    const rows = N.listOpenStops(groupJobs, START, locations, { listOrder })
+    const groups = N.groupByPlace(rows)
+    const name = `groupByPlace/${listOrder}`
+    check(name, 'every row lands in one group', groups.reduce((a, g) => a + gRows(g).length, 0) === rows.length, groups.map((g) => `${g.place}:${gRows(g).length}`).join(' | '))
+    const pt = groups.filter((g) => g.place === 'Port Tressler')
+    check(name, 'same pickup merges into one group of two', pt.length === 1 && gRows(pt[0]).length === 2, `groups at Port Tressler=${pt.length} rows=${gRows(pt[0]).length}`)
+    const places = groups.map((g) => g.place)
+    check(name, 'no place repeats back to back', places.every((p, i) => i === 0 || p !== places[i - 1]), places.join(' > '))
+    check(name, 'no 0 km legs', groups.every((g) => g.leg == null || g.leg > 0), groups.map((g) => g.leg).join(','))
+    let at = byName(START)
+    const want = groups.map((g) => {
+      const d = dist(at, byName(g.place))
+      at = byName(g.place)
+      return d
+    })
+    check(name, 'legs recomputed place to place (start first)', groups.every((g, i) => near(g.leg, want[i])), groups.map((g) => Math.round((g.leg ?? NaN) / 1e6)).join(',') + ' Mm')
+  }
+})
+
+// OCR misreads a Lagrange code; the place still snaps to the UEX name
+safe('ocr snap', () => {
+  const got = S.snapOtherLocationOcr('CRU-LS5 Beautiful Glen Station', locations)
+  const name = typeof got === 'string' ? got : got?.name ?? got?.location ?? got?.value
+  check('ocr snap', 'CRU-LS5 Beautiful Glen Station -> CRU-L5 Beautiful Glen Station', name === 'CRU-L5 Beautiful Glen Station', JSON.stringify(got))
+})
+
+safe('remainingRoute', () => {
+  if (!has('remainingRoute', 'remainingRoute') || typeof N.groupByPlace !== 'function') return
+  const groups = N.groupByPlace(N.listOpenStops(groupJobs, START, locations, { listOrder: 'route' }))
+  const sumFrom = (i) => groups.slice(i).reduce((a, g) => a + (g.leg ?? 0), 0)
+  for (const i of [...new Set([0, 1, groups.length - 1])]) {
+    const r = N.remainingRoute(groups, i)
+    check('remainingRoute', `from group ${i}: stops = groups left`, r?.stops === groups.length - i, `stops=${r?.stops} of ${groups.length}`)
+    check('remainingRoute', `from group ${i}: distance = legs from there on`, near(r?.distance, sumFrom(i)), `got ${r?.distance} want ${sumFrom(i)}`)
+  }
 })
 
 fs.rmSync(tmp, { recursive: true, force: true })

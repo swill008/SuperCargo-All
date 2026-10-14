@@ -9,13 +9,21 @@ import { useStore } from '@renderer/state/store'
 import { otherSetting } from '@other/workMode'
 import { useOtherJobs } from '../state/otherJobs'
 import { mergeLocations } from '../state/otherPlaces'
-import { listOpenStops, stepActivePlace, stepActionLabel, formatPlaceWithBodySystem, findNextTravelStop, formatMapDistance } from '@other/otherNext'
+import {
+  listOpenStops, stepActivePlace, stepActionLabel, formatPlaceWithBodySystem, formatMapDistance, formatDistance,
+  resolveOrigin, groupByPlace, remainingRoute
+} from '@other/otherNext'
 import type { ListOrder } from '@other/otherNext'
 import { miniBtn, otherView, withoutWithdrawn, JobTags } from '../pages/JobsPartsStyles'
 
 const WHITE = '#eaf1f7'
 
 const ORDER_HINT: Record<ListOrder, string> = { distance: 'FROM START', route: 'ROUTE', manual: 'MANUAL' }
+// user-approved wording for a stop with no distance
+const NO_DISTANCE_TEXT = { 'not-in-uex': 'Not found in UEX', 'no-start': 'open station inventory or manually set a start' } as const
+const APPROX_TIP = 'Approximate: measured from the mission marker (no UEX coordinates for this place)'
+/** ① ② ... for stop numbers up to 20 */
+const circled = (n: number): string => (n >= 1 && n <= 20 ? String.fromCharCode(0x2460 + n - 1) : `#${n}`)
 const hintStyle: React.CSSProperties = { fontFamily: F.display, fontSize: 9, letterSpacing: '0.12em', color: C.ghost }
 
 export default function OtherOverlay(): React.ReactElement {
@@ -23,6 +31,7 @@ export default function OtherOverlay(): React.ReactElement {
   const typedStart = useOtherJobs((s) => s.startLocation)
   // where the game log says the player is (trace-other's store field)
   const currentLocation = useOtherJobs((s) => s.currentLocation)
+  const currentLocationAt = useOtherJobs((s) => s.currentLocationAt)
   // rule 8: the overlay only sends actions; the main window applies and saves them
   const toggleStep = (jobId: string, stepId: string): void => window.supercargo.otherAction({ type: 'toggleStep', jobId, stepId })
   const abandonJob = (jobId: string): void => window.supercargo.otherAction({ type: 'abandon', jobId })
@@ -40,23 +49,37 @@ export default function OtherOverlay(): React.ReactElement {
   const jobOrder = useOtherJobs((s) => s.jobOrder)
   const view = otherView(settings)
   const markerDistance = otherSetting(settings, 'otherMarkerDistance')
+  const showDistance = otherSetting(settings, 'otherOverlayDistance')
+  const autoStartOn = otherSetting(settings, 'otherAutoStart')
   // typed STARTING AT wins; empty falls back to the log's current station (otherAutoStart)
-  const autoStart = !typedStart.trim() && otherSetting(settings, 'otherAutoStart') && currentLocation ? currentLocation : null
-  const startLocation = autoStart ?? typedStart
+  // re-check once a minute so the current station turns stale without a new log line
+  const [tick, setTick] = useState(0)
+  useEffect(() => {
+    const t = window.setInterval(() => setTick((n) => n + 1), 60_000)
+    return () => window.clearInterval(t)
+  }, [])
+  const origin = useMemo(
+    () => resolveOrigin({ typed: typedStart, current: currentLocation, currentAt: currentLocationAt, autoStart: autoStartOn }),
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [typedStart, currentLocation, currentLocationAt, autoStartOn, tick]
+  )
+  const startLocation = origin.name ?? ''
   // withdrawn steps never become the current stop
   const liveJobs = useMemo(() => jobs.map(withoutWithdrawn), [jobs])
   const open = useMemo(
     () => listOpenStops(liveJobs, startLocation, locations, { showAll, hideCompleted, listOrder, jobOrder, markerDistance }),
     [liveJobs, startLocation, locations, showAll, hideCompleted, listOrder, jobOrder, markerDistance]
   )
+  // the overlay walks places: several steps at one station are one stop
+  const groups = useMemo(() => groupByPlace(open), [open])
 
   useEffect(() => {
     setIdx(0)
   }, [startLocation])
 
   useEffect(() => {
-    if (idx >= open.length) setIdx(Math.max(0, open.length - 1))
-  }, [idx, open.length])
+    if (idx >= groups.length) setIdx(Math.max(0, groups.length - 1))
+  }, [idx, groups.length])
 
   useEffect(() => {
     if (!returnToFirst || idx <= 0) return
@@ -64,18 +87,29 @@ export default function OtherOverlay(): React.ReactElement {
     return () => window.clearTimeout(timer)
   }, [idx, returnToFirst, returnSeconds])
 
-  const current = open[idx]
-  const upcoming = open[idx + 1]
-  const nextTravel = findNextTravelStop(open, idx)
-  const total = open.length
+  const group = groups[idx]
+  const nextGroup = groups[idx + 1]
+  // actions and the objective line act on the group's first row
+  const current = group?.rows[0]
+  const upcoming = group?.rows[1] ?? nextGroup?.rows[0]
+  const total = groups.length
   const shown = current ? idx + 1 : 0
   const canPrev = idx > 0
   const canNext = idx < total - 1
   const order: ListOrder = (listOrder as ListOrder) ?? 'distance'
-  const needsStart = order !== 'manual' && !startLocation.trim()
-  // leg from where you are in the walk: stop 1 from start, otherwise from the previous stop
-  const legMeters = current ? (idx === 0 ? current.leg ?? current.distance : current.leg) : null
-  const legApprox = current?.distanceSource === 'marker'
+  const orderHint = order !== 'manual' && !origin.name ? 'LOG ORDER' : ORDER_HINT[order]
+  // stop 1 from the origin, later stops from the previous stop
+  const legMeters = group ? (idx === 0 ? group.distance ?? group.leg : group.leg) : null
+  const legApprox = group?.distanceSource === 'marker'
+  const legFrom =
+    idx > 0
+      ? `from stop ${circled(idx)}`
+      : origin.kind === 'current'
+        ? origin.stale ? `from ${origin.name}` : `from you (${origin.name})`
+        : 'from start'
+  const noDistanceText = group && legMeters == null && group.noDistanceWhy ? NO_DISTANCE_TEXT[group.noDistanceWhy] : null
+  const nextLeg = showDistance && nextGroup && nextGroup.leg != null ? nextGroup.leg : null
+  const left = useMemo(() => remainingRoute(groups, idx), [groups, idx])
 
   return (
     <div
@@ -113,8 +147,8 @@ export default function OtherOverlay(): React.ReactElement {
               minWidth: 0
             }}
           >
-            {current
-              ? formatPlaceWithBodySystem(stepActivePlace(current.step) || current.step.label, locations)
+            {group && current
+              ? formatPlaceWithBodySystem(group.place || stepActivePlace(current.step) || current.step.label, locations)
               : 'NO OPEN STOP'}
           </div>
         </div>
@@ -141,7 +175,7 @@ export default function OtherOverlay(): React.ReactElement {
             <div style={{ fontFamily: F.display, fontSize: 11, color: C.dim, letterSpacing: '0.08em' }}>
               STOP {shown}/{Math.max(total, 1)}
             </div>
-            <div style={hintStyle}>{ORDER_HINT[order]}</div>
+            <div style={hintStyle}>{orderHint}</div>
           </div>
           <button
             type="button"
@@ -163,27 +197,19 @@ export default function OtherOverlay(): React.ReactElement {
           </button>
         </div>
       </div>
-      {(current && legMeters != null) || needsStart ? (
-        <div style={{ display: 'flex', alignItems: 'baseline', gap: 8, marginTop: -6, marginBottom: 6 }}>
-          {current && legMeters != null ? (
+      {showDistance && group && (legMeters != null || noDistanceText) ? (
+        <div style={{ marginTop: -6, marginBottom: 6 }}>
+          {legMeters != null ? (
             <span
-              title={legApprox ? 'Approximate: measured from the mission marker (no UEX coordinates for this place)' : undefined}
+              title={`${formatMapDistance(legMeters)}${legApprox ? ` \u00b7 ${APPROX_TIP}` : ''}`}
               style={{ fontFamily: F.display, fontSize: 12, letterSpacing: '0.06em', color: C.acc }}
             >
-              {legApprox ? '\u2248 ' : ''}{formatMapDistance(legMeters)}
-              <span
-                style={{ ...hintStyle, marginLeft: 6 }}
-                title={idx === 0 && autoStart ? 'from the game log; type to override' : undefined}
-              >
-                {idx === 0 ? (autoStart ? `FROM ${autoStart} (AUTO)` : 'FROM START') : 'FROM PREV'}
-              </span>
+              {legApprox ? '\u2248 ' : ''}{formatDistance(legMeters)}
+              <span style={{ ...hintStyle, marginLeft: 6, textTransform: 'none', letterSpacing: '0.04em' }}>{legFrom}</span>
             </span>
-          ) : null}
-          {needsStart ? (
-            <span style={{ ...hintStyle, color: C.amber }} title="Set a start location in the main window to sort and measure stops">
-              SET START
-            </span>
-          ) : null}
+          ) : (
+            <span style={{ fontSize: 11, color: C.ghost }}>{noDistanceText}</span>
+          )}
         </div>
       ) : null}
       {current ? (
@@ -197,7 +223,7 @@ export default function OtherOverlay(): React.ReactElement {
       ) : (
         <div style={{ fontSize: 13, color: C.dim }}>Add an Other-mode job in the main window.</div>
       )}
-      {(upcoming || nextTravel) && (
+      {(upcoming || nextGroup) && (
         <div style={{ marginTop: 12, fontSize: 13, color: C.dim, lineHeight: 1.45 }}>
           {upcoming ? (
             <div>
@@ -205,15 +231,26 @@ export default function OtherOverlay(): React.ReactElement {
               <span>: {upcoming.step.label}</span>
             </div>
           ) : null}
-          {nextTravel ? (
+          {nextGroup ? (
             <div style={{ marginTop: upcoming ? 4 : 0 }}>
               <span style={{ color: C.acc }}>Next Location</span>
-              <span>: {formatPlaceWithBodySystem(stepActivePlace(nextTravel.step) || nextTravel.step.label, locations)}</span>
+              <span>: {formatPlaceWithBodySystem(nextGroup.place || stepActivePlace(nextGroup.rows[0].step), locations)}</span>
+              {nextLeg != null ? (
+                <span title={formatMapDistance(nextLeg)}>
+                  {' \u00b7 '}{nextGroup.distanceSource === 'marker' ? '\u2248 ' : ''}{formatDistance(nextLeg)}
+                </span>
+              ) : null}
             </div>
           ) : null}
         </div>
       )}
       <div style={{ flex: 1 }} />
+      {left.stops > 0 ? (
+        <div style={{ ...hintStyle, letterSpacing: '0.06em', marginTop: 8 }} title={showDistance && left.distance != null ? formatMapDistance(left.distance) : undefined}>
+          {left.stops} {left.stops === 1 ? 'stop' : 'stops'} left
+          {showDistance && left.distance != null && left.stops > 1 ? ` \u00b7 ${formatDistance(left.distance)} route` : ''}
+        </div>
+      ) : null}
       <div
         style={{
           display: 'flex',

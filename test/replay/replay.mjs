@@ -707,6 +707,75 @@ const scenarios = {
       ['diagnostics file written within 20 s', text != null, `file=${out}`],
       ['SNAPSHOT currentLocation is CRU-L1', snap.includes(want), `snapshot=${JSON.stringify(snap.slice(0, 300))} saved currentLocation=${doc?.currentLocation}`]
     ]
+  },
+
+  // the inventory line's place and time are saved in the doc and survive a restart
+  'location-persisted': async () => {
+    const e = setup('location-persisted')
+    let stop = await launch(e)
+    const at = Date.now()
+    e.append(L.arrive('1510935576', 'PLAYER', at), L.inventory('RR_CRU_L1', 'PLAYER', at), L.accept(mission(), 'Bounty Hunt'))
+    await sleep(3000)
+    await stop()
+    const want = 'CRU-L1 Ambitious Dream Station'
+    const first = e.jobs()
+    const savedAt = typeof first?.currentLocationAt === 'number' ? first.currentLocationAt : Date.parse(first?.currentLocationAt ?? '')
+    stop = await launch(e)
+    e.append(L.accept(mission(), 'Patrol')) // forces a save after the reload
+    await sleep(3000)
+    await stop()
+    const again = e.jobs()
+    return [
+      ['currentLocation saved', first?.currentLocation === want, `currentLocation=${first?.currentLocation}`],
+      ['currentLocationAt is the line time', Number.isFinite(savedAt) && Math.abs(savedAt - at) < 120000, `currentLocationAt=${first?.currentLocationAt}`],
+      ['currentLocation kept after a restart', again?.currentLocation === want, `currentLocation=${again?.currentLocation}`],
+      ['currentLocationAt kept after a restart', again?.currentLocationAt === first?.currentLocationAt, `before=${first?.currentLocationAt} after=${again?.currentLocationAt}`]
+    ]
+  },
+
+  // the main window loads the Other doc and runs the start-up scan once (not once per subscribe / window)
+  'init-once': async () => {
+    const id = mission()
+    const e = setup('init-once', {}, { jobs: [], history: [], lastLogEventAt: iso(ago(60)) })
+    e.append(L.logStarted(ago(120)), L.accept(id, 'Bounty Hunt', ago(30)))
+    const stop = await launch(e)
+    await sleep(2000)
+    await stop()
+    const log = e.log()
+    const inits = count(log, /\bother\s+\[main\] init loaded/g)
+    const scans = count(log, /\[main\] startup scan result/g)
+    return [
+      ['one Other "init loaded" in the main window', inits === 1, `lines=${inits}`],
+      ['one start-up scan result', scans === 1, `lines=${scans}`],
+      ['the scan applied the accept', findJob(e.jobs(), id)?.status === 'active', `status=${findJob(e.jobs(), id)?.status}`]
+    ]
+  },
+
+  // Contract Shared / Complete / Failed notifications are known lines, not UNKNOWN LINES
+  'contract-notices-known': async () => {
+    const e = setup('contract-notices-known')
+    const out = path.join(e.data, 'diag-notices.txt')
+    const stop = await launch(e, ['--export-diagnostics', out])
+    const a = mission()
+    const b = mission()
+    const c = mission()
+    e.append(
+      L.accept(a, 'Bounty Hunt'),
+      L.accept(b, 'Patrol'),
+      L.notice('Contract Shared:  Bounty Hunt', a),
+      L.notice('Contract Complete:  Bounty Hunt', a),
+      L.notice('Contract Failed:  Patrol', b),
+      L.notice('Mission Bonus Unlocked: Extra Credit', c)
+    )
+    const text = await waitForFile(out)
+    await stop()
+    const unknown = diagSections(text)['UNKNOWN LINES'] ?? ''
+    const bad = ['Contract Shared', 'Contract Complete', 'Contract Failed'].filter((t) => unknown.includes(t))
+    return [
+      ['diagnostics file written within 20 s', text != null, `file=${out}`],
+      ['no Contract Shared/Complete/Failed in UNKNOWN LINES', text != null && bad.length === 0, `found=${bad.join(',')}`],
+      ['UNKNOWN LINES still lists a really unknown line', /Mission Bonus Unlocked/.test(unknown), `unknown=${JSON.stringify(unknown.slice(0, 200))}`]
+    ]
   }
 }
 

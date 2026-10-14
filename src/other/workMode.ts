@@ -72,6 +72,8 @@ declare module '@shared/types' {
     otherMarkerDistance?: boolean
     /** use the player's current station from the log as STARTING AT until one is typed */
     otherAutoStart?: boolean
+    /** distances on the overlay card */
+    otherOverlayDistance?: boolean
   }
 }
 
@@ -87,7 +89,8 @@ export const OTHER_SETTING_DEFAULTS = {
   otherHaulSwitchPrompt: true,
   otherHaulSwitchMinScu: 100,
   otherMarkerDistance: true,
-  otherAutoStart: true
+  otherAutoStart: true,
+  otherOverlayDistance: true
 }
 
 type OtherSettingKey = keyof typeof OTHER_SETTING_DEFAULTS

@@ -3,7 +3,7 @@ import * as path from 'node:path'
 import * as fs from 'node:fs'
 import * as os from 'node:os'
 import { IPC } from '@shared/channels'
-import type { AppSettings, ManifestDoc, HistoryDoc, OcrEditTally, OcrResult, OcrWaitState, BoxSizeReport, CrewSnapshot, CrewMember, CrewMirror } from '@shared/types'
+import type { AppSettings, DetectedInstalls, ManifestDoc, HistoryDoc, OcrEditTally, OcrResult, OcrWaitState, BoxSizeReport, CrewSnapshot, CrewMember, CrewMirror } from '@shared/types'
 import { loadSettings, saveSettings, loadManifest, saveManifest, loadHistory, saveHistory, loadWindowState, saveWindowState } from './store'
 import { detectInstalls, orderChannels, channelFromPath } from './installDetect'
 import { LogWatcher } from './logWatcher'
@@ -28,7 +28,7 @@ import { logger, write as writeLog, getRecent, logDir, isVerbose, setVerbose, fl
 import { openDebugWindow, attachDebugHotkey, buildReport, setReportSource } from './debugWindow'
 import { LOG_CATEGORIES, LOG_LEVELS, type DebugInfo, type LogEntry, type LogSource } from '@shared/debugLog'
 import type { DiagExportOptions, TraceArea, TraceRecord } from '@shared/trace'
-import { writeTrace, setTraceEnabled, isTraceOn, startPerfSampler, flushTrace } from './trace'
+import { trace, writeTrace, setTraceEnabled, isTraceOn, startPerfSampler, flushTrace } from './trace'
 import { buildDiagnostics, setDiagSource, registerDiagSnapshotReply } from './diagnostics'
 import { resolveWorkMode } from '@other/workMode'
 
@@ -566,15 +566,51 @@ function startWatcher(): void {
   watcher.start()
 }
 
+// install scan is async (it walks every fixed drive); cached briefly and shared while in flight so
+// repeated Settings opens don't rescan. Preload's detectInstalls() passes no args, so RE-SCAN can't
+// force a fresh scan; the TTL is kept short so a RE-SCAN a few seconds later still rescans.
+const INSTALLS_TTL_MS = 60_000
+let installsCache: { at: number; installs: DetectedInstalls } | null = null
+let installsInFlight: Promise<DetectedInstalls> | null = null
+
+function detectInstallsCached(force = false): Promise<DetectedInstalls> {
+  if (!force && installsCache && Date.now() - installsCache.at < INSTALLS_TTL_MS) {
+    return Promise.resolve(installsCache.installs)
+  }
+  if (installsInFlight) return installsInFlight
+  const started = Date.now()
+  installsInFlight = detectInstalls()
+    .catch(() => ({}) as DetectedInstalls)
+    .then((installs) => {
+      const ms = Date.now() - started
+      installsCache = { at: Date.now(), installs }
+      trace({ area: 'perf', what: 'install detect', ms, data: { found: Object.keys(installs).length } })
+      return installs
+    })
+    .finally(() => {
+      installsInFlight = null
+    })
+  return installsInFlight
+}
+
+// start-up: never blocks the window; applies the result when ready, only if still no path set
 function autoDetectLogPath(): void {
   if (settings.gameLogPath) return
-  const installs = detectInstalls()
-  const channels = orderChannels(Object.keys(installs))
-  if (channels.length === 0) return
-  const preferred =
-    channels.find((c) => c === settings.gameChannel) ?? channels[0]
-  settings = { ...settings, gameLogPath: installs[preferred], gameChannel: preferred }
-  saveSettings(settings)
+  void detectInstallsCached().then((installs) => {
+    if (settings.gameLogPath) return // user picked one meanwhile
+    const channels = orderChannels(Object.keys(installs))
+    if (channels.length === 0) return
+    const preferred = channels.find((c) => c === settings.gameChannel) ?? channels[0]
+    settings = { ...settings, gameLogPath: installs[preferred], gameChannel: preferred }
+    saveSettings(settings)
+    broadcast(IPC.evtSettings, settings)
+    startWatcher()
+    try {
+      contractData.rebuild(settings)
+    } catch (e) {
+      console.warn('[contractData] index build failed:', e)
+    }
+  })
 }
 
 function debugInfo(): DebugInfo {
@@ -748,8 +784,8 @@ function registerIpc(): void {
     return settings
   })
 
-  ipcMain.handle(IPC.detectInstalls, () => {
-    const installs = detectInstalls()
+  ipcMain.handle(IPC.detectInstalls, async (_e, opts?: { force?: boolean }) => {
+    const installs = await detectInstallsCached(opts?.force === true)
     return { installs, ordered: orderChannels(Object.keys(installs)) }
   })
 

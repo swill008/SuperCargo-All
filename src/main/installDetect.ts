@@ -2,10 +2,15 @@
 
 import * as fs from 'node:fs'
 import * as path from 'node:path'
-import { execSync } from 'node:child_process'
+import { execFile } from 'node:child_process'
 import type { DetectedInstalls } from '@shared/types'
 
+// all async: Settings calls this on mount, and a sync scan froze main (and the overlay) for seconds
+const fsp = fs.promises
+
 const SCAN_MAX_DEPTH = 4
+const SCAN_CONCURRENCY = 8
+const PS_TIMEOUT_MS = 8000
 
 const SKIP_DIRS = new Set(
   [
@@ -35,58 +40,87 @@ const SC_ROOT_NAMES = new Set(['starcitizen', 'star citizen'])
 const KNOWN_CHANNELS = new Set(['LIVE', 'PTU', 'EPTU', 'HOTFIX', 'TECH-PREVIEW'])
 const CHANNEL_ORDER = ['LIVE', 'PTU', 'EPTU', 'HOTFIX', 'TECH-PREVIEW']
 
-function isChannelDir(p: string): boolean {
-  const name = path.basename(p).toUpperCase()
-  if (KNOWN_CHANNELS.has(name)) return true
+const yieldLoop = (): Promise<void> => new Promise((r) => setImmediate(r))
+
+async function exists(p: string): Promise<boolean> {
   try {
-    return fs.existsSync(path.join(p, 'build_manifest.id'))
+    await fsp.access(p)
+    return true
   } catch {
     return false
   }
 }
 
-function looksLikeScRoot(p: string): boolean {
+async function readDirs(p: string): Promise<fs.Dirent[] | null> {
   try {
-    for (const child of fs.readdirSync(p, { withFileTypes: true })) {
-      if (child.isDirectory() && isChannelDir(path.join(p, child.name))) return true
-    }
+    return await fsp.readdir(p, { withFileTypes: true })
   } catch {
-    /* ignore */
+    return null
+  }
+}
+
+async function isChannelDir(p: string): Promise<boolean> {
+  const name = path.basename(p).toUpperCase()
+  if (KNOWN_CHANNELS.has(name)) return true
+  return exists(path.join(p, 'build_manifest.id'))
+}
+
+async function looksLikeScRoot(p: string): Promise<boolean> {
+  const entries = await readDirs(p)
+  if (!entries) return false
+  for (const child of entries) {
+    if (child.isDirectory() && (await isChannelDir(path.join(p, child.name)))) return true
   }
   return false
 }
 
-function findScRoots(driveRoot: string): string[] {
+// BFS level by level so result order matches the old sync queue; dirs within a level read
+// SCAN_CONCURRENCY at a time, yielding to the event loop between batches
+async function findScRoots(driveRoot: string): Promise<string[]> {
   const roots: string[] = []
-  const queue: Array<[string, number]> = [[driveRoot, 0]]
-  while (queue.length) {
-    const [current, depth] = queue.shift()!
-    let entries: fs.Dirent[]
-    try {
-      entries = fs.readdirSync(current, { withFileTypes: true })
-    } catch {
-      continue
-    }
-    for (const entry of entries) {
-      if (!entry.isDirectory()) continue
-      const nameLower = entry.name.toLowerCase()
-      if (SKIP_DIRS.has(nameLower)) continue
-      const full = path.join(current, entry.name)
-      if (SC_ROOT_NAMES.has(nameLower) && looksLikeScRoot(full)) {
-        roots.push(full)
-        continue // don't descend into install
+  let level: string[] = [driveRoot]
+  for (let depth = 0; level.length && depth < SCAN_MAX_DEPTH; depth++) {
+    const next: string[] = []
+    for (let i = 0; i < level.length; i += SCAN_CONCURRENCY) {
+      const batch = level.slice(i, i + SCAN_CONCURRENCY)
+      const listed = await Promise.all(batch.map((d) => readDirs(d)))
+      for (let b = 0; b < batch.length; b++) {
+        const entries = listed[b]
+        if (!entries) continue
+        for (const entry of entries) {
+          if (!entry.isDirectory()) continue
+          const nameLower = entry.name.toLowerCase()
+          if (SKIP_DIRS.has(nameLower)) continue
+          const full = path.join(batch[b], entry.name)
+          if (SC_ROOT_NAMES.has(nameLower) && (await looksLikeScRoot(full))) {
+            roots.push(full)
+            continue // don't descend into install
+          }
+          if (depth + 1 < SCAN_MAX_DEPTH) next.push(full)
+        }
       }
-      if (depth + 1 < SCAN_MAX_DEPTH) queue.push([full, depth + 1])
+      await yieldLoop()
     }
+    level = next
   }
   return roots
 }
 
-function fixedDrives(): string[] {
+function runPowershell(command: string): Promise<string> {
+  return new Promise((resolve, reject) => {
+    execFile(
+      'powershell',
+      ['-NoProfile', '-Command', command],
+      { encoding: 'utf8', timeout: PS_TIMEOUT_MS, windowsHide: true },
+      (err, stdout) => (err ? reject(err) : resolve(stdout))
+    )
+  })
+}
+
+async function fixedDrives(): Promise<string[]> {
   try {
-    const out = execSync(
-      'powershell -NoProfile -Command "Get-CimInstance Win32_LogicalDisk -Filter \\"DriveType=3\\" | Select-Object -ExpandProperty DeviceID"',
-      { encoding: 'utf8', timeout: 8000, windowsHide: true }
+    const out = await runPowershell(
+      'Get-CimInstance Win32_LogicalDisk -Filter "DriveType=3" | Select-Object -ExpandProperty DeviceID'
     )
     const drives = out
       .split(/\r?\n/)
@@ -98,34 +132,26 @@ function fixedDrives(): string[] {
     /* fall through to brute-force */
   }
   // fallback: probe a..z
-  const drives: string[] = []
+  const letters: string[] = []
   for (let c = 'A'.charCodeAt(0); c <= 'Z'.charCodeAt(0); c++) {
-    const root = String.fromCharCode(c) + ':\\'
-    try {
-      if (fs.existsSync(root)) drives.push(root)
-    } catch {
-      /* ignore */
-    }
+    letters.push(String.fromCharCode(c) + ':\\')
   }
-  return drives
+  const ok = await Promise.all(letters.map((root) => exists(root)))
+  return letters.filter((_, i) => ok[i])
 }
 
 /** channel -> Game.log path */
-export function detectInstalls(): DetectedInstalls {
+export async function detectInstalls(): Promise<DetectedInstalls> {
   if (process.platform !== 'win32') return {}
   const found: DetectedInstalls = {}
-  for (const drive of fixedDrives()) {
-    for (const scRoot of findScRoots(drive)) {
-      let children: fs.Dirent[]
-      try {
-        children = fs.readdirSync(scRoot, { withFileTypes: true })
-      } catch {
-        continue
-      }
+  for (const drive of await fixedDrives()) {
+    for (const scRoot of await findScRoots(drive)) {
+      const children = await readDirs(scRoot)
+      if (!children) continue
       for (const child of children) {
         if (!child.isDirectory()) continue
         const channelDir = path.join(scRoot, child.name)
-        if (!isChannelDir(channelDir)) continue
+        if (!(await isChannelDir(channelDir))) continue
         const channel = child.name.toUpperCase()
         if (found[channel]) continue // first hit wins
         found[channel] = path.join(channelDir, 'Game.log')
