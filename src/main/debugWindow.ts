@@ -34,7 +34,7 @@ export function openDebugWindow(): void {
     minWidth: 600,
     minHeight: 360,
     show: false,
-    frame: false,
+    autoHideMenuBar: true, // native frame: a debug tool needs to move, resize and close like any window
     backgroundColor: '#000000',
     icon: appIcon,
     title: 'SuperCargo · Debug',
