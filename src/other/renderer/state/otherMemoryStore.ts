@@ -101,7 +101,7 @@ export function collectSeen(): SeenInput[] {
   const settings = useStore.getState().settings
   const locations = mergeLocations(useStore.getState().locations)
   const startMode = otherSetting(settings, 'otherStartMode')
-  const origin = resolveOrigin({ typed: s.startLocation, typedAt: s.startTypedAt, where: s.where, mode: startMode, locations })
+  const origin = resolveOrigin({ typed: s.startLocation, typedAt: s.startTypedAt, where: s.where, mode: startMode, locations, memory: memoryLookup })
   const live = s.jobs.map((j) => (j.steps.some((x) => x.withdrawn) ? { ...j, steps: j.steps.filter((x) => !x.withdrawn) } : j))
   // every open step (manual order: no sorting needed)
   const rows = listOpenStops(live, origin.name ?? '', locations, {

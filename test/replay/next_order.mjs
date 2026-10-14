@@ -37,18 +37,6 @@ esbuild.buildSync({
   alias: { '@shared': path.join(root, 'src/shared'), '@other': path.join(root, 'src/other') }
 })
 const C = await import(pathToFileURL(locFile).href)
-const snapFile = path.join(tmp, 'otherLocationSnap.mjs')
-esbuild.buildSync({
-  entryPoints: [path.join(root, 'src/other/otherLocationSnap.ts')],
-  bundle: true,
-  platform: 'node',
-  format: 'esm',
-  outfile: snapFile,
-  logLevel: 'error',
-  tsconfig: path.join(root, 'tsconfig.node.json'),
-  alias: { '@shared': path.join(root, 'src/shared'), '@other': path.join(root, 'src/other') }
-})
-const S = await import(pathToFileURL(snapFile).href)
 const geoFile = path.join(tmp, 'otherGeo.mjs')
 esbuild.buildSync({
   entryPoints: [path.join(root, 'src/other/otherGeo.ts')],
@@ -73,6 +61,8 @@ esbuild.buildSync({
   alias: { '@shared': path.join(root, 'src/shared'), '@other': path.join(root, 'src/other') }
 })
 const RS = await import(pathToFileURL(resFile).href)
+/** a typed start through resolveOrigin: the resolver's answer (resolveStartText) */
+const typedMatch = (text, locs, memory) => N.resolveOrigin({ typed: text, mode: 'fixed', locations: locs, ...(memory ? { memory } : {}) }).match
 
 const locations = JSON.parse(fs.readFileSync(path.join(root, 'data/uex/locations.json'), 'utf8')).locations
 const byName = (n) => locations.find((l) => l.name === n)
@@ -307,23 +297,30 @@ safe('systems', () => {
 })
 
 safe('names O/0', () => {
+  // typed starts go through the one resolver (resolveStartText); OCR O/0 is a 'corrected' match, exact names 'exact'.
+  // The UEX S1DC06 entry has no coords (the resolver only picks places it can measure to): use the merged roster
+  const merged = [...locations, ...JSON.parse(fs.readFileSync(path.join(root, 'data/uex/other-positions.json'), 'utf8')).places]
   const want = 'Covalex Distribution Center S1DC06'
-  const hit = N.findRosterLocation('Covalex Distribution Center S1DCO6 on Hurston', locations)
-  check('names O/0', 'S1DCO6 on Hurston finds S1DC06', hit?.name === want, hit?.name)
-  check('names O/0', 'S1DCO6 snaps to S1DC06', N.snapLocationToUex('Covalex Distribution Center S1DCO6', locations) === want, N.snapLocationToUex('Covalex Distribution Center S1DCO6', locations))
-  const lower = N.findRosterLocation('covalex distribution center s1dco6', locations)
-  check('names O/0', 'lower case s1dco6 matches too', lower?.name === want, lower?.name)
-  check('names O/0', 'S4DC05 still S4DC05', N.findRosterLocation('Covalex Distribution Center S4DC05', locations)?.name.includes('S4DC05'), '')
-  check('names O/0', 'exact names unchanged', N.findRosterLocation('HUR-L1 Green Glade Station', locations)?.name === 'HUR-L1 Green Glade Station' && N.findRosterLocation('Port Tressler', locations)?.name === 'Port Tressler', '')
-  check('names O/0', 'unknown place still unknown', N.findRosterLocation(OFF_MAP, locations) === undefined, '')
-  // UEX "Center" without coords + starmap "Centre" with coords (the real merged roster): the folded match must take the one with coords
+  const hit = typedMatch('Covalex Distribution Center S1DCO6 on Hurston', merged)
+  check('names O/0', 'S1DCO6 on Hurston finds S1DC06', /S1DC06$/.test(hit?.match?.name ?? '') && hit?.match?.x != null, hit?.match?.name)
+  check('names O/0', "S1DCO6: status 'corrected'", hit?.status === 'corrected', hit?.status)
+  const lower = typedMatch('covalex distribution center s1dco6', merged)
+  check('names O/0', 'lower case s1dco6 matches too', /S1DC06$/.test(lower?.match?.name ?? ''), lower?.match?.name)
+  check('names O/0', 'S4DC05 still S4DC05', /S4DC05$/.test(typedMatch('Covalex Distribution Center S4DC05', merged)?.match?.name ?? ''), typedMatch('Covalex Distribution Center S4DC05', merged)?.match?.name)
+  const gg = typedMatch('HUR-L1 Green Glade Station', locations)
+  const pt = typedMatch('Port Tressler', locations)
+  check('names O/0', "exact names unchanged, status 'exact'", gg?.match?.name === 'HUR-L1 Green Glade Station' && gg.status === 'exact' && pt?.match?.name === 'Port Tressler' && pt.status === 'exact', `${gg?.status} ${pt?.status}`)
+  const off = N.resolveOrigin({ typed: OFF_MAP, mode: 'fixed', locations })
+  check('names O/0', 'unknown place: no match, no point, typed name kept', !off.match?.match && !off.point && off.name === OFF_MAP && off.match?.status === 'none', `${off.match?.status} ${off.match?.match?.name}`)
+  // UEX "Center" without coords + starmap "Centre" with coords (the real merged roster): take the one with coords
   const twoSpellings = [
     { name: 'Covalex Distribution Center S1DC06', code: '', maxContainerSize: 0, uexId: 1, system: 'stanton' },
     { name: 'Covalex Distribution Centre S1DC06', code: '', maxContainerSize: 0, uexId: 0, system: 'stanton', body: 'Hurston', x: 1, y: 2, z: 3 }
   ]
-  const withCoords = N.findRosterLocation('Covalex Distribution Center S1DCO6 on Hurston', twoSpellings)
-  check('names O/0', 'S1DCO6 picks the spelling that has coords', withCoords?.x === 1, withCoords?.name)
-  check('names O/0', 'S9DC99 (no such place) not matched', N.findRosterLocation('Covalex Distribution Center S9DC99', locations) == null || N.findRosterLocation('Covalex Distribution Center S9DC99', locations)?.name !== want, N.findRosterLocation('Covalex Distribution Center S9DC99', locations)?.name)
+  const withCoords = N.resolveOrigin({ typed: 'Covalex Distribution Center S1DCO6 on Hurston', mode: 'fixed', locations: twoSpellings })
+  check('names O/0', 'S1DCO6 picks the spelling that has coords', withCoords.point?.x === 1 && withCoords.match?.match?.x === 1, withCoords.match?.match?.name)
+  const s9 = typedMatch('Covalex Distribution Center S9DC99', locations)
+  check('names O/0', 'S9DC99 (no such place) not matched', s9?.match?.name !== want && !/S1DC06$/.test(s9?.match?.name ?? ''), s9?.match?.name)
 })
 
 safe('origin accuracy', () => {
@@ -446,15 +443,20 @@ safe('groupByPlace', () => {
   }
 })
 
-// OCR misreads a Lagrange code; the place still snaps to the UEX name
+// OCR misreads a Lagrange code; import (otherResolve.importPlace, ocr) gives the roster name and keeps the text as read
 safe('ocr snap', () => {
-  const got = S.snapOtherLocationOcr('CRU-LS5 Beautiful Glen Station', locations)
-  const name = typeof got === 'string' ? got : got?.name ?? got?.location ?? got?.value
-  check('ocr snap', 'CRU-LS5 Beautiful Glen Station -> CRU-L5 Beautiful Glen Station', name === 'CRU-L5 Beautiful Glen Station', JSON.stringify(got))
+  if (typeof RS.importPlace !== 'function') return check('ocr snap', 'importPlace exported', false, 'missing')
+  const raw = 'CRU-LS5 Beautiful Glen Station'
+  const got = RS.importPlace(raw, { locations, useMarker: false }, { ocr: true })
+  // batch 9: the match is CRU-L5 ('corrected'); the stored name is renamed only when the resolver is sure (confidence >= 8)
+  check('ocr snap', 'CRU-LS5 Beautiful Glen Station matches CRU-L5 Beautiful Glen Station', got?.match?.match?.name === 'CRU-L5 Beautiful Glen Station' && got.match.status === 'corrected', JSON.stringify({ match: got?.match?.match?.name, status: got?.match?.status }))
+  const sure = got?.match?.confidence >= 8
+  check('ocr snap', 'text as read kept; renamed only when sure', got?.locationRaw === raw && got.location === (sure ? 'CRU-L5 Beautiful Glen Station' : raw) && got.locationSnapped === sure, JSON.stringify({ location: got?.location, conf: got?.match?.confidence }))
 })
 
 // a city name must not snap to a place inside it ("Reclamation and Disposal in Lorville")
 safe('city not snapped to a sub-place', () => {
+  if (typeof RS.importPlace !== 'function') return check('snap', 'importPlace exported', false, 'missing')
   // small roster where the sub-place is the only partial match (the case the old matcher got wrong)
   const roster = [
     { name: 'Reclamation and Disposal in Lorville', system: 'Stanton', x: 1, y: 2, z: 3 },
@@ -462,15 +464,12 @@ safe('city not snapped to a sub-place', () => {
     { name: 'Port Tressler', system: 'Stanton', x: 7, y: 8, z: 9 }
   ]
   for (const raw of ['Lorville', 'Area18']) {
-    const got = S.snapOtherLocation(raw, roster)
-    check('snap', `${raw} stays ${raw}`, got.location === raw, JSON.stringify(got))
+    const got = RS.importPlace(raw, { locations: roster, useMarker: false })
+    check('snap', `${raw} stays ${raw} (import)`, got?.location === raw && got.locationSnapped === false, JSON.stringify({ location: got?.location, status: got?.match?.status }))
+    const t = typedMatch(raw, roster)
+    check('snap', `${raw} typed start: no sub-place point`, !t?.match || !/^Reclamation/.test(t.match.name), t?.match?.name)
   }
-  // the log-path fixtures still pass
-  if (typeof S.checkOtherLocationSnapFixtures === 'function') {
-    const r = S.checkOtherLocationSnapFixtures(locations)
-    const failed = Array.isArray(r) ? r.filter((x) => x && (x.ok === false || x.pass === false)) : r?.failed ?? []
-    check('snap', 'existing snap fixtures pass', (Array.isArray(failed) ? failed.length : failed) === 0, JSON.stringify(failed).slice(0, 200))
-  }
+  // the log-path snap fixtures now live in test/replay/fixtures/stop_cases.json (resolve_checks)
 })
 
 safe('remainingRoute', () => {
@@ -570,12 +569,12 @@ safe('pickup doubled zero', () => {
   const roster = [...locations, ...otherPositions.filter((p) => !byName(p.name))]
   const want = 'Covalex Distribution Centre S1DC06'
   const raw = 'Covalex Distribution Center S1DCO06 on Hurston'
-  const hit = N.findRosterLocation(raw, roster)
-  check('pickup doubled zero', 'S1DCO06 resolves to Centre S1DC06 with coords', hit?.name === want && hit?.x != null, hit?.name)
-  const ex = N.explainPlaceLookup(raw, roster)
-  check('pickup doubled zero', "explainPlaceLookup method 'folded'", ex.method === 'folded' && ex.match === want && ex.hasCoords, `${ex.method} ${ex.match}`)
-  check('pickup doubled zero', 'S1DC006 also folds to S1DC06', N.findRosterLocation('Covalex Distribution Centre S1DC006', roster)?.name === want, '')
-  check('pickup doubled zero', 'S1DC6 (zero dropped) not matched', N.findRosterLocation('Covalex Distribution Centre S1DC6', roster)?.name !== want, N.findRosterLocation('Covalex Distribution Centre S1DC6', roster)?.name)
+  const hit = typedMatch(raw, roster)
+  check('pickup doubled zero', 'S1DCO06 resolves to Centre S1DC06 with coords', hit?.match?.name === want && hit?.match?.x != null, hit?.match?.name)
+  check('pickup doubled zero', "S1DCO06: status 'corrected' with name evidence", hit?.status === 'corrected' && hit.evidence.some((e) => e.kind === 'name' && e.ok), `${hit?.status}`)
+  check('pickup doubled zero', 'S1DC006 also folds to S1DC06', typedMatch('Covalex Distribution Centre S1DC006', roster)?.match?.name === want, '')
+  const s6 = typedMatch('Covalex Distribution Centre S1DC6', roster)
+  check('pickup doubled zero', 'S1DC6 (zero dropped) not matched', s6?.match?.name !== want, s6?.match?.name)
   const origin = { x: 12851200217, y: 15353, z: 671084, system: 'Stanton', body: 'Hurston' }
   const position = { x: 12851198309.646416, y: 18566.685364, z: 672945.839535 }
   const step = (o) => ({ id: 's82', kind: 'turnin', label: `Collect Scrap from ${o.pickupLocation}. Deliver Scrap to Security Compound`,
@@ -651,6 +650,27 @@ safe('resolver wiring', () => {
   check('resolver wiring', 'stepDistanceFromStart(memory): distance to the user place', near(dMem, dist(byName(START), pt)), `${dMem}`)
   const dNo = N.stepDistanceFromStart(START, jb(st({})).steps[0], roster, true, jb(st({})))
   check('resolver wiring', 'stepDistanceFromStart without memory: unchanged', !near(dNo, dist(byName(START), pt)), `${dNo}`)
+
+  // batch 9: typed start, where-name and startLocation all go through resolveStartText with the same memory
+  const S1 = 'Covalex Distribution Center S1DCO06 on Hurston'
+  const tKey = typedMatch(S1, roster)?.memoryKey
+  check('resolver wiring', 'typed start match carries a memoryKey', typeof tKey === 'string' && tKey.length > 0, String(tKey))
+  const tEntry = { key: tKey, text: S1, place: 'Port Tressler', origin: 'user', confirmed: 0, wrong: 0, seen: 1, firstAt: at, lastAt: at }
+  const tMem = (k) => (k === tKey ? tEntry : undefined)
+  const tUser = N.resolveOrigin({ typed: S1, mode: 'fixed', locations: roster, memory: tMem })
+  check('resolver wiring', "typed start + memory: status 'user', point at that place", tUser.match?.status === 'user' && near(tUser.point?.x, pt.x), `${tUser.match?.status} ${tUser.match?.match?.name}`)
+  const wUser = N.resolveOrigin({ where: { name: S1, label: S1, system: 'stanton', body: null, source: 'inventory', at }, mode: 'auto', locations: roster, memory: tMem, now: Date.parse(at) })
+  check('resolver wiring', "where name + memory: status 'user', point at that place", wUser.match?.status === 'user' && near(wUser.point?.x, pt.x), `${wUser.match?.status}`)
+  const wNo = N.resolveOrigin({ where: { name: S1, label: S1, system: 'stanton', body: null, source: 'inventory', at }, mode: 'auto', locations: roster, now: Date.parse(at) })
+  check('resolver wiring', "where name without memory: 'corrected' Covalex S1DC06", wNo.match?.status === 'corrected' && /S1DC06$/.test(wNo.match?.match?.name ?? ''), `${wNo.match?.status} ${wNo.match?.match?.name}`)
+  const wPt = N.resolveOrigin({ where: { name: 'Port Tressler', label: 'Port Tressler', point: { x: 1, y: 2, z: 3, system: 'stanton', body: null }, system: 'stanton', body: null, source: 'displayinfo', at }, mode: 'auto', locations: roster, now: Date.parse(at) })
+  check('resolver wiring', 'where with its own point keeps it; match still given', wPt.point?.x === 1 && wPt.match?.status === 'exact', `${wPt.point?.x} ${wPt.match?.status}`)
+  const ptJob = job(80, 'Port Tressler')
+  const viaStart = N.listOpenStops([ptJob], S1, roster, { listOrder: 'distance', markerDistance: false, memory: tMem })[0]
+  check('resolver wiring', 'listOpenStops startLocation + memory: start at the user place (0 m)', near(viaStart?.distance, 0) || (viaStart?.distance != null && viaStart.distance < 1), `${viaStart?.distance}`)
+  const withBody = roster.find((l) => l.body && l.x != null && l.system && !/\d/.test(l.name))
+  const fmt = N.formatPlaceWithBodySystem(withBody?.name ?? '', roster)
+  check('resolver wiring', 'formatPlaceWithBodySystem via resolver: body + system chips', /Body \[/.test(fmt) && /System \[/.test(fmt), fmt)
 
   // a roster name whose game marker is far away: the marker wins the distance (never the roster place's)
   const ev = byName('Everus Harbor')

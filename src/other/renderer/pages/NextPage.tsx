@@ -139,8 +139,8 @@ export default function NextPage(): React.ReactElement {
   }, [])
   // auto: newer of typed start and latest clue; fixed: typed only
   const origin = useMemo(
-    () => resolveOrigin({ typed: typedStart, typedAt: startTypedAt, where, mode: startMode, locations, now }),
-    [typedStart, startTypedAt, where, startMode, locations, now]
+    () => resolveOrigin({ typed: typedStart, typedAt: startTypedAt, where, mode: startMode, locations, now, memory }),
+    [typedStart, startTypedAt, where, startMode, locations, now, memory]
   )
   const fromClue = origin.kind != null && origin.kind !== 'typed'
   // score from resolveOrigin; null for typed
@@ -443,6 +443,8 @@ export default function NextPage(): React.ReactElement {
                 {`from: ${SOURCE_WORD[origin.kind]}${originAt ? ` \u00b7 ${ago(originAt, now)}` : ''}${origin.stale ? ' \u00b7 stale' : ''}`}
               </span>
               {originAcc != null ? <AccSlider score={originAcc} /> : null}
+              {/* how sure the start's name is (one resolver; click to fix) */}
+              <MatchTag match={origin.match} />
             </div>
           ) : null}
         </div>

@@ -15,8 +15,8 @@ import {
   type OtherStep
 } from '@other/otherJob'
 import { calibrateZone, resolveMarker, type BodyRadiusLookup, type CalibrateResult, type MarkerPos } from '@other/otherMarkers'
-import { findRosterLocation, foldPlaceName, nearestRosterPlace, stepActivePlace } from '@other/otherNext'
-import { resolvePlaceText, resolveStopPlace } from '@other/otherResolve'
+import { stepActivePlace } from '@other/otherNext'
+import { isSurePlace, nearestPlace, placeKey, resolvePlaceText, resolveStartText, resolveStopPlace } from '@other/otherResolve'
 import { PROOF_METERS, PROOF_WINDOW_MS, type MemoryWhere } from '@other/otherMemory'
 import { memoryLookup, startMemorySeenReporter } from './otherMemoryStore'
 import { setBodyRadiusLookup } from '@other/otherGeo'
@@ -309,14 +309,14 @@ function reportLearned(step: OtherStep, pos: { x: number; y: number; z: number }
   // the step's own place with this marker (not the pickup of a combined step)
   const match = resolvePlaceText(name, { locations, useMarker: true }, pos)
   if (match.status !== 'marker') return
-  const near = nearestRosterPlace(pos, locations)
-  if (!near) return
+  const hit = nearestPlace(pos, locations)
+  if (!hit) return
+  const near = { name: hit.place.name, meters: hit.meters }
   const key = `${name.toLowerCase()}\n${near.name.toLowerCase()}`
   if (learnedSent.has(key)) return
   learnedSent.add(key)
-  const at = locations.find((l) => l.name === near.name)
-  const body = at?.body ?? undefined
-  const system = at?.system ?? undefined
+  const body = hit.place.body ?? undefined
+  const system = hit.place.system ?? undefined
   window.supercargo?.otherLearnedPlace?.({
     name,
     near: near.name,
@@ -358,7 +358,8 @@ function proveStep(prev: Where | null, step: OtherStep, job: OtherJob, at: strin
     return
   }
   const place = m.match?.name ?? m.site?.name ?? null
-  const near = nearestRosterPlace(prev.point, locations)
+  const hit = prev.point ? nearestPlace(prev.point, locations) : undefined
+  const near = hit ? { name: hit.place.name, meters: hit.meters } : undefined
   const actual: MemoryWhere = prev.point
     ? { name: near?.name ?? prev.name ?? null, meters: near ? Math.round(near.meters) : null, at: prev.at }
     : { name: prev.name, meters: null, at: prev.at }
@@ -368,7 +369,9 @@ function proveStep(prev: Where | null, step: OtherStep, job: OtherJob, at: strin
     meters = Math.round(Math.hypot(prev.point.x - m.point.x, prev.point.y - m.point.y, prev.point.z - m.point.z))
     ok = meters <= PROOF_METERS
   } else if (prev.name && place) {
-    ok = foldPlaceName(prev.name) === foldPlaceName(place)
+    // the read's name names the chosen place: same spelling key, or the resolver (no memory: memory is what is being proven) is sure of it
+    const read = resolveStartText(prev.name, { locations, useMarker: false })
+    ok = placeKey(prev.name) === placeKey(place) || (isSurePlace(read) && read.match?.name === place)
   } else {
     decide('proof: nothing to compare', mid, { ref: job.ref, step: stepKey(step), place, readPoint: !!prev.point, placePoint: !!m.point })
     return
@@ -388,9 +391,11 @@ function placeSteps(d: Draft, ctx: Ctx, jobId?: string): void {
   const zones = d.markerZones[d.markerBuild] ?? {}
   // merged roster (haul + other places), the same list calibrateZone uses
   const locations = mergeLocations(useStore.getState().locations)
+  // a step the resolver is sure names a roster place with coords doesn't need a marker (text as read, with match memory)
   const hasUex = (s: OtherStep): boolean => {
-    const named = findRosterLocation(s.location, locations)
-    return !!named && named.x != null && named.y != null && named.z != null
+    const m = resolveStartText(s.locationRaw ?? s.location ?? '', { locations, useMarker: false, memory: memoryLookup })
+    const named = m.match
+    return isSurePlace(m) && !!named && named.x != null && named.y != null && named.z != null
   }
   d.jobs = d.jobs.map((j) => {
     if ((jobId && j.id !== jobId) || !j.missionId) return j
@@ -494,7 +499,9 @@ export function matchTrackedMission(jobs: OtherJob[], trackedId: string | undefi
 
 /** a Where for a named place; system, body and point from the roster when it knows the place */
 function whereFromPlace(name: string, source: WhereSource, at: string): Where {
-  const loc = findRosterLocation(name, mergeLocations(useStore.getState().locations))
+  // the one resolver (with match memory); a place it isn't sure of gives no point
+  const m = resolveStartText(name, { locations: mergeLocations(useStore.getState().locations), useMarker: false, memory: memoryLookup })
+  const loc = isSurePlace(m) ? m.match : undefined
   const point =
     loc && loc.x != null && loc.y != null && loc.z != null
       ? { x: loc.x, y: loc.y, z: loc.z, system: loc.system ?? null, body: loc.body ?? null }
@@ -732,7 +739,7 @@ function reduce(d: Draft, e: OtherLogEvent, ctx: Ctx): void {
         dlog.debug('other', 'objective dropped: duplicate step', { ref: job.ref, text: e.text })
         break
       }
-      const step: OtherStep = { ...stepFromObjectiveText(e.text, useStore.getState().locations ?? []), logText: e.text }
+      const step: OtherStep = { ...stepFromObjectiveText(e.text, mergeLocations(useStore.getState().locations), { memory: memoryLookup }), logText: e.text }
       if (e.objectiveId) step.objectiveId = e.objectiveId
       decide('step added', mid, {
         ref: job.ref,
@@ -1277,8 +1284,8 @@ export const useOtherJobs = create<OtherJobsState>((set, get) => {
           // a step that names a known place got its marker as evidence only: not a place "found"
           if (resolvePlaceText(st.location ?? '', { locations, useMarker: true }, st.position).match) continue
           placed += 1
-          const near = nearestRosterPlace(st.position, locations)
-          found.push(near ? `${st.location || st.label} near ${near.name}` : st.location || st.label)
+          const near = nearestPlace(st.position, locations)
+          found.push(near ? `${st.location || st.label} near ${near.place.name}` : st.location || st.label)
         }
       }
       const zoneCount = Object.keys((d.markerBuild && d.markerZones[d.markerBuild]) || {}).length

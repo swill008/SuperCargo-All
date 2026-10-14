@@ -11,12 +11,16 @@ import { useStore } from '@renderer/state/store'
 import { dlog } from '@renderer/state/log'
 import { useOtherJobs } from '../state/otherJobs'
 import { useOtherCapture } from '../state/otherCapture'
-import { applyOcrRows, applyOcrRewardOnly, traceOcr } from '../state/otherOcr'
+import { applyOcrRows, applyOcrRewardOnly, importOcrPlace, traceOcr } from '../state/otherOcr'
 import { saveSessionOcrShot } from '../state/otherOcrShot'
 import { mergeLocations } from '../state/otherPlaces'
 import { parseOtherOcrText, type OtherOcrRow } from '@other/otherOcrParse'
 import { miniBtn, outlineBtn } from '../pages/JobsPartsStyles'
 import { OtherOcrShotView } from './OtherOcrShotView'
+import { MatchTag, stopPlaceText } from './MatchTag'
+import { useMemoryLookup } from '../state/otherMemoryStore'
+import type { StopPlace } from '@other/otherResolve'
+import type { Location } from '@shared/types'
 
 type DraftRow = OtherOcrRow & { key: string }
 
@@ -34,10 +38,10 @@ export default function OtherCaptureModal(): React.ReactElement | null {
   const job = useOtherJobs((s) => s.jobs.find((j) => j.id === jobId) ?? null)
   const locs = useStore((s) => s.locations)
   const comms = useStore((s) => s.commodities)
-  const locations = useMemo(
-    () => mergeLocations(locs).map((l) => l.name).filter(Boolean),
-    [locs]
-  )
+  const roster = useMemo(() => mergeLocations(locs), [locs])
+  const locations = useMemo(() => roster.map((l) => l.name).filter(Boolean), [roster])
+  // identity changes with the memory doc: a fix made here re-resolves the rows before CONFIRM
+  const memory = useMemoryLookup()
   const items = useMemo(() => (comms ?? []).map((c) => c.name).filter(Boolean), [comms])
 
   const [status, setStatus] = useState('')
@@ -49,6 +53,18 @@ export default function OtherCaptureModal(): React.ReactElement | null {
   const [calibrating, setCalibrating] = useState(false)
   const [overwrite, setOverwrite] = useState(false)
   const [updateAuecOnly, setUpdateAuecOnly] = useState(false)
+  // each row's places resolved exactly as CONFIRM will import them (importPlace, OCR rules, match memory)
+  const matches = useMemo(() => {
+    const out = new Map<string, { location: StopPlace | null; pickup: StopPlace | null }>()
+    for (const r of rows) {
+      out.set(r.key, {
+        location: importOcrPlace(r.location, r.label, roster)?.match ?? null,
+        pickup: importOcrPlace(r.pickupLocation, r.label, roster)?.match ?? null
+      })
+    }
+    return out
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [rows, roster, memory])
 
   // fresh draft on every open / job change; also covers Esc close (store close only)
   useEffect(() => {
@@ -341,6 +357,8 @@ export default function OtherCaptureModal(): React.ReactElement | null {
                   onSelect={(v) => patch(row.key, { location: v })}
                 />
               </div>
+              <ScanPlace match={matches.get(row.key)?.pickup ?? null} text={row.pickupLocation} roster={roster} prefix="Collect" />
+              <ScanPlace match={matches.get(row.key)?.location ?? null} text={row.location} roster={roster} prefix={row.pickupLocation ? 'Deliver' : ''} />
               <div style={{ fontFamily: F.body, fontSize: 12, color: C.dim, marginBottom: 4 }}>Item</div>
               <div style={{ border: `1px solid ${C.lineStrong}`, background: 'rgba(0,0,0,0.4)', padding: '0 8px', marginBottom: 8 }}>
                 <Typeahead value={row.item || ''} options={items} freeText maxResults={12} menuMinWidth={480} wrapMenu placeholder="Item" onChange={(v) => patch(row.key, { item: v })} onSelect={(v) => patch(row.key, { item: v })} />
@@ -364,6 +382,22 @@ export default function OtherCaptureModal(): React.ReactElement | null {
           )}
         </div>
       </div>
+    </div>
+  )
+}
+
+/** under a scanned place: what it will import as, with its MatchTag (click to fix before CONFIRM) */
+function ScanPlace({ match, text, roster, prefix }: {
+  match: StopPlace | null
+  text?: string
+  roster: Location[]
+  prefix: string
+}): React.ReactElement | null {
+  if (!match || !text?.trim()) return null
+  return (
+    <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap', fontFamily: F.body, fontSize: 12, color: C.dim, marginTop: -4, marginBottom: 8 }}>
+      <span>{prefix ? `${prefix}: ` : ''}{'\u2192 '}<span style={{ color: C.textBody }}>{stopPlaceText(match, text, roster)}</span></span>
+      <MatchTag match={match} />
     </div>
   )
 }

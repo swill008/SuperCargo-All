@@ -327,6 +327,22 @@ safe('name matching', () => {
   check('name matching', 'map coords -> accuracy 3', c?.accuracy === 3, j(c?.accuracy))
 })
 
+safe('resolver hook', () => {
+  // the one resolver decides place names: a learned/user answer applies, an unsure one does not
+  const stott = loc('HDRSO-Stott')
+  const learned = (t) => ({ text: t, label: 'HDRSO-Stott', match: stott, status: 'user', confidence: 10, evidence: [], candidates: [], source: 'roster', memoryKey: t })
+  const unsure = (t) => ({ text: t, label: t, match: stott, status: 'unsure', confidence: 3, evidence: [], candidates: [], source: null, memoryKey: t })
+  const line = { system: 'Stanton', body: 'HURSTON', place: 'STOTT PLACE', latDeg: 0, lonDeg: 0, distGm: 12.85 }
+  const r = W.resolveMapLine(line, roster, AT, learned)
+  check('resolver hook', 'map place via resolve (user entry) -> HDRSO-Stott, accuracy 8', r?.name === 'HDRSO-Stott' && r.accuracy === 8 && r.body === 'Hurston', j(r))
+  const u = W.resolveMapLine(line, roster, AT, unsure)
+  check('resolver hook', 'unsure resolver answer is not used -> body Hurston', u?.name === 'Hurston' && u.accuracy === 4, j(u))
+  let asked = []
+  const spy = (t) => (asked.push(t), unsure(t))
+  W.resolveDisplayInfo(W.parseDisplayInfo(DI_SURFACE), roster, AT, { resolve: spy })
+  check('resolver hook', 'display info: known body found by findBody, resolver not needed', asked.length === 0, j(asked))
+})
+
 safe('accuracy', () => {
   const base = { name: null, label: 'x', system: 'Stanton', body: null, source: 'displayinfo', at: AT, accuracy: 10 }
   const t0 = Date.parse(AT)

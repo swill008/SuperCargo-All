@@ -6,6 +6,7 @@
  * Pure: the builders run in scripts/gen-site-codes.mjs and main/gameData.ts; the lookups run on the
  * table set with setSiteCodes (empty until then).
  */
+import type { Location } from '@shared/types'
 import { isGenericSite, placeKey } from './otherResolve'
 
 export interface SiteCode {
@@ -286,7 +287,9 @@ export function parentForCode(code: string): SiteParent | undefined {
 /** system/body tokens in panel codes ("Stanton1", "Pyro5a") say nothing about the site itself */
 const SYSTEM_TOKEN = /^(?:stanton|pyro|nyx|terra|magnus)\d*[a-z]?$/
 /** a distinctive code token: letters and digits ("s1dc06", "sm018"), not a system/body token */
-const codeToken = (t: string): boolean => /[a-z]/.test(t) && /\d/.test(t) && !SYSTEM_TOKEN.test(t)
+/** a Lagrange point ("L1".."L5") is shared by every body's stations: not distinctive either (RR_XYZ_L1 is no place) */
+const LAGRANGE_TOKEN = /^l[1-5]$/
+const codeToken = (t: string): boolean => /[a-z]/.test(t) && /\d/.test(t) && !SYSTEM_TOKEN.test(t) && !LAGRANGE_TOKEN.test(t)
 
 /**
  * a panel-style code ("Stanton1_DistributionCentre_Covalex_S1DC06") -> the trade code with the most
@@ -333,4 +336,68 @@ export function codeFromText(text: string): string | undefined {
   const known = siteByCode(found)
   if (known) return known.code
   return tradeCodeForPanel(found) ?? found
+}
+
+// ---------------------------------------------------------------------------------------------
+// code -> roster place (the one table: wiki site codes, then the game's city and Lagrange codes)
+
+/** game location codes for the landing-zone cities (Game.log RequestLocationInventory) */
+const CITY: Record<string, string> = {
+  stanton1_lorville: 'Lorville',
+  stanton2_orison: 'Orison',
+  stanton3_area18: 'Area18',
+  stanton4_newbabbage: 'New Babbage'
+}
+/** RR_<BODY>_LEO: the body's low-orbit station */
+const LEO: Record<string, string> = {
+  HUR: 'Everus Harbor',
+  CRU: 'Seraphim Station',
+  ARC: 'Baijini Point',
+  MIC: 'Port Tressler'
+}
+const RR_CODE = /^RR_(HUR|CRU|ARC|MIC)_(L[1-5]|LEO)$/i
+
+/** the roster place by name (placeKey equal, with coords first), as the roster spells it */
+function rosterByName(name: string, locations: Location[]): string | null {
+  const k = placeKey(name)
+  if (!k) return null
+  const hits = locations.filter((l) => placeKey(l.name) === k)
+  const best = hits.find((l) => Number.isFinite(l.x) && Number.isFinite(l.y) && Number.isFinite(l.z)) ?? hits[0]
+  return best?.name ?? null
+}
+
+/**
+ * an internal code -> the roster place it names, or null (never a guess):
+ * 'site' = wiki site table (exact code, or the place a site belongs to; panel-style codes mapped to it),
+ * 'city' = Stanton1_Lorville style, 'lagrange' = RR_CRU_L1 / RR_CRU_LEO. The game's own RR_/city codes
+ * are read before the panel-style token match so a fuzzy token match can't take them.
+ */
+export function placeForCode(code: string, locations: Location[]): { name: string; via: 'site' | 'city' | 'lagrange' } | null {
+  const c = (code ?? '').trim()
+  if (!c) return null
+  const fromSite = (k: string): { name: string; via: 'site' } | null => {
+    const parent = parentForCode(k)
+    const name = parent ? rosterByName(parent.name, locations) : null
+    return name ? { name, via: 'site' } : null
+  }
+  if (siteByCode(c)) return fromSite(c)
+  const rr = RR_CODE.exec(c)
+  if (rr) {
+    const body = rr[1].toUpperCase()
+    const point = rr[2].toUpperCase()
+    if (point === 'LEO') {
+      const name = rosterByName(LEO[body], locations)
+      return name ? { name, via: 'lagrange' } : null
+    }
+    const want = placeKey(`${body}-${point}`)
+    const hit = locations.find((l) => placeKey(l.code ?? '') === want) ?? locations.find((l) => placeKey(l.name).startsWith(`${want} `))
+    return hit ? { name: hit.name, via: 'lagrange' } : null
+  }
+  const city = CITY[c.toLowerCase()]
+  if (city) {
+    const name = rosterByName(city, locations)
+    return name ? { name, via: 'city' } : null
+  }
+  const panel = tradeCodeForPanel(c)
+  return panel ? fromSite(panel) : null
 }

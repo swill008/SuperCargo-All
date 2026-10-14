@@ -1,5 +1,5 @@
-// Diagnostics explainers: explainPlaceLookup (otherNext) and explainTravel (otherGeo) agree with
-// findRosterLocation / travel and say which step matched. Usage: node test/replay/diag_checks.mjs
+// Diagnostics explainers: place lookups come from the one resolver (otherResolve.resolveStartText) and
+// explainTravel (otherGeo) agrees with travel and says which step matched. Usage: node test/replay/diag_checks.mjs
 
 import { createRequire } from 'node:module'
 import * as fs from 'node:fs'
@@ -27,6 +27,7 @@ async function bundle(rel) {
   return import(pathToFileURL(outfile).href)
 }
 const N = await bundle('src/other/otherNext.ts')
+const R = await bundle('src/other/otherResolve.ts')
 const G = await bundle('src/other/otherGeo.ts')
 const T = await bundle('src/shared/trace.ts')
 
@@ -47,29 +48,30 @@ const safe = (name, fn) => {
 }
 
 safe('lookup', () => {
-  // explain and findRosterLocation must agree on the match for every case
-  const agree = (raw, locs) => {
-    const e = N.explainPlaceLookup(raw, locs)
-    const hit = N.findRosterLocation(raw, locs)
-    check('lookup', `agrees with findRosterLocation: ${raw}`, (e.match ?? null) === (hit?.name ?? null), `${e.match} vs ${hit?.name}`)
-    return e
-  }
-  const ex = agree('Port Tressler', locations)
-  check('lookup', 'exact name -> exact, coords', ex.method === 'exact' && ex.match === 'Port Tressler' && ex.hasCoords === true, JSON.stringify(ex))
-  const fo = agree('Covalex Distribution Center S1DCO6 on Hurston', locations)
-  check('lookup', 'S1DCO6 -> folded to S1DC06', fo.method === 'folded' && fo.match === 'Covalex Distribution Center S1DC06', JSON.stringify(fo))
-  check('lookup', 'candidates <= 5, chosen first', fo.candidates.length >= 1 && fo.candidates.length <= 5 && fo.candidates[0].name === fo.match, JSON.stringify(fo.candidates))
+  // the snapshot's place lookups come from the one resolver (resolveStartText): status, chosen place first, coords
+  const ctx = (locs) => ({ locations: locs, useMarker: false })
+  const look = (raw, locs = locations) => R.resolveStartText(raw, ctx(locs))
+  const ex = look('Port Tressler')
+  check('lookup', 'exact name -> exact, coords', ex.status === 'exact' && ex.match?.name === 'Port Tressler' && ex.point != null, JSON.stringify({ s: ex.status, m: ex.match?.name }))
+  const fo = look('Covalex Distribution Center S1DCO6 on Hurston')
+  // the roster's S1DC06 has no coords: top candidate (spelling-folded), not chosen; diagnostics say 'place in UEX without coords'
+  const top = fo.candidates[0]
+  check('lookup', 'S1DCO6 -> top candidate S1DC06 (no coords, not chosen)', top?.name === 'Covalex Distribution Center S1DC06' && top.hasCoords === false && top.score >= 5 && !fo.point, JSON.stringify({ s: fo.status, top }))
+  check('lookup', 'candidates <= 5', fo.candidates.length >= 1 && fo.candidates.length <= 5, JSON.stringify(fo.candidates))
   const twoSpellings = [
     { name: 'Covalex Distribution Center S1DC06', code: '', maxContainerSize: 0, uexId: 1, system: 'stanton' },
     { name: 'Covalex Distribution Centre S1DC06', code: '', maxContainerSize: 0, uexId: 0, system: 'stanton', body: 'Hurston', x: 1, y: 2, z: 3 }
   ]
-  const two = agree('Covalex Distribution Center S1DCO6 on Hurston', twoSpellings)
-  check('lookup', 'Center/Centre -> folded, picks the one with coords', two.method === 'folded' && two.match === 'Covalex Distribution Centre S1DC06' && two.hasCoords === true && two.candidates.length === 2, JSON.stringify(two))
-  const none = agree('Nowhere Gulch Camp 7', locations)
-  check('lookup', 'unknown -> none, no match, no coords', none.method === 'none' && none.match === undefined && none.hasCoords === false && none.candidates.length <= 5, JSON.stringify(none))
-  const empty = N.explainPlaceLookup('   ', locations)
-  check('lookup', 'blank -> none', empty.method === 'none' && empty.candidates.length === 0, JSON.stringify(empty))
-  for (const raw of ['HUR-L1 Green Glade Station', 'Everus Harbor', 'Baijini Point', 'Seraphim', 'Covalex Distribution Center S4DC05']) agree(raw, locations)
+  const two = look('Covalex Distribution Center S1DCO6 on Hurston', twoSpellings)
+  check('lookup', 'Center/Centre -> picks the one with coords', two.match?.name === 'Covalex Distribution Centre S1DC06' && two.point != null, JSON.stringify({ s: two.status, m: two.match?.name }))
+  const none = look('Nowhere Gulch Camp 7')
+  check('lookup', 'unknown -> no match, no point', !none.match && !none.point && ['none', 'unsure', 'guess'].includes(none.status) && none.candidates.length <= 5, JSON.stringify({ s: none.status, c: none.candidates }))
+  const empty = look('   ')
+  check('lookup', 'blank -> none', empty.status === 'none' && !empty.match, JSON.stringify({ s: empty.status }))
+  for (const raw of ['HUR-L1 Green Glade Station', 'Everus Harbor', 'Baijini Point', 'Seraphim']) {
+    const m = look(raw)
+    check('lookup', `known place resolves sure: ${raw}`, ['exact', 'corrected'].includes(m.status) && !!m.match, JSON.stringify({ s: m.status, m: m.match?.name }))
+  }
 })
 
 safe('travel', () => {

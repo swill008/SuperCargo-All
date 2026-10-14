@@ -1,7 +1,8 @@
 /**
  * Apply Other OCR confirm onto a job.
  * This pass fills empty unlocked jobs only. Overwrite comes later.
- * Confirm snaps location to a unique UEX roster name when one is obvious.
+ * Places keep the text as read; a roster name replaces it only when the one resolver is sure
+ * (importPlace with OCR rules and match memory, so a fix made on the confirm screen applies here).
  */
 import { mergeCollectIntoDeliver, stepFromParse, stepKey } from '@other/otherLog'
 import type { OtherOcrRow } from '@other/otherOcrParse'
@@ -11,7 +12,9 @@ import { useStore } from '@renderer/state/store'
 import { dlog } from '@renderer/state/log'
 import { trace } from '@renderer/state/trace'
 import { mergeLocations } from './otherPlaces'
-import { snapOtherLocationOcr, type OtherLocationSnap } from '@other/otherLocationSnap'
+import { importPlace } from '@other/otherResolve'
+import type { Location } from '@shared/types'
+import { currentMemoryLookup } from './otherMemoryStore'
 
 /** 'ocr' trace record. Text is cut to 500 chars; images never go in. */
 export function traceOcr(what: string, missionId: string | undefined, data: Record<string, unknown>, text?: string): void {
@@ -21,6 +24,20 @@ export function traceOcr(what: string, missionId: string | undefined, data: Reco
     if (text) d.text = text.slice(0, 500)
   }
   trace({ area: 'ocr', mode: 'other', what, missionId, data: d })
+}
+
+/** roster the scan import resolves against (also for the confirm screen) */
+export function ocrImportLocations(): Location[] {
+  return mergeLocations(useStore.getState().locations)
+}
+
+/**
+ * One scanned place, resolved as applyOcrRows will resolve it (OCR rules + match memory).
+ * The confirm screen shows `match` as its tag. null for no text or a Neutralize target.
+ */
+export function importOcrPlace(raw: string | undefined, label: string, locations: Location[] = ocrImportLocations()): ReturnType<typeof importPlace> | null {
+  if (!raw?.trim() || /^(?:OPTIONAL:\s*)?Neutralize\s/i.test(label)) return null
+  return importPlace(raw, { locations, useMarker: false, memory: currentMemoryLookup() }, { ocr: true, label })
 }
 
 let seq = 0
@@ -51,18 +68,14 @@ export function applyOcrRows(
     dlog.info('other', 'ocr rows skipped: job locked or has steps', { ref: job.ref, locked: !!job.objectivesLocked, steps: job.steps.length })
   }
   if (!overwrite && (job.objectivesLocked || job.steps.length > 0)) return false
-  const locations = mergeLocations(useStore.getState().locations)
+  const locations = ocrImportLocations()
+  const memory = currentMemoryLookup()
 
   const incoming = mergeCollectIntoDeliver(payload.rows)
   const steps: OtherStep[] = []
-  // OCR places get the log path's snap plus OCR-misread tolerance; the text as read stays on
-  // locationRaw / pickupLocationRaw for the tooltip. Neutralize targets are not places (as in stepFromParse).
-  const snapOcr = (raw: string | undefined, label: string): OtherLocationSnap | null =>
-    raw && !/^(?:OPTIONAL:\s*)?Neutralize\s/i.test(label) ? snapOtherLocationOcr(raw, locations) : null
+  // places go in as read; stepFromParse resolves them with the OCR rules and match memory
   for (const row of incoming) {
-    const dest = snapOcr(row.location, row.label || '')
-    const pick = snapOcr(row.pickupLocation, row.label || '')
-    const loc = dest?.location ?? (row.location || '')
+    const loc = row.location || ''
     const label = row.label || (row.item && loc
       ? `Deliver 0/${row.need || 1} ${row.item} to ${loc}`
       : loc
@@ -72,19 +85,11 @@ export function applyOcrRows(
       kind: row.kind,
       label,
       location: loc,
-      pickupLocation: pick?.location ?? row.pickupLocation,
+      pickupLocation: row.pickupLocation,
       item: row.item,
       have: row.have || 0,
       need: Math.max(1, row.need || 1)
-    }, locations)
-    if (dest) {
-      step.locationRaw = dest.locationRaw
-      step.locationSnapped = dest.locationSnapped
-    }
-    if (pick && step.pickupLocation !== undefined) {
-      step.pickupLocationRaw = pick.locationRaw
-      step.pickupLocationSnapped = pick.locationSnapped
-    }
+    }, locations, { memory, ocr: true })
     if (steps.some((s) => stepKey(s) === stepKey(step))) continue
     steps.push(step)
   }

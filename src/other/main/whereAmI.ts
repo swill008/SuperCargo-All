@@ -20,8 +20,13 @@ import {
   resolveDisplayInfo,
   resolveMapLine,
   type Where,
+  type WhereResolve,
   type WhereRunResult
 } from '@other/otherWhere'
+import { resolveStartText } from '@other/otherResolve'
+import { lookupMemory } from '@other/otherMemory'
+import type { Location } from '@shared/types'
+import { getMemory } from './matchMemory'
 import { otherSetting, resolveWorkMode } from '../workMode'
 import { currentLocationRoster } from './scanLog'
 import { getBodies, onWhereRead } from './bodies'
@@ -241,15 +246,22 @@ async function ocrZone(img: NativeImage, crop: CropRect, zone: Zone): Promise<st
   return r.text
 }
 
+/** the one resolver over the merged roster with main's match memory (site codes: gameData.ts already loaded them) */
+export function whereResolver(locations: Location[]): WhereResolve {
+  const memory = getMemory()
+  return (text) => resolveStartText(text, { locations, useMarker: false, memory: (key) => lookupMemory(memory, key) })
+}
+
 function readZone(zone: Zone, text: string, at: string, out: { info?: DisplayInfo }): Where | null {
   const locations = currentLocationRoster()
+  const resolve = whereResolver(locations)
   if (zone === 2) {
     const info = parseDisplayInfo(text)
     if (info) out.info = info
-    return info ? resolveDisplayInfo(info, locations, at, { bodyRadius: (n) => bodyRadiusFromTable(getBodies().bodies, n) }) : null
+    return info ? resolveDisplayInfo(info, locations, at, { bodyRadius: (n) => bodyRadiusFromTable(getBodies().bodies, n), resolve }) : null
   }
   const line = parseMapLine(text)
-  return line ? resolveMapLine(line, locations, at) : null
+  return line ? resolveMapLine(line, locations, at, resolve) : null
 }
 
 function zoneOrder(settings: AppSettings, zones: Zone | 'both' | undefined): Zone[] {

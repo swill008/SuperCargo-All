@@ -140,6 +140,25 @@ safe('codes', () => {
   check('codes', 'two-part words are not codes', M.codeFromText('drop_off here') === undefined)
 })
 
+// ---------------------------------------------------------------------------- code -> roster place (placeForCode)
+safe('placeForCode', () => {
+  const uex = JSON.parse(fs.readFileSync(path.join(root, 'data/uex/locations.json'), 'utf8')).locations
+  const pos = JSON.parse(fs.readFileSync(path.join(root, 'data/uex/other-positions.json'), 'utf8')).places
+  const names = new Set(uex.map((l) => l.name))
+  const L = [...uex, ...pos.filter((p) => !names.has(p.name))]
+  const P = (c) => M.placeForCode(c, L)
+  check('placeForCode', 'site child -> its parent on the roster', J(P('DC_Stan_Covalex_S1_S1DC06_FOB')) === J({ name: 'Covalex Distribution Centre S1DC06', via: 'site' }), J(P('DC_Stan_Covalex_S1_S1DC06_FOB')))
+  check('placeForCode', 'panel style -> the place', P('Stanton1_DistributionCentre_Covalex_S1DC06')?.name === 'Covalex Distribution Centre S1DC06', J(P('Stanton1_DistributionCentre_Covalex_S1DC06')))
+  check('placeForCode', 'RR_CRU_L1 -> CRU-L1 station', J(P('RR_CRU_L1')) === J({ name: 'CRU-L1 Ambitious Dream Station', via: 'lagrange' }), J(P('RR_CRU_L1')))
+  check('placeForCode', 'rr_hur_leo (any case) -> Everus Harbor', P('rr_hur_leo')?.name === 'Everus Harbor', J(P('rr_hur_leo')))
+  check('placeForCode', 'Stanton1_Lorville -> Lorville (city)', J(P('Stanton1_Lorville')) === J({ name: 'Lorville', via: 'city' }), J(P('Stanton1_Lorville')))
+  check('placeForCode', 'Stanton2_Orison -> Orison', P('Stanton2_Orison')?.name === 'Orison', J(P('Stanton2_Orison')))
+  check('placeForCode', 'unknown code -> null (never a guess)', P('Pyro_Nowhere') === null && P('RR_XYZ_L1') === null && P('') === null)
+  check('placeForCode', 'roster without the place -> null', M.placeForCode('RR_CRU_L1', L.filter((l) => !/^CRU-L1/.test(l.name) && (l.code ?? '') !== 'CRU-L1')) === null)
+  check('placeForCode', 'a Lagrange token alone is not a panel code (RR_XYZ_L1 is not a Pyro station)', M.tradeCodeForPanel('RR_XYZ_L1') === undefined, M.tradeCodeForPanel('RR_XYZ_L1'))
+  check('placeForCode', 'generic site without a parent -> null', M.placeForCode('Nope_FOB', L) === null)
+})
+
 // ---------------------------------------------------------------------------- starmap places (synthetic)
 safe('starmap', () => {
   const e = (uuid, name, type, parent, x = 1, extra = {}) => ({ uuid, name, type, system: 'stanton', parent_uuid: parent, x, y: 2, z: 3, ...extra })

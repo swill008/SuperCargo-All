@@ -3,6 +3,12 @@
 import type { Location } from "@shared/types";
 import type { GeoPoint } from "./otherGeo";
 import { bodyRadius, type BodyRadiusLookup } from "./otherMarkers";
+import {
+  findBody,
+  nearestPlace,
+  resolveStartText,
+  type StopPlace,
+} from "./otherResolve";
 
 export type WhereSource =
   | "typed"
@@ -386,78 +392,92 @@ export function parseDisplayInfo(text: string): DisplayInfo | null {
   return out;
 }
 
-// ---- resolving against the roster ----
+// ---- resolving against the roster (names via otherResolve: findBody / resolveStartText / nearestPlace) ----
 
 type Pt = { x: number; y: number; z: number };
 type Placed = Location & Pt;
 
+/** text -> the one resolver's answer (main passes a closure with match memory) */
+export type WhereResolve = (text: string) => StopPlace;
+
+const hasXyz = (l: Location | null | undefined): l is Placed =>
+  !!l &&
+  typeof l.x === "number" &&
+  typeof l.y === "number" &&
+  typeof l.z === "number";
+
 const sameSystem = (a: string | undefined | null, b: string | null): boolean =>
   !b || !a || titleSystem(a).toLowerCase() === titleSystem(b).toLowerCase();
 
+/** roster places with coords in this system (geometry pool, not name matching) */
 function placed(locations: Location[], system: string | null): Placed[] {
-  return locations.filter(
-    (l): l is Placed =>
-      typeof l.x === "number" &&
-      typeof l.y === "number" &&
-      typeof l.z === "number" &&
-      sameSystem(l.system, system),
-  );
+  const out: Placed[] = [];
+  for (const l of locations)
+    if (hasXyz(l) && sameSystem(l.system, system)) out.push(l);
+  return out;
 }
 
 const dist = (a: Pt, b: Pt): number =>
   Math.hypot(a.x - b.x, a.y - b.y, a.z - b.z);
 
-/** lower-case words; inside a token that holds a digit, O reads as 0 and I/l as 1 (S1DCO6 = S1DC06) */
-const norm = (s: string): string =>
-  s
-    .toLowerCase()
-    .replace(/[^a-z0-9]+/g, " ")
-    .trim()
-    .split(" ")
-    .map((w) => (/\d/.test(w) ? w.replace(/o/g, "0").replace(/[il]/g, "1") : w))
-    .join(" ");
+/** resolver statuses sure enough to place the player at a roster place */
+const NOT_SURE = new Set(["none", "unsure", "mismatch"]);
 
-/** exact / case-insensitive first, then contains (shortest roster name wins) */
-function snap(name: string | undefined, pool: Placed[]): Placed | null {
+/** a body by name (findBody), in the read system first */
+function bodyByName(
+  name: string | undefined | null,
+  locations: Location[],
+  system: string | null,
+): Placed | null {
   if (!name) return null;
-  const n = norm(name);
-  if (!n) return null;
-  const exact = pool.find((l) => norm(l.name) === n);
-  if (exact) return exact;
-  if (n.length < 4) return null;
-  const hits = pool.filter((l) => {
-    const r = norm(l.name);
-    return r.length >= 4 && (r.includes(n) || n.includes(r));
-  });
-  hits.sort(
-    (a, b) =>
-      Math.abs(norm(a.name).length - n.length) -
-      Math.abs(norm(b.name).length - n.length),
-  );
-  return hits[0] ?? null;
+  const b = findBody(name, locations, system ?? undefined);
+  return hasXyz(b) && sameSystem(b.system, system) ? b : null;
 }
 
-/** planets and moons: roster entries some other entry names as its body */
+/** a place by name through the one resolver; only a sure match with coords in the read system */
+function placeByName(
+  name: string | undefined | null,
+  resolve: WhereResolve,
+  system: string | null,
+): Placed | null {
+  if (!name?.trim()) return null;
+  const sp = resolve(name);
+  const m = sp.match;
+  return m &&
+    !NOT_SURE.has(sp.status) &&
+    hasXyz(m) &&
+    sameSystem(m.system, system)
+    ? m
+    : null;
+}
+
+/** names of planets and moons: roster entries some other entry names as its body */
+function bodyNames(pool: Placed[]): Set<string> {
+  const s = new Set<string>();
+  for (const l of pool) if (l.body) s.add(l.body.toLowerCase());
+  return s;
+}
+
 function bodies(pool: Placed[]): Placed[] {
-  const names = new Set(
-    pool.map((l) => l.body?.toLowerCase()).filter((b): b is string => !!b),
-  );
-  return pool.filter((l) => names.has(l.name.toLowerCase()));
+  const names = bodyNames(pool);
+  const out: Placed[] = [];
+  for (const l of pool) if (names.has(l.name.toLowerCase())) out.push(l);
+  return out;
 }
 
-function isBody(loc: Placed, pool: Placed[]): boolean {
-  const n = loc.name.toLowerCase();
-  return pool.some((l) => l.body?.toLowerCase() === n);
-}
+const isBody = (loc: Placed, pool: Placed[]): boolean =>
+  bodyNames(pool).has(loc.name.toLowerCase());
 
+/** nearest place in the pool (nearestPlace, no distance cap) */
 function nearest(p: Pt, pool: Placed[]): { loc: Placed; d: number } | null {
-  let best: { loc: Placed; d: number } | null = null;
-  for (const l of pool) {
-    const d = dist(p, l);
-    if (!best || d < best.d) best = { loc: l, d };
-  }
-  return best;
+  const hit = nearestPlace(p, pool, Infinity);
+  return hit && hasXyz(hit.place) ? { loc: hit.place, d: hit.meters } : null;
 }
+
+const defaultResolve =
+  (locations: Location[]): WhereResolve =>
+  (text) =>
+    resolveStartText(text, { locations, useMarker: false });
 
 /** "22.8 km", "443,380 km", "12.5 Gm"; under 1 km in metres */
 export function formatWhereDistance(m: number): string {
@@ -485,16 +505,25 @@ const geo = (p: Pt, system: string | null, body: string | null): GeoPoint => ({
   body,
 });
 
-/** CONTRACT: most specific name wins (place, then body); 0°/0° coordinates are ignored as a position. */
+/**
+ * CONTRACT: most specific name wins (place, then body); 0°/0° coordinates are ignored as a position.
+ * Body names via findBody, place names via `resolve` (default: resolveStartText without memory).
+ */
 export function resolveMapLine(
   line: MapLine,
   locations: Location[],
   at: string,
+  resolve: WhereResolve = defaultResolve(locations),
 ): Where | null {
   const system = line.system ? titleSystem(line.system) : null;
   const pool = placed(locations, system);
-  const bodyLoc = snap(line.body, pool);
-  const placeLoc = line.place ? snap(line.place, pool) : null;
+  const bodyLoc =
+    bodyByName(line.body, locations, system) ??
+    placeByName(line.body, resolve, system);
+  const placeLoc = line.place
+    ? (bodyByName(line.place, locations, system) ??
+      placeByName(line.place, resolve, system))
+    : null;
   for (const loc of [placeLoc, bodyLoc]) {
     if (!loc) continue;
     const body = isBody(loc, pool)
@@ -561,13 +590,18 @@ function formatUp(m: number): string {
  * null = nothing usable (the caller falls back to the map line). ServerTime > 2 min off `at` = maybe stale (accuracy −3).
  * opts.bodyRadius = planet table (otherBodies) for the "N km up" label when the panel's "Radius:" line is cut off;
  * without it (or when it doesn't know the body) the roster estimate (otherMarkers.bodyRadius) is used.
+ * Body names via findBody, then opts.resolve (default: resolveStartText without memory); nearest place via nearestPlace.
  */
 export function resolveDisplayInfo(
   info: DisplayInfo,
   locations: Location[],
   at: string,
-  opts?: { bodyRadius?: BodyRadiusLookup },
+  opts?: { bodyRadius?: BodyRadiusLookup; resolve?: WhereResolve },
 ): Where | null {
+  const resolve = opts?.resolve ?? defaultResolve(locations);
+  /** body by name (findBody), else the resolver's sure answer (a garbled or learned name) */
+  const bodyOrPlace = (name: string, sys: string | null): Placed | null =>
+    bodyByName(name, locations, sys) ?? placeByName(name, resolve, sys);
   const checks: NonNullable<DisplayInfo["checks"]> = [];
   info.checks = checks;
   let system = info.system ? knownSystem(info.system) || null : null;
@@ -609,10 +643,10 @@ export function resolveDisplayInfo(
     near = false;
   }
   if (near) {
-    nearLoc = bodyLabel ? snap(bodyLabel, pool) : null;
+    nearLoc = bodyLabel ? bodyOrPlace(bodyLabel, system) : null;
     if (!nearLoc && bodyLabel && system) {
       // system read wrong: the body may be in another system's pool
-      const any = snap(bodyLabel, placed(locations, null));
+      const any = bodyOrPlace(bodyLabel, null);
       if (any) {
         nearLoc = any;
         system = knownSystem(any.system) || null;
@@ -658,9 +692,11 @@ export function resolveDisplayInfo(
     ) {
       const want = STANTON_INDEX[info.playerLocationIndex];
       if (want) {
-        const w = want.toLowerCase();
+        // the index's body through the resolver; then a plain identity compare on roster names
+        const wantBody = findBody(want, locations);
         const agree =
-          nearLoc.name.toLowerCase() === w || nearLoc.body?.toLowerCase() === w;
+          !!wantBody &&
+          (nearLoc.name === wantBody.name || nearLoc.body === wantBody.name);
         checks.push({
           item: "player location index agrees with body",
           ok: agree,
@@ -783,7 +819,7 @@ export function resolveDisplayInfo(
       body,
     };
   }
-  const bodyLoc = info.body ? snap(info.body, pool) : null;
+  const bodyLoc = info.body ? bodyOrPlace(info.body, system) : null;
   return {
     ...base,
     name: null,

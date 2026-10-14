@@ -480,6 +480,48 @@ Pure checks: `node test/replay/sitecodes_checks.mjs`, `node test/replay/resolve_
 - `data/uex/site-codes.json` is not in the `data/uex` hash sync, so only a release or an UPDATE changes it.
 - Game data is CIG's: fan use with credit to the Star Citizen Wiki, not for resale.
 
+## One name/place resolver (batch 9)
+
+Added 2026-10-14, user-approved (CONTRACT10). Rules 61-68 in
+[STANDALONE.md](../src/other/STANDALONE.md#one-nameplace-resolver-for-all-of-other-mode-batch-9-user-2026-10-14); every
+entry point by function in [SYSTEM-MAP.md](SYSTEM-MAP.md#name-and-place-resolution).
+
+**Why.** After batch 8 only the stops used the resolver; 11 of 13 lookups matched names on their own (job import from
+the log and from a scan, typed start, log position clues, map line, marker placement, the by-name distance helpers,
+diagnostics, game location codes, position -> place, the display-info read). The job import renamed the place text to
+a roster name when one name looked unique, so a wrong rename ("Covalex Distribution Center S1DC06 on microTech" ->
+Hurston's S1DC06) was resolved again from the renamed text and showed "✓ exact". The match memory and the user's
+fixes reached the stops only.
+
+**The fix.** Text as read is always the input; an import fills the roster name only when the resolver is sure. One
+module (`otherResolve.ts`) and one code table (`otherSiteCodes.ts:placeForCode`) serve every lookup, each with the
+match memory. Tags show wherever a place is chosen, including the scan confirm screen and STARTING AT.
+
+| # | Case | Expected | Test |
+|---|---|---|---|
+| N1 | Scan: "Go to Covalex Distribution Center S1DCO6 on Hurston" (OCR O for 0) and "Deliver Scrap to Shubin Mining Facility on Lyria" (code lost) | confirm screen: "≈ corrected" and "? not sure"; fix the second there (✗ Wrong -> SAL-2) before CONFIRM: "✓ you set", user entry saved, the stop's place is SAL-2, both stops keep the text as read | `resolver-scan-fix` |
+| N2 | Game.log: "Deliver Scrap to Covalex Distribution Center S1DC06 on microTech" | not renamed (`location` = text as read, not snapped); "✗ not found"; no distance | `resolver-log-no-rename` |
+| N3 | Typed start "S1DCO06" | Covalex Distribution Centre S1DC06, "≈ corrected" next to STARTING AT and on the overlay; distances from it | `resolver-typed-start` |
+| N4 | User entry "Shubin Mining Facility on Lyria" -> SAL-2 | applies to a log job imported after it, the scan confirm screen and saved step, and the typed start ("✓ you set") | `resolver-memory-everywhere` |
+| N5 | The 22 real log lines of the old `OTHER_LOCATION_SNAP_CASES` | same names, or a safer `unsure` / `none` (each change listed in the batch report) | `resolve_checks.mjs` (`stop_cases.json`) |
+| N6 | Name matching added outside the resolver | the guard fails and names the file and line | `resolver_guard.mjs` |
+
+Run (after `npm run build`): `node test/replay/replay.mjs resolver-scan-fix resolver-log-no-rename resolver-typed-start
+resolver-memory-everywhere`; pure: `node test/replay/resolver_guard.mjs`, `node test/replay/resolve_checks.mjs`.
+
+**Guard at the start of batch 9** (source as other agents were mid-edit, 2026-10-14 ~18:20): 5 hits in 2 files,
+the work the batch removes: `otherCurrentLocation.ts` (`rosterNameForCode` and its two roster finds by name / code ->
+`placeForCode`), `otherWhere.ts` (a lower-cased name compare of the nearest place with the panel's player-location
+body -> `findBody`). Allowlisted: `otherResolve.ts`, `otherSiteCodes.ts`, `otherPlaces.ts`, `main/uex.ts` (source
+merge), `otherGeo.ts`, `otherMarkers.ts`, `otherBodies.ts`.
+
+**Known limits.**
+- The guard reads patterns, not meaning: a lookup written in a new shape (another variable name for the roster) can slip
+  past it; the allowlist and the patterns are in one place to extend.
+- The scan scenarios use a test seam (main's `ocr:run` answered with a fixed text), not a real capture and OCR.
+- A stop the resolver isn't sure about keeps the text as read in `location`, so two imports of the same unsure text
+  from the log and a scan dedupe only when the texts are equal.
+
 ## Suggested order
 
 1. **Make it green:**

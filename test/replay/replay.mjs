@@ -593,9 +593,9 @@ async function j74Stale(name, keepVersion) {
 // CONTRACT8 (one stop-place resolver): jobs with the given steps, fixed typed start (or a WHERE AM I read when `read`
 // is a COVALEX_READS key), Next tab opened, then a button-path export. Returns both windows' text, the SNAPSHOT,
 // the export sections and ## MATCHES parsed (null when it isn't JSON, e.g. "(all exact)").
-async function matchRun(name, { jobs, read, want = /./, overlayWant = want }) {
+async function matchRun(name, { jobs, read, want = /./, overlayWant = want, typed = 'Lorville' }) {
   const settings = read ? { otherStartMode: 'auto' } : { otherStartMode: 'fixed' }
-  const start = read ? {} : { startLocation: 'Lorville', startTypedAt: iso(ago(60)) }
+  const start = read ? {} : { startLocation: typed, startTypedAt: iso(ago(60)) }
   const e = setup(name, settings, { jobs: jobs.map((j) => logJob(mission(), j)), history: [], listOrder: 'distance', ...start })
   const textFile = path.join(e.home, 'where-text.json')
   if (read) fs.writeFileSync(textFile, JSON.stringify({ zone2: serverTimeNow(COVALEX_READS[read]), zone1: '' }))
@@ -657,12 +657,12 @@ async function memSetVia(port, re, place) {
 }
 const goStep = (id, place) => ({ id, kind: 'go', label: `Deliver Scrap to ${place}`, location: place, have: 0, need: 1, done: false })
 // a fixed (Lorville) or read (Covalex 'planet') start; the jobs are seeded, more can arrive through e.append
-async function memLaunch(name, { jobs = [], read = false } = {}) {
+async function memLaunch(name, { jobs = [], read = false, typed = 'Lorville' } = {}) {
   const e = setup(name, { otherStartMode: read ? 'auto' : 'fixed' }, {
     jobs: jobs.map((j) => logJob(mission(), j)),
     history: [],
     listOrder: 'distance',
-    ...(read ? { lastLogEventAt: iso(ago(30)) } : { startLocation: 'Lorville', startTypedAt: iso(ago(60)) })
+    ...(read ? { lastLogEventAt: iso(ago(30)) } : { startLocation: typed, startTypedAt: iso(ago(60)) })
   })
   const textFile = path.join(e.home, 'where-text.json')
   if (read) fs.writeFileSync(textFile, JSON.stringify({ zone2: serverTimeNow(COVALEX_READS.planet), zone1: '' }))
@@ -785,6 +785,44 @@ const sourceCounts = (all) => {
   }
 }
 const STARMAP_EV = /from starmap data/i
+
+// CONTRACT10 (one resolver for all of Other mode): a screenshot scan import through the real confirm screen. The
+// test seam is main's IPC: ocr:run answers with `rawText` (no capture, no OCR engine), ocr:preview with no picture.
+const stubOcr = (iport, rawText) =>
+  mainEval(
+    iport,
+    `(() => {
+      const { ipcMain } = require('electron')
+      ipcMain.removeHandler('ocr:run')
+      ipcMain.removeHandler('ocr:preview')
+      ipcMain.handle('ocr:run', async () => (${JSON.stringify({ ok: true, engine: 'tesseract', ms: 1, confidence: 95, rawText, objectives: [], reward: 0 })}))
+      ipcMain.handle('ocr:preview', async () => null)
+      return true
+    })()`
+  )
+const reEsc = (s) => s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
+// Jobs tab -> expand the job (by title) -> IMPORT FROM OCR -> CAPTURE; returns the confirm screen's text once it
+// matches `want` (the steps are listed with their place tags) and which buttons were found
+async function scanToConfirm(port, iport, title, rawText, want) {
+  const ui = { stub: await stubOcr(iport, rawText) }
+  ui.jobs = await clickButton(port, 'main', /^JOBS$/)
+  ui.row = !!(await until(() => clickButton(port, 'main', new RegExp(reEsc(title))).then((ok) => ok || null), 8000))
+  ui.import = !!(await until(() => clickButton(port, 'main', /^IMPORT FROM OCR$/).then((ok) => ok || null), 8000))
+  ui.capture = !!(await until(() => clickButton(port, 'main', /^CAPTURE$/).then((ok) => ok || null), 8000))
+  const text = (await until(() => windowText(port, 'main').then((t) => (/IMPORT FROM OCR/.test(t) && /Step 1/.test(t) && want.test(t) ? t : '')), 12000)) || (await windowText(port, 'main'))
+  return { ui, text }
+}
+// the confirm screen part of the main window's text (from the modal title on)
+const confirmPart = (t) => (t ?? '').slice(Math.max(0, (t ?? '').lastIndexOf('IMPORT FROM OCR')))
+// the job's step whose text as read (or place) matches re
+const stepOf = (e, id, re) => (findJob(e.jobs(), id)?.steps ?? []).find((s) => re.test(String(s.locationRaw ?? s.location ?? '')))
+// text right after the Next tab's STARTING AT label (the start line and its tag)
+const startPart = (t) => {
+  const i = (t ?? '').search(/STARTING AT/i)
+  return i < 0 ? '' : t.slice(i, i + 240)
+}
+const MICROTECH_LOOKALIKE = 'Covalex Distribution Center S1DC06 on microTech'
+const SCAN_COVALEX = 'Covalex Distribution Center S1DCO6 on Hurston'
 
 const scenarios = {
   // #1 both windows ingest the same accept
@@ -1766,7 +1804,7 @@ const scenarios = {
       ['## LIVE present', 'LIVE' in sec, `sections=${Object.keys(sec).join(',')}`],
       ['## GAME LOG HEALTH has the log path and a lag figure', health.includes('Game.log') && /lag[^\n]*\d/i.test(health), `health=${JSON.stringify(health.slice(0, 400) || '(missing)')}`],
       ['SNAPSHOT has locationHistory', Array.isArray(locHist) && locHist.length > 0, `locationHistory=${JSON.stringify(locHist)?.slice(0, 200)}`],
-      ['SNAPSHOT has a per-row place lookup', !!lookup && /"method"/.test(JSON.stringify(lookup)), `lookup=${JSON.stringify(lookup)?.slice(0, 200)}`],
+      ['SNAPSHOT has a per-row place lookup', !!lookup && /"(method|status)"/.test(JSON.stringify(lookup)), `lookup=${JSON.stringify(lookup)?.slice(0, 200)}`],
       ['SNAPSHOT has a per-row travel detail', !!travel && /sameSystem/.test(JSON.stringify(travel)), `travel=${JSON.stringify(travel)?.slice(0, 200)}`],
       ['SNAPSHOT has a places summary', !!places && typeof places === 'object', `places=${JSON.stringify(places)?.slice(0, 200)}`],
       ['no pictures without the tick box', !(res?.images?.length) && pngs.length === 0, `images=${JSON.stringify(res?.images)} pngs=${pngs.join(',')}`],
@@ -2412,7 +2450,7 @@ const scenarios = {
     }
     await stop()
     const ent = memEntry(memFile(e), /S1DCO06/i)
-    const row = distRow(snap, /S1DCO06/i)
+    const row = distRow(snap, /S1DCO?06/i) // the import may rename a sure match; locationRaw keeps the text as read
     const proofs = (memFile(e)?.changes ?? []).filter((c) => c.what === 'proof' && /S1DCO06/i.test(c.text))
     return [
       ['first completion -> confirmed 1', conf[0] === 1, `confirmed=${short(conf)} ${err}`],
@@ -2672,6 +2710,140 @@ const scenarios = {
     return [
       ['diagCopyText: no export yet', t?.ok === false && t?.error === 'no export yet', `result=${JSON.stringify(t)} ${err}`],
       ['diagCopyImages: no export yet', i?.ok === false && i?.error === 'no export yet', `result=${JSON.stringify(i)} ${err}`]
+    ]
+  },
+
+  // CONTRACT10 e2e 1: a scanned job whose place OCR misread. The confirm screen tags each place from importPlace
+  // ("S1DCO6" -> '≈ corrected'; "Shubin Mining Facility on Lyria", code lost -> '? not sure'); the user fixes the unsure
+  // one there (tag -> ✗ Wrong -> pick SAL-2) before CONFIRM; the saved stop uses the fix and keeps the text as read
+  'resolver-scan-fix': async () => {
+    const name = 'resolver-scan-fix'
+    const TITLE = 'Resolver Scan Delivery'
+    const id = mission()
+    // the reward sits above the objectives on the contract screen (below them it reads as a wrapped objective line)
+    const RAW = ['Reward 12,500 aUEC', 'Primary Objectives', `Deliver Scrap to ${SHUBIN}`, `Go to ${SCAN_COVALEX}`].join('\n')
+    const e = setup(name, { otherStartMode: 'fixed' }, { jobs: [logJob(id, { ref: 'J93', title: TITLE, steps: [] })], history: [], listOrder: 'distance', startLocation: 'Lorville', startTypedAt: iso(ago(60)) })
+    const port = await freePort()
+    const iport = await freePort()
+    const stop = await launch(e, [...cdpArgs(port), ...inspectArgs(iport)])
+    let scan = null
+    let fix = null
+    let fixed = ''
+    let confirmed = false
+    let jobsText = ''
+    let err = ''
+    try {
+      scan = await scanToConfirm(port, iport, TITLE, RAW, TAG.unsure)
+      fix = await uiWrongPick(port, 'main', TAG.unsure, 'SAL-2', SAL2)
+      fixed = (await until(() => windowText(port, 'main').then((t) => (MEM_TAG.user.test(confirmPart(t)) ? t : '')), 8000)) || (await windowText(port, 'main'))
+      confirmed = await clickButton(port, 'main', /^CONFIRM$/)
+      await until(() => ((findJob(e.jobs(), id)?.steps?.length ?? 0) >= 2 ? true : null), 10000)
+      jobsText = (await until(() => windowText(port, 'main').then((t) => (!/Step 1/.test(t) && MEM_TAG.user.test(t) ? t : '')), 8000)) || (await windowText(port, 'main'))
+    } catch (x) {
+      err = String(x?.message ?? x)
+    }
+    await stop()
+    const conf = confirmPart(scan?.text)
+    const shubin = stepOf(e, id, /Shubin/i)
+    const covalex = stepOf(e, id, /S1DC/i)
+    const ent = memEntry(memFile(e), /Shubin Mining Facility on Lyria/i)
+    return [
+      ['UI: OCR stub, JOBS, job row, IMPORT FROM OCR, CAPTURE found', !!scan?.ui && Object.values(scan.ui).every(Boolean), `ui=${short(scan?.ui)} ${err}`],
+      ['confirm screen: "≈ corrected" on the misread S1DCO6 place', TAG.corrected.test(conf), `confirm=${short(lineWith(conf, /S1DC|corrected|not sure/i), 600)}`],
+      ['confirm screen: "? not sure" on the Shubin place', TAG.unsure.test(conf), `confirm=${short(lineWith(conf, /Shubin|not sure/i), 600)}`],
+      ['confirm screen: tag, ✗ Wrong, picker and SAL-2 option found', !!fix?.tag && !!fix.wrong && !!fix.input && !!fix.option, `fix=${short(fix)}`],
+      ['confirm screen: "✓ you set" after the fix, before CONFIRM', MEM_TAG.user.test(confirmPart(fixed)), `confirm=${short(lineWith(confirmPart(fixed), /Shubin|SAL-|you set|not sure/i), 600)}`],
+      ['CONFIRM clicked', confirmed === true, `confirmed=${confirmed}`],
+      ['other-matches.json: user entry for the text as read -> SAL-2 (saved before Confirm)', ent?.origin === 'user' && ent.place === SAL2, `entry=${short(ent, 400)}`],
+      ['Shubin stop: text as read kept, place is the fix (SAL-2)', shubin?.locationRaw === SHUBIN && shubin.location === SAL2, `step=${short(shubin, 400)}`],
+      ['Covalex stop: text as read kept ("S1DCO6"), never another place', covalex?.locationRaw === SCAN_COVALEX && [COVALEX, SCAN_COVALEX].includes(covalex.location), `step=${short(covalex, 400)}`],
+      ['Jobs tab: the stop shows "✓ you set"', MEM_TAG.user.test(jobsText), `jobs=${short(lineWith(jobsText, /Shubin|SAL-|you set/i), 600)}`]
+    ]
+  },
+
+  // CONTRACT10 e2e 2: a Game.log job whose place text looks like one unique roster name ("Covalex Distribution Center
+  // S1DC06 on microTech": the old snap culled " on microTech" and renamed it to Hurston's S1DC06, so the stop showed
+  // exact). Now the import keeps the text as read; the tag shows the real status ('✗ not found': the body disagrees)
+  'resolver-log-no-rename': async () => {
+    const name = 'resolver-log-no-rename'
+    const { e, port, iport, stop } = await memLaunch(name)
+    const id = mission()
+    let next = ''
+    let snap = null
+    let err = ''
+    try {
+      e.append(L.accept(id, 'Med. Distance Covalex Delivery Stanton'), L.objective(id, `Deliver Scrap to ${MICROTECH_LOOKALIKE}`))
+      await until(() => (findJob(e.jobs(), id)?.steps?.length ? true : null))
+      next = await nextText(port, TAG.none)
+      snap = snapshotJson(await exportNow(e, port, iport, name))
+    } catch (x) {
+      err = String(x?.message ?? x)
+    }
+    await stop()
+    const step = findJob(e.jobs(), id)?.steps?.[0]
+    const row = distRow(snap, /on microTech/i)
+    return [
+      ['step: text as read kept in locationRaw', step?.locationRaw === MICROTECH_LOOKALIKE, `step=${short(step, 400)} ${err}`],
+      ['step: NOT renamed to the Hurston S1DC06 roster name', step?.location === MICROTECH_LOOKALIKE && !step.locationSnapped, `location=${step?.location} snapped=${step?.locationSnapped}`],
+      ['Next tab: "✗ not found" tag (the real status, not exact)', TAG.none.test(next), `next=${short(lineWith(next, /S1DC|microTech|not found|exact/i))}`],
+      ['table row: status none, no distance', row?.match?.status === 'none' && row.distance == null, `match=${short(row?.match, 400)} distance=${row?.distance}`]
+    ]
+  },
+
+  // CONTRACT10 e2e 3: the typed start "S1DCO06" (O for 0) goes through the resolver: Covalex Distribution Centre
+  // S1DC06, tagged '≈ corrected' next to STARTING AT and on the overlay's start line; distances are measured from it
+  'resolver-typed-start': async () => {
+    const r = await matchRun('resolver-typed-start', {
+      jobs: [{ ref: 'J95', steps: [goStep('s1', 'Port Tressler')] }],
+      typed: 'S1DCO06',
+      // a bare code (no place words) is honestly a guess; either tag shows it isn't an exact match
+      want: /STARTING AT[\s\S]{0,240}(≈\s*corrected|\?\s*guess)/i,
+      overlayWant: /≈\s*corrected|\?\s*guess/i
+    })
+    const row = distRow(r.snap, /^Port Tressler$/)
+    const want = rosterDist(COVALEX, 'Port Tressler')
+    return [
+      ['Next tab: "≈ corrected" or "? guess" next to STARTING AT', /≈\s*corrected|\?\s*guess/i.test(startPart(r.next)), `start=${short(startPart(r.next))} ${r.err}`],
+      ['overlay: "≈ corrected" or "? guess" on the start line (the only stop is exact)', /≈\s*corrected|\?\s*guess/i.test(r.overlay), `overlay=${short(lineWith(r.overlay, /S1DC|start|corrected/i))}`],
+      ['Port Tressler measured from Covalex S1DC06', row?.distance > 0 && (want == null || Math.abs(row.distance - want) / want < 0.05), `distance=${row?.distance} want=${want && Math.round(want)}`]
+    ]
+  },
+
+  // CONTRACT10 e2e 4: one user entry ("Shubin Mining Facility on Lyria" -> SAL-2) applies to every lookup alike: a
+  // Game.log job imported after it, a scan job's confirm screen and saved stop, and the typed start
+  'resolver-memory-everywhere': async () => {
+    const name = 'resolver-memory-everywhere'
+    const SCAN_TITLE = 'Resolver Memory Scan'
+    const scanId = mission()
+    const { e, port, iport, stop } = await memLaunch(name, {
+      jobs: [{ ref: 'J92', steps: [goStep('s1', SHUBIN)] }, { ref: 'J96', title: SCAN_TITLE, steps: [], missionId: scanId, id: scanId }],
+      typed: SHUBIN
+    })
+    const logId = mission()
+    let next = ''
+    let scan = null
+    let confirmed = false
+    let err = ''
+    try {
+      await memSetVia(port, /Shubin Mining Facility on Lyria/i, SAL2)
+      e.append(L.accept(logId, 'Resolver Memory Log'), L.objective(logId, `Deliver Scrap to ${SHUBIN}`))
+      await until(() => (findJob(e.jobs(), logId)?.steps?.length ? true : null))
+      next = await nextText(port, /STARTING AT[\s\S]{0,240}✓\s*you set/i)
+      scan = await scanToConfirm(port, iport, SCAN_TITLE, ['Primary Objectives', `Deliver Scrap to ${SHUBIN}`].join('\n'), MEM_TAG.user)
+      confirmed = await clickButton(port, 'main', /^CONFIRM$/)
+      await until(() => (findJob(e.jobs(), scanId)?.steps?.length ? true : null), 10000)
+    } catch (x) {
+      err = String(x?.message ?? x)
+    }
+    await stop()
+    const logStep = findJob(e.jobs(), logId)?.steps?.[0]
+    const scanStep = stepOf(e, scanId, /Shubin/i)
+    return [
+      ['user entry set (SAL-2)', memEntry(memFile(e), /Shubin Mining Facility on Lyria/i)?.place === SAL2, `entry=${short(memEntry(memFile(e), /Shubin/i), 300)} ${err}`],
+      ['log job after the set: place SAL-2, text as read kept', logStep?.location === SAL2 && logStep.locationRaw === SHUBIN, `step=${short(logStep, 400)}`],
+      ['typed start: "✓ you set" next to STARTING AT', MEM_TAG.user.test(startPart(next)), `start=${short(startPart(next))}`],
+      ['scan confirm screen: "✓ you set" on the place', MEM_TAG.user.test(confirmPart(scan?.text)), `ui=${short(scan?.ui)} confirm=${short(lineWith(confirmPart(scan?.text), /Shubin|SAL-|you set|not sure/i), 500)}`],
+      ['scan job after CONFIRM: place SAL-2, text as read kept', confirmed && scanStep?.location === SAL2 && scanStep.locationRaw === SHUBIN, `confirmed=${confirmed} step=${short(scanStep, 400)}`]
     ]
   }
 }

@@ -5,11 +5,12 @@
  */
 import type { Location } from '@shared/types'
 import { splitLogAddress } from '@shared/logLocation'
+import { isSystemDestination } from '@shared/contract'
 import type { OtherStep } from '@other/otherJob'
 import type { GeoPoint } from './otherGeo'
 import type { MemoryEntry } from './otherMemory'
 import { learnedPlace, memoryKey, memoryLabel } from './otherMemory'
-import { codeFromText, gameDataPlace, parentForCode, siteByCode, sitesNamed, stripCode } from './otherSiteCodes'
+import { codeFromText, gameDataPlace, placeForCode, siteByCode, sitesNamed, stripCode } from './otherSiteCodes'
 
 export type MatchStatus = 'exact' | 'corrected' | 'marker' | 'guess' | 'mismatch' | 'unsure' | 'none' | 'user' | 'learned'
 
@@ -102,6 +103,8 @@ const PTS_HERE = 2
 /** game data (scunpacked site codes): the contract's place has / lacks a site by this name */
 const PTS_GAME_SITE = 2
 const CONF_GAME_CODE = 10
+/** an OCR Lagrange-code fix ("CRU-LS5" -> "CRU-L5") onto an exact roster name (lead decision, contract 10) */
+const CONF_OCR_CODE = 9
 const PTS_LEARNED = 4
 const PTS_WRONG = -4
 const WRONG_MIN = 2
@@ -154,11 +157,61 @@ interface Parsed {
   name: string
   bodyHint?: string
   systemHint?: string
+  /** the Lagrange point the address names ("at microTech's L4 Lagrange point" -> 'MIC-L4') */
+  lagrange?: string
+  /** the OCR Lagrange-code fix that rewrote the name ("LS5 -> L5") */
+  ocrCode?: string
+}
+
+/** Stanton bodies with Lagrange stations: address word -> roster code prefix */
+const LAGRANGE_BODY: Record<string, string> = { hurston: 'HUR', crusader: 'CRU', arccorp: 'ARC', microtech: 'MIC' }
+
+/** "CRU-LS5" / "CRU-LS" / "CRU-I5" -> "CRU-L5": OCR reads the Lagrange digit as S or adds one (Lagrange body codes only) */
+export function fixOcrLagrangeCodes(raw: string): string {
+  return raw
+    .replace(/\b(HUR|CRU|ARC|MIC)\s*-\s*[LI1|]\s*[S5]?\s*([1-5])\b/gi, (_m, b: string, n: string) => `${b.toUpperCase()}-L${n}`)
+    .replace(/\b(HUR|CRU|ARC|MIC)\s*-\s*[LI1|]\s*S\b/gi, (_m, b: string) => `${b.toUpperCase()}-L5`)
+}
+
+/** "LS5 -> L5" for the evidence line */
+function ocrFixNote(t: string): string {
+  const m = /\b(?:HUR|CRU|ARC|MIC)\s*-\s*([LI1|]\s*[S5]?\s*[1-5]?)(?![A-Za-z0-9])/i.exec(t)
+  if (!m) return 'Lagrange code'
+  const was = m[1].replace(/\s+/g, '')
+  const now = /[1-5]$/.test(was) ? `L${was.slice(-1)}` : 'L5'
+  return `${was} -> ${now}`
+}
+
+/**
+ * the game's address forms the roster names differently:
+ * "X Station at microTech's L4 Lagrange point" / "X at the L4 Lagrange of microTech" -> "MIC-L4 X Station";
+ * "a Landing Pad Locker in New Babbage" -> "New Babbage"
+ */
+function addressRewrite(t: string): { text: string; lagrange?: string } {
+  const locker = /^(?:an?\s+)?landing\s+pad\s+locker\s+in\s+(.+)$/i.exec(t)
+  if (locker) return { text: locker[1].trim() }
+  const own = /^(.+?)\s+at\s+(?:the\s+)?([A-Za-z]\w*)'s\s+L([1-5])\s+Lagrange\s+point\.?$/i.exec(t)
+  const of = own ? null : /^(.+?)\s+at\s+the\s+L([1-5])\s+Lagrange\s+(?:point\s+)?of\s+([A-Za-z]\w*)\.?$/i.exec(t)
+  if (!own && !of) return { text: t }
+  const name = (own ?? of)![1].trim()
+  const bodyWord = own ? own[2] : of![3]
+  const n = own ? own[3] : of![2]
+  const code = LAGRANGE_BODY[bodyWord.toLowerCase()]
+  // "of Pyro V" and other bodies: splitLogAddress keeps reading those (system hint)
+  if (!code) return own ? { text: name } : { text: t }
+  const lag = `${code}-L${n}`
+  // the text may already carry the code ("MIC-L4 Red Crossroads Station at ...")
+  return { text: /^[A-Z]{3}-L[1-5]\s/i.test(name) ? name : `${lag} ${name}`, lagrange: lag }
 }
 
 function parsePlace(s: string): Parsed {
-  const t = s.trim().replace(/\s*\([^)]*\)\s*$/, '')
-  const { name, systemHint } = splitLogAddress(t)
+  const t0 = s.trim().replace(/\s*\([^)]*\)\s*$/, '')
+  const fixed = fixOcrLagrangeCodes(t0)
+  const ocrCode = fixed !== t0 ? ocrFixNote(t0) : undefined
+  const rw = addressRewrite(fixed)
+  const t = rw.text
+  const { name, systemHint: sys0 } = splitLogAddress(t)
+  const systemHint = sys0 ?? (rw.lagrange ? 'stanton' : undefined)
   let bodyHint: string | undefined
   if (name !== t && t.startsWith(name)) {
     // only "on <Body>" names the body the place sits on; Lagrange / orbit addresses don't
@@ -167,7 +220,16 @@ function parsePlace(s: string): Parsed {
     if (b && !SYSTEMS.has(b)) bodyHint = b
   }
   const key = words(name).map(foldWord).join(' ')
-  return { key, fold: foldKey(name), codes: codeTokens(name), name, ...(bodyHint ? { bodyHint } : {}), ...(systemHint ? { systemHint } : {}) }
+  return {
+    key,
+    fold: foldKey(name),
+    codes: codeTokens(name),
+    name,
+    ...(bodyHint ? { bodyHint } : {}),
+    ...(systemHint ? { systemHint } : {}),
+    ...(rw.lagrange ? { lagrange: rw.lagrange } : {}),
+    ...(ocrCode ? { ocrCode } : {})
+  }
 }
 
 /** OCR look-alikes in every word (on lower case, before the word split): rn -> m, vv -> w, cl -> d, '|' -> l */
@@ -257,6 +319,16 @@ interface RosterEntry {
   fold: string
   codes: string
   hasCoords: boolean
+  /** UEX short names (Location.code, "Shubin SM0-18", "MIC-L4") unique on the roster, as placeKeys */
+  aliases: string[]
+  /** the Lagrange point the place sits at ('MIC-L4'), from its name or code */
+  lagrange?: string
+}
+
+const LAGRANGE_CODE = /^(HUR|CRU|ARC|MIC)-L([1-5])\b/i
+const lagrangeOf = (l: Location): string | undefined => {
+  const m = LAGRANGE_CODE.exec(l.name.trim()) ?? LAGRANGE_CODE.exec((l.code ?? '').trim())
+  return m ? `${m[1].toUpperCase()}-L${m[2]}` : undefined
 }
 
 const rosterCache = new WeakMap<Location[], RosterEntry[]>()
@@ -275,7 +347,8 @@ function rosterEntries(locations: Location[]): RosterEntry[] {
     const same = list.find((e) => !coords || !e.hasCoords || dist(e.loc, l as XYZ) <= SAME_PLACE_M)
     if (!same) {
       const nm = parsePlace(l.name).name
-      list.push({ loc: l, names: [l.name.toLowerCase()], key, fold: foldKey(nm), codes: codeTokens(nm), hasCoords: coords })
+      const lagrange = lagrangeOf(l)
+      list.push({ loc: l, names: [l.name.toLowerCase()], key, fold: foldKey(nm), codes: codeTokens(nm), hasCoords: coords, aliases: [], ...(lagrange ? { lagrange } : {}) })
     }
     else {
       same.names.push(l.name.toLowerCase())
@@ -286,8 +359,32 @@ function rosterEntries(locations: Location[]): RosterEntry[] {
     }
   }
   hit = [...byKey.values()].flat()
+  // UEX short names: an alias only when one place has it and it isn't some place's own name
+  const codeUse = new Map<string, RosterEntry[]>()
+  for (const e of hit) {
+    for (const l of locations) {
+      if (!e.names.includes(l.name.toLowerCase())) continue
+      const k = placeKey(l.code ?? '')
+      if (!k || k === e.key) continue
+      const list = codeUse.get(k) ?? []
+      if (!list.includes(e)) list.push(e)
+      codeUse.set(k, list)
+    }
+  }
+  const ownKeys = new Set(hit.map((e) => e.key))
+  for (const [k, list] of codeUse) if (list.length === 1 && !ownKeys.has(k)) list[0].aliases.push(k)
   rosterCache.set(locations, hit)
   return hit
+}
+
+/** "x in|on|at|near|above|of (the) <key>": a roster name for a place inside <key> */
+const endsWithPlace = (name: string, key: string): boolean => {
+  const w = words(name).map(foldWord)
+  const k = key.split(' ')
+  if (w.length <= k.length + 1 || w.slice(-k.length).join(' ') !== key) return false
+  let i = w.length - k.length - 1
+  if (w[i] === 'the') i--
+  return i >= 1 && ['in', 'on', 'at', 'near', 'above', 'of'].includes(w[i])
 }
 
 /** whole-word containment of b in a */
@@ -301,11 +398,13 @@ interface Scored {
   nameKind: 'exact' | 'key' | 'close' | 'contains' | 'token'
   /** containment with the text inside the roster name (a shortened name), not the other way */
   partOf?: boolean
+  /** the name matched exactly once the OCR Lagrange-code fix was applied (lead decision: sure, confidence 9) */
+  ocrCode?: boolean
   evidence: Evidence[]
   markerM?: number
 }
 
-type NameHit = { pts: number; kind: Scored['nameKind']; text: string; partOf?: boolean }
+type NameHit = { pts: number; kind: Scored['nameKind']; text: string; partOf?: boolean; ocrCode?: boolean }
 
 /** " · from starmap data" when the place (or its coordinates) came from the bundled starmap file */
 function sourceNote(l: Location): string {
@@ -332,13 +431,20 @@ function closeSpelling(p: Parsed, e: RosterEntry): NameHit | null {
 
 function nameHit(p: Parsed, rawLower: string, e: RosterEntry, spelling: boolean): NameHit | null {
   const shown = e.loc.name
-  if (e.names.includes(rawLower) || e.names.includes(p.name.toLowerCase())) return { pts: PTS_EXACT, kind: 'exact', text: `name exact: ${shown}` }
+  if (e.names.includes(rawLower) || e.names.includes(p.name.toLowerCase())) {
+    // the OCR Lagrange-code fix made it match: a correction, not the text as read
+    if (p.ocrCode && !e.names.includes(rawLower)) return { pts: PTS_KEY, kind: 'key', text: `OCR code fixed: ${p.ocrCode} = ${shown}`, ocrCode: true }
+    return { pts: PTS_EXACT, kind: 'exact', text: `name exact: ${shown}` }
+  }
   if (!p.key) return null
   if (e.key === p.key) return { pts: PTS_KEY, kind: 'key', text: `name corrected: "${p.name}" = ${shown}` }
   if (p.fold && e.fold === p.fold) return { pts: PTS_KEY, kind: 'key', text: `name corrected (OCR look-alikes): "${p.name}" = ${shown}` }
+  if (e.aliases.includes(p.key)) return { pts: PTS_KEY, kind: 'key', text: `UEX short name: "${p.name}" = ${shown}` }
   let best: NameHit | null = null
   const shorter = e.key.length <= p.key.length ? e.key : p.key
-  if (shorter.length >= 4 && (containsWords(p.key, e.key) || containsWords(e.key, p.key)))
+  // "Reclamation and Disposal in Lorville" is a place inside Lorville, not Lorville itself
+  const subPlace = containsWords(e.key, p.key) && e.names.some((n) => endsWithPlace(n, p.key))
+  if (shorter.length >= 4 && !subPlace && (containsWords(p.key, e.key) || containsWords(e.key, p.key)))
     best = { pts: PTS_CONTAINS, kind: 'contains', text: `name partly matches: ${shown}`, partOf: containsWords(e.key, p.key) }
   if (!best) {
     const mine = new Set(p.key.split(' ').filter(distinctive))
@@ -377,6 +483,15 @@ function scoreEntry(p: Parsed, rawLower: string, e: RosterEntry, ctx: ResolveCtx
       ev.push({ kind: 'body', ok: false, points: PTS_BODY_BAD, text: `contract says ${titleCase(p.bodyHint)}, ${l.name} is on ${l.body} ✗` })
     }
   }
+  if (p.lagrange && e.lagrange) {
+    if (e.lagrange === p.lagrange) {
+      score += PTS_BODY
+      ev.push({ kind: 'body', ok: true, points: PTS_BODY, text: `address says ${p.lagrange} ✓` })
+    } else {
+      score += PTS_BODY_BAD
+      ev.push({ kind: 'body', ok: false, points: PTS_BODY_BAD, text: `address says ${p.lagrange}, ${l.name} is at ${e.lagrange} ✗` })
+    }
+  }
   if (p.systemHint) {
     const sys = sysKey(l.system)
     if (sys && sys === sysKey(p.systemHint)) {
@@ -407,7 +522,7 @@ function scoreEntry(p: Parsed, rawLower: string, e: RosterEntry, ctx: ResolveCtx
     score += a.points
     ev.push({ kind: 'name', ok: a.points > 0, points: a.points, text: a.text })
   }
-  return { e, score, nameKind: n.kind, ...(n.partOf ? { partOf: true } : {}), evidence: ev, ...(markerM != null ? { markerM } : {}) }
+  return { e, score, nameKind: n.kind, ...(n.partOf ? { partOf: true } : {}), ...('ocrCode' in n && n.ocrCode ? { ocrCode: true } : {}), evidence: ev, ...(markerM != null ? { markerM } : {}) }
 }
 
 const titleCase = (s: string): string => s.replace(/\b[a-z]/g, (c) => c.toUpperCase())
@@ -603,16 +718,20 @@ function gameSiteEvidence(site: string, parent: string): Evidence | undefined {
 
 const clampConf = (n: number): number => Math.max(0, Math.min(10, n))
 
-/** a text carrying a game code ("Security Compound [DC_Stan_Covalex_S1_S1DC06_FOB]"): the code's place, exactly */
+/** a text that is only an internal code ("Stanton1_Lorville", "RR_CRU_L1") */
+const BARE_TEXT_CODE = /^[A-Za-z][A-Za-z0-9]*(?:_[A-Za-z0-9-]+)+$/
+
+/** a text carrying a game code ("Security Compound [DC_Stan_Covalex_S1_S1DC06_FOB]", "RR_CRU_L1"): the code's place, exactly */
 function fromGameCode(raw: string, ctx: ResolveCtx, mk: GeoPoint | undefined): CorePlace | undefined {
-  const code = codeFromText(raw)
-  const parent = code ? parentForCode(code) : undefined
+  const code = codeFromText(raw) ?? (BARE_TEXT_CODE.test(raw) ? raw : undefined)
+  const parent = code ? placeForCode(code, ctx.locations) : null
   if (!code || !parent) return undefined
   const w = weigh(parent.name, { locations: ctx.locations, useMarker: false })
-  const win = w.winner
-  if (!win || !win.e.hasCoords || (win.nameKind !== 'exact' && win.nameKind !== 'key')) return undefined
+  const want = parent.name.toLowerCase()
+  const win = w.scored.find((s) => s.e.hasCoords && s.e.names.includes(want))
+  if (!win) return undefined
   const loc = win.e.loc
-  const site = siteByCode(code)
+  const site = parent.via === 'site' ? siteByCode(code) : undefined
   const text = stripCode(raw) || site?.name || parent.name
   const first: Evidence = { kind: 'name', ok: true, points: 0, text: `game code ${code} ✓` }
   const candidates = w.scored.slice(0, 5).map(toCandidate)
@@ -668,7 +787,8 @@ function resolveCore(raw: string, ctx: ResolveCtx, mk: GeoPoint | undefined, rel
   if (accepted && winner) {
     if (mk && winner.markerM != null && winner.markerM > MARKER_FAR_M) return fromMarker('mismatch', 4)
     const status: MatchStatus = winner.nameKind === 'exact' ? 'exact' : winner.nameKind === 'key' ? 'corrected' : 'guess'
-    const confidence = Math.max(0, Math.min(10, winner.score) - (status === 'guess' ? 2 : 0))
+    // a deterministic OCR code fix that lands on an exact roster name is as sure as the name (log and scan dedupe)
+    const confidence = winner.ocrCode && !winner.evidence.some((x) => !x.ok) ? CONF_OCR_CODE : Math.max(0, Math.min(10, winner.score) - (status === 'guess' ? 2 : 0))
     return {
       ...base,
       label: winner.e.loc.name,
@@ -780,7 +900,10 @@ function stepTexts(s: OtherStep): string[] {
  */
 export function resolveStopPlace(step: OtherStep, ctx: ResolveCtx, job?: { steps: OtherStep[] }): StopPlace {
   const pickup = isPickup(step)
-  const text = pickup ? step.pickupLocation! : step.location || step.label || ''
+  // always the text as read: an import may have renamed location to a sure roster name (edits clear locationRaw)
+  const text = pickup
+    ? step.pickupLocationRaw || step.pickupLocation!
+    : step.locationRaw || step.location || step.label || ''
   const marker = !pickup && step.position && hasXYZ(step.position) ? { ...step.position, system: null, body: null } : undefined
   const others = (job?.steps ?? []).filter((s) => s !== step && s.id !== step.id).flatMap(stepTexts)
   return resolvePlaceText(text, ctx, marker, [...new Set(stepTexts(step))], [...new Set(others)])
@@ -800,4 +923,202 @@ const WORDS: Record<MatchStatus, string> = {
 
 export function matchWord(status: MatchStatus): string {
   return WORDS[status]
+}
+
+// ---------------------------------------------------------------------------------------------
+// entry points for imports, typed / read names, bodies and positions (contract 10)
+
+/** a typed start, a log position clue or a map-line name: no marker, no step */
+export function resolveStartText(text: string, ctx: ResolveCtx): StopPlace {
+  return resolvePlaceText(text, { ...ctx, useMarker: false })
+}
+
+export interface ImportedPlace {
+  /** roster name when the resolver is sure (see isSurePlace), else the text as read */
+  location: string
+  /** the text as read (log or scan), whitespace and a trailing ':' / '.' trimmed */
+  locationRaw: string
+  /** location !== locationRaw */
+  locationSnapped: boolean
+  /** the resolver's answer for the text as read (with the OCR word evidence when opts.ocr) */
+  match: StopPlace
+}
+
+/** sure enough to store the roster name in place of the text as read */
+const SURE_STATUS = new Set<MatchStatus>(['exact', 'corrected', 'user', 'learned'])
+const SURE_CONF = 8
+
+/**
+ * the import rule: a roster name replaces the text as read only when the resolver is sure: status
+ * exact / corrected / user / learned (or a game code), confidence >= 8, no runner-up within 3, and not a
+ * generic site (whose match is the place it belongs to, not its name)
+ */
+export function isSurePlace(r: StopPlace): boolean {
+  if (!r.match || r.site || r.source !== 'roster' || !SURE_STATUS.has(r.status)) return false
+  if (r.status === 'user') return !r.memory?.disputed
+  if (r.confidence < SURE_CONF) return false
+  const top = r.candidates.find((c) => c.name === r.match!.name)?.score
+  const other = r.candidates.find((c) => c.name !== r.match!.name)
+  return top == null || !other || top - other.score >= ACCEPT_GAP
+}
+
+/** "OPTIONAL: Neutralize X": X is a target, not a place */
+const NEUTRALIZE = /^(?:optional\s*:\s*)?neutralize\b/i
+
+const passThrough = (text: string, why: string): StopPlace => ({
+  text,
+  label: text,
+  source: null,
+  status: 'none',
+  confidence: 0,
+  evidence: [{ kind: 'name', ok: true, points: 0, text: why }],
+  candidates: [],
+  memoryKey: memoryKey(text)
+})
+
+/**
+ * Job import (Game.log or a scan): the text as read stays in locationRaw; location gets the roster name
+ * only when the resolver is sure, so an import never decides by renaming. "<System> System"
+ * destinations, patrol coordinates and Neutralize targets pass through unresolved. `ocr` adds the OCR
+ * word rules (a lost word start, one-letter misreads, junk words) as a guess when nothing else fits;
+ * a guess never renames. `label` = the objective's text (for the Neutralize rule).
+ */
+export function importPlace(raw: string, ctx: ResolveCtx, opts: { ocr?: boolean; label?: string } = {}): ImportedPlace {
+  const locationRaw = (raw ?? '').replace(/\s+/g, ' ').replace(/[:.]+$/, '').trim()
+  const keep = (match: StopPlace): ImportedPlace => ({ location: locationRaw, locationRaw, locationSnapped: false, match })
+  if (!locationRaw) return keep(passThrough('', 'no place text'))
+  if (isSystemDestination(locationRaw)) return keep(passThrough(locationRaw, 'a whole system, not a place'))
+  if (/patrol\s+coordinates/i.test(locationRaw)) return keep(passThrough(locationRaw, 'patrol coordinates, not a place'))
+  if (opts.label && NEUTRALIZE.test(opts.label.trim())) return keep(passThrough(locationRaw, 'a target, not a place'))
+  let match = resolvePlaceText(locationRaw, ctx)
+  if (opts.ocr && (match.status === 'none' || match.status === 'unsure')) match = ocrWordGuess(locationRaw, ctx, match)
+  const caseOnly = match.status === 'exact' && !!match.match && !match.site && match.match.name.toLowerCase() === locationRaw.toLowerCase()
+  const location = (isSurePlace(match) || caseOnly) && match.match ? match.match.name : locationRaw
+  return { location, locationRaw, locationSnapped: location !== locationRaw, match }
+}
+
+// ---- OCR word rules (scan imports only) ----
+
+/** words every station / port name shares; they never decide a match */
+const OCR_GENERIC = new Set([
+  'station', 'spaceport', 'outpost', 'research', 'facility', 'mining', 'point', 'the', 'and', 'from',
+  'near', 'int', 'port', 'city', 'landing', 'pad', 'locker', 'zone', 'area', 'center', 'centre',
+  'plaza', 'hub', 'base', 'depot', 'site', 'system'
+])
+
+// S<->5, O<->0, l<->1<->I; rn<->m is tried as a second form
+const ocrCanon = (t: string): string => t.replace(/0/g, 'o').replace(/5/g, 's').replace(/[1i|]/g, 'l')
+const ocrForms = (t: string): string[] => {
+  const a = ocrCanon(t)
+  const b = a.replace(/rn/g, 'm')
+  return a === b ? [a] : [a, b]
+}
+
+function within1(a: string, b: string): boolean {
+  if (Math.abs(a.length - b.length) > 1) return false
+  let i = 0
+  let j = 0
+  let edits = 0
+  while (i < a.length && j < b.length) {
+    if (a[i] === b[j]) { i++; j++; continue }
+    if (++edits > 1) return false
+    if (a.length > b.length) i++
+    else if (b.length > a.length) j++
+    else { i++; j++ }
+  }
+  return edits + (a.length - i) + (b.length - j) <= 1
+}
+
+function ocrTokenMatch(rawTok: string, locTok: string): boolean {
+  for (const r of ocrForms(rawTok)) {
+    for (const l of ocrForms(locTok)) {
+      if (r === l) return true
+      // a word whose start OCR lost: "dern" -> "modern"
+      if (r.length >= 4 && l.length > r.length && r.length >= l.length * 0.6 && (l.endsWith(r) || l.startsWith(r))) return true
+      if (Math.min(r.length, l.length) >= 5 && within1(r, l)) return true
+    }
+  }
+  return false
+}
+
+const ocrTokens = (s: string): string[] => words(s).filter((t) => t.length >= 3)
+
+/** one roster place whose own words the OCR text carries (unique and confident), else the answer stands */
+function ocrWordGuess(raw: string, ctx: ResolveCtx, base: StopPlace): StopPlace {
+  const rawToks = ocrTokens(fixOcrLagrangeCodes(raw))
+  if (!rawToks.length) return base
+  const p = parsePlace(raw)
+  let best: { e: RosterEntry; score: number; cover: number } | null = null
+  let tie = false
+  for (const e of rosterEntries(ctx.locations)) {
+    if (!e.hasCoords) continue
+    // a code the text carries must be the place's code (S1DC06 never reads as S4DC05)
+    if (p.codes && e.codes && p.codes !== e.codes) continue
+    const own = ocrTokens(e.loc.name).filter((t) => !OCR_GENERIC.has(t))
+    if (!own.length) continue
+    const matched = own.filter((t) => rawToks.some((r) => ocrTokenMatch(r, t)))
+    const score = matched.length
+    const cover = score / own.length
+    // two own words at least: one word alone ("Crusader") names a body or a family, not the place
+    const ok = score >= 2 && cover >= 0.6
+    if (!ok) continue
+    if (!best || score > best.score || (score === best.score && cover > best.cover)) {
+      best = { e, score, cover }
+      tie = false
+    } else if (score === best.score && cover === best.cover && best.e !== e) tie = true
+  }
+  if (!best || tie) return base
+  const loc = best.e.loc
+  return {
+    ...base,
+    label: loc.name,
+    match: loc,
+    point: locPoint(loc),
+    source: 'roster',
+    status: 'guess',
+    confidence: 3,
+    evidence: [{ kind: 'name', ok: true, points: 0, text: `scan words match ${loc.name} (${best.score} of ${Math.round(best.score / best.cover)} words)` }, ...base.evidence]
+  }
+}
+
+// ---- bodies and positions ----
+
+/** "OOC_Stanton_1_Hurston" / "00C Stanton 1 Hurston" / "OOC_Stanton_1a_Arial" */
+const OOC_RE = /^[O0][O0]C[_\s]*([A-Za-z]+?)[_\s]*([0-9lI|]{1,2}[a-z]?)[_\s]+([A-Za-z][\w\s'-]*?)\s*$/i
+
+const sameSys = (a: string | null | undefined, b: string | null | undefined): boolean => {
+  const x = sysKey(a)
+  const y = sysKey(b)
+  return !x || !y || x.startsWith(y) || y.startsWith(x)
+}
+
+/**
+ * a planet or moon by name ("Hurston", "OOC_Stanton_1_Hurston"): the roster entry with coords whose name
+ * is the body's (placeKey equal), in `system` when given; bodies other places name first. null when none
+ */
+export function findBody(name: string, locations: Location[], system?: string | null): Location | null {
+  const t = (name ?? '').trim()
+  if (!t) return null
+  const ooc = OOC_RE.exec(t)
+  const bodyName = ooc ? ooc[3].replace(/_/g, ' ').replace(/\s+/g, ' ').trim() : t
+  const sys = system ?? (ooc ? ooc[1] : null)
+  const k = placeKey(bodyName)
+  if (!k) return null
+  const hits = locations.filter((l) => hasXYZ(l) && placeKey(l.name) === k && sameSys(l.system, sys))
+  if (!hits.length) return null
+  // only a body: a place other places name as their body (Lorville is a city, not a body)
+  const isBody = (l: Location): boolean => locations.some((o) => plain(o.body) === plain(l.name))
+  return hits.find(isBody) ?? null
+}
+
+/** the roster place nearest a point, within maxM (default NEAR_MAX_M) */
+export function nearestPlace(point: { x: number; y: number; z: number } | null | undefined, locations: Location[], maxM: number = NEAR_MAX_M): { place: Location; meters: number } | undefined {
+  if (!point || !hasXYZ(point)) return undefined
+  let best: { place: Location; meters: number } | undefined
+  for (const l of locations) {
+    if (!hasXYZ(l)) continue
+    const d = dist(l, point)
+    if (d <= maxM && (!best || d < best.meters)) best = { place: l, meters: d }
+  }
+  return best
 }

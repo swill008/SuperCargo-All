@@ -9,7 +9,7 @@
 import type { Location } from '@shared/types'
 import { isHaulingContract } from '@shared/contract'
 import type { OtherJobKind, OtherStep, OtherStepKind } from '@other/otherJob'
-import { snapOtherLocation } from '@other/otherLocationSnap'
+import { importPlace, type ResolveCtx } from '@other/otherResolve'
 
 export type OtherObjectiveParse = {
   kind: OtherStepKind
@@ -145,21 +145,31 @@ export function mergeCollectIntoDeliver<T extends OtherObjectiveParse>(rows: T[]
   return out
 }
 
-export function stepFromParse(id: string, parsed: OtherObjectiveParse, locations?: Location[]): OtherStep {
-  const skipSnap = /^(?:OPTIONAL:\s*)?Neutralize\s/i.test(parsed.label)
-  const snap = !skipSnap && locations
-    ? snapOtherLocation(parsed.location, locations)
+/** how an import resolves its places: match memory, and OCR misread rules for scanned text */
+export interface ImportOpts {
+  /** match memory lookup (renderer: currentMemoryLookup(); main: from matchMemory) */
+  memory?: ResolveCtx['memory']
+  /** text came from a screenshot scan */
+  ocr?: boolean
+}
+
+/**
+ * Places stay as read (locationRaw); `location` is the roster name only when the resolver is sure
+ * (importPlace). Without a roster nothing is resolved.
+ */
+export function stepFromParse(id: string, parsed: OtherObjectiveParse, locations?: Location[], opts: ImportOpts = {}): OtherStep {
+  const ctx: ResolveCtx | null = locations ? { locations, useMarker: false, memory: opts.memory } : null
+  const place = (raw: string): { location: string; locationRaw: string; locationSnapped: boolean } =>
+    ctx ? importPlace(raw, ctx, { ocr: opts.ocr, label: parsed.label }) : { location: raw, locationRaw: raw, locationSnapped: false }
+  const snap = ctx
+    ? place(parsed.locationRaw ?? parsed.location)
     : {
         location: parsed.location,
         locationRaw: parsed.locationRaw ?? parsed.location,
         locationSnapped: parsed.locationSnapped ?? false
       }
   const pickRaw = parsed.pickupLocation || ''
-  const pick = pickRaw && !skipSnap && locations
-    ? snapOtherLocation(pickRaw, locations)
-    : pickRaw
-      ? { location: pickRaw, locationRaw: pickRaw, locationSnapped: false }
-      : null
+  const pick = pickRaw ? place(pickRaw) : null
   return {
     id,
     kind: parsed.kind,
@@ -185,12 +195,12 @@ export function stepKey(step: Pick<OtherStep, 'kind' | 'location' | 'item'>): st
 let logSeq = 0
 
 /** A log "New Objective" text to a step; logText keeps the raw text for Complete / Withdrawn. */
-export function stepFromObjectiveText(text: string, locations: Location[]): OtherStep {
+export function stepFromObjectiveText(text: string, locations: Location[], opts: ImportOpts = {}): OtherStep {
   logSeq += 1
   const id = `step-${Date.now().toString(36)}-l${logSeq}`
   const label = text.replace(/[\s:]+$/, '').trim()
   const parsed = parseOtherObjectiveText(text) ?? { kind: 'go' as const, label, location: '', have: 0, need: 1 }
-  return { ...stepFromParse(id, parsed, locations), logText: text }
+  return { ...stepFromParse(id, parsed, locations, opts), logText: text }
 }
 
 const textKey = (s: string): string => s.toLowerCase().replace(/\s+/g, ' ').replace(/[\s:.]+$/, '').trim()

@@ -325,8 +325,11 @@ safe('typo', () => {
   check('typo', 'S1DC06 never matches S4DC05 (code tokens differ: no spelling points)', s4.status === 'none' && !s4.candidates.length, JSON.stringify(s4.candidates))
   const oneDigit = R.resolvePlaceText('Covalex Distribution Centre S1DC05 on Hurston', { locations: C, useMarker: true })
   check('typo', 'one digit off is not a look-alike: none', oneDigit.status === 'none' && !oneDigit.point, `${oneDigit.status} ${JSON.stringify(oneDigit.candidates)}`)
+  // contract 10 lead decision: the OCR Lagrange-code fix (not spelling) makes CRU-LS5 the exact name: corrected, confidence 9
   const lane = R.resolvePlaceText('CRU-LS5 Beautiful Glen Station', { locations: [P('CRU-L5 Beautiful Glen Station', 0)], useMarker: true })
-  check('typo', 'an extra character in a code (LS5 vs L5): no spelling points', lane.status === 'none' && !lane.candidates.length, JSON.stringify(lane.candidates))
+  check('typo', 'OCR Lagrange code LS5 -> L5: corrected, confidence 9', lane.status === 'corrected' && lane.confidence === 9 && ev(lane, 'name')[0]?.text.startsWith('OCR code fixed: LS5 -> L5'), `${lane.status} ${lane.confidence} ${ev(lane, 'name')[0]?.text}`)
+  const notLag = R.resolvePlaceText('Shubin SMO-LS3', { locations: [P('Shubin SMO-L3', 0)], useMarker: true })
+  check('typo', 'Lagrange fix only for HUR/CRU/ARC/MIC codes', notLag.status === 'none', notLag.status)
   const lost = R.resolvePlaceText('ARC-L dern Express Station', { locations: [P('ARC-L3 Modern Express Station', 0)], useMarker: true })
   check('typo', 'code missing from the text (ARC-L vs ARC-L3): no spelling points', lost.status === 'none' && !lost.candidates.length, JSON.stringify(lost.candidates))
   // designators (roman numerals, letters, greek) are codes too; spelling is the last tier
@@ -382,6 +385,71 @@ safe('game data', () => {
   check('game data', 'source off (empty table): no game-data evidence, confidence 5', off.cov.confidence === 5 && !off.cov.evidence.some((e) => /^game data:/.test(e.text)), `${off.cov.confidence}`)
   check('game data', 'source off: Cassillo unchanged at 5', off.cas.confidence === 5, `${off.cas.confidence}`)
   check('game data', 'source off: a coded text gets no game-code answer', !off.coded.evidence.some((e) => /^game code/.test(e.text)), off.coded.evidence.map((e) => e.text).join(' | '))
+})
+
+// ---- job import (importPlace): the old snap cases, OCR, sub-places, codes ----
+const imp = table.imports
+const impRosters = {
+  real: roster,
+  snap: imp.rosters.snap.map((l, i) => ({ name: l.name, code: l.code, maxContainerSize: 32, uexId: 0, system: 'stanton', x: (i + 1) * 1e9, y: 0, z: 0 })),
+  city: imp.rosters.city.map((name, i) => ({ name, code: '', maxContainerSize: 0, uexId: 0, system: 'Stanton', x: (i + 1) * 1e9, y: 0, z: 0 }))
+}
+const impSites = R.normalizeSiteCodesDoc(JSON.parse(fs.readFileSync(path.join(root, 'data/uex/site-codes.json'), 'utf8')))
+for (const c of imp.cases) {
+  safe(`import ${c.id}`, () => {
+    const id = `import ${c.id}`
+    const opts = { ...(c.ocr ? { ocr: true } : {}), ...(c.label ? { label: c.label } : {}) }
+    const g = R.importPlace(c.raw, { locations: impRosters[c.roster ?? 'snap'], useMarker: false }, opts)
+    const got = `${g.location} snapped=${g.locationSnapped} [${g.match.status} c${g.match.confidence} ${g.match.match?.name ?? '-'}]`
+    if (verbose) console.log(`  ${id}: ${got}\n    ${g.match.evidence.map((e) => e.text).join(' | ')}`)
+    const e = c.expect
+    check(id, 'locationRaw = text as read', g.locationRaw === c.raw.replace(/\s+/g, ' ').replace(/[:.]+$/, '').trim(), g.locationRaw)
+    check(id, `location ${e.location}`, g.location === e.location, got)
+    check(id, `snapped ${e.snapped}`, g.locationSnapped === e.snapped, got)
+    check(id, `status ${e.status}`, g.match.status === e.status, got)
+    if (e.match) check(id, `match ${e.match}`, g.match.match?.name === e.match, got)
+    else check(id, 'no match (no wrong place)', !g.match.match, got)
+    if (c.confidence != null) check(id, `confidence ${c.confidence}`, g.match.confidence === c.confidence, got)
+    // a rename only ever to the matched roster place
+    if (g.locationSnapped) check(id, 'renamed only to the match', g.location === g.match.match?.name && R.isSurePlace(g.match) || g.location.toLowerCase() === c.raw.toLowerCase(), got)
+  })
+}
+
+safe('import rules', () => {
+  const L = impRosters.real
+  const user = R.importPlace('Somewhere Odd', { locations: L, useMarker: false, memory: (k) => (k === 'somewhere odd' ? { key: k, origin: 'user', place: 'Port Tressler', confirmed: 0, wrong: 0 } : undefined) })
+  check('import', 'a user fix applies to an import (renamed, status user)', user.match.status === 'user' && user.location === 'Port Tressler', `${user.match.status} ${user.location}`)
+  const sc = R.importPlace('Security Compound', { locations: L, useMarker: false, memory: (k) => (k.startsWith('security compound') ? { key: k, origin: 'user', place: 'HDPC-Cassillo', confirmed: 0, wrong: 0 } : undefined) })
+  check('import', 'a generic site is never renamed to its parent', sc.location === 'Security Compound' && !sc.locationSnapped, `${sc.match.status} ${sc.location}`)
+  const empty = R.importPlace('  ', { locations: L, useMarker: false })
+  check('import', 'empty text: empty, none', empty.location === '' && empty.match.status === 'none', JSON.stringify(empty.location))
+  const trail = R.importPlace('Port Tressler:', { locations: L, useMarker: false })
+  check('import', 'trailing ":" trimmed', trail.locationRaw === 'Port Tressler' && trail.location === 'Port Tressler', trail.locationRaw)
+  const st = R.resolveStartText('S1DCO06', { locations: L, useMarker: true })
+  check('import', 'resolveStartText: no marker, same resolver', st.status !== 'marker' && st.memoryKey === R.resolvePlaceText('S1DCO06', { locations: L, useMarker: false }).memoryKey, `${st.status} ${st.memoryKey}`)
+  R.setSiteCodes(impSites)
+  try {
+    const site = R.importPlace('Security Compound [DC_Stan_Covalex_S1_S1DC06_FOB]', { locations: L, useMarker: false })
+    check('import', 'a coded generic site keeps its text (site of a place, not the place)', site.location === 'Security Compound [DC_Stan_Covalex_S1_S1DC06_FOB]' && site.match.site?.name === 'Covalex Distribution Centre S1DC06', `${site.location} ${site.match.site?.name}`)
+  } finally {
+    R.setSiteCodes({ generatedAt: '', sites: [] })
+  }
+})
+
+safe('bodies and positions', () => {
+  const L = impRosters.real
+  check('findBody', 'Hurston', R.findBody('Hurston', L)?.name === 'Hurston', R.findBody('Hurston', L)?.name)
+  check('findBody', 'OOC_Stanton_1_Hurston', R.findBody('OOC_Stanton_1_Hurston', L)?.name === 'Hurston', R.findBody('OOC_Stanton_1_Hurston', L)?.name)
+  check('findBody', '00C Stanton 1 Hurston (OCR)', R.findBody('00C Stanton 1 Hurston', L)?.name === 'Hurston', R.findBody('00C Stanton 1 Hurston', L)?.name)
+  check('findBody', 'moon Yela', R.findBody('Yela', L)?.name === 'Yela', R.findBody('Yela', L)?.name)
+  check('findBody', 'wrong system: null', R.findBody('Hurston', L, 'Pyro') === null, R.findBody('Hurston', L, 'Pyro')?.name)
+  check('findBody', 'a city is not a body: null', R.findBody('Lorville', L) === null, R.findBody('Lorville', L)?.name)
+  check('findBody', 'no partial names: "Hurst" null', R.findBody('Hurst', L) === null, R.findBody('Hurst', L)?.name)
+  const pt = byName('Port Tressler')
+  const n = R.nearestPlace({ x: pt.x + 300, y: pt.y, z: pt.z }, L)
+  check('nearestPlace', 'nearest within 25 km', n?.place.name === 'Port Tressler' && Math.round(n.meters) === 300, `${n?.place.name} ${n?.meters}`)
+  check('nearestPlace', 'beyond maxM: undefined', R.nearestPlace({ x: pt.x + 300, y: pt.y, z: pt.z }, L, 100) === undefined)
+  check('nearestPlace', 'no point: undefined', R.nearestPlace(undefined, L) === undefined)
 })
 
 safe('matchWord', () => {

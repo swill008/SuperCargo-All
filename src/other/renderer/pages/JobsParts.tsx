@@ -6,14 +6,47 @@ import { useStore } from '@renderer/state/store'
 import { type OtherJobEdit } from '../state/otherJobs'
 import { useMergedLocations } from '../state/otherPlaces'
 import { formatPlaceWithBodySystem, stepIsPickup } from '@other/otherNext'
-import { resolveStopPlace, type StopPlace } from '@other/otherResolve'
+import { placeKey, resolveStopPlace, type StopPlace } from '@other/otherResolve'
 import { otherSetting } from '@other/workMode'
 import { MatchTag, stopPlaceText } from '../components/MatchTag'
 import { useMemoryLookup } from '../state/otherMemoryStore'
 import { OTHER_KIND_LABEL, type OtherJob } from '@other/otherJob'
+import type { Location } from '@shared/types'
 import { EditForm } from './JobsPartsUi'
 import { miniBtn, tagStyle, otherView, shownSteps, JobTags } from './JobsPartsStyles'
 export { AddForm, miniBtn, outlineBtn } from './JobsPartsStyles'
+
+/**
+ * One stop place: the text as read (log or scan), then the place it resolved to with its MatchTag.
+ * The roster name alone when the two read the same; a done/inactive step (no live match) shows the import's sure rename untagged.
+ */
+function PlaceLine({ prefix, raw, place, match, roster }: {
+  prefix: string
+  raw?: string
+  place: string
+  match: StopPlace | null
+  roster: Location[]
+}): React.ReactElement {
+  const read = (raw ?? place).trim() || place
+  const resolved = match ? stopPlaceText(match, place, roster) : formatPlaceWithBodySystem(place, roster)
+  const placeName = match ? (match.label || match.text || place) : place
+  const same = placeKey(read) === placeKey(placeName)
+  return (
+    <span
+      title={raw && raw !== place ? `As read: ${raw}` : undefined}
+      style={{ display: 'block', fontFamily: F.body, fontSize: 12, color: C.dim, marginTop: 2 }}
+    >
+      {prefix}
+      {same ? resolved : (
+        <>
+          <span style={{ color: C.textBody }}>{read}</span>
+          {match || raw ? <span style={{ color: C.acc }}>{` \u2192 ${resolved}`}</span> : null}
+        </>
+      )}
+      {match ? <span style={{ marginLeft: 8 }}><MatchTag match={match} /></span> : null}
+    </span>
+  )
+}
 
 export function JobRow({ job, uex, expanded, editing, onToggle, onEdit, onCancelEdit, onSaveEdit, onAbandon, onRestore, onComplete, onImportOcr, onStep }: {
   job: OtherJob
@@ -89,28 +122,22 @@ export function JobRow({ job, uex, expanded, editing, onToggle, onEdit, onCancel
               <span style={{ flex: 1, minWidth: 0 }}>
                 <span style={{ display: 'block', fontFamily: F.body, fontSize: 14, color: step.done || step.withdrawn ? C.dim : C.textBody, textDecoration: step.withdrawn ? 'line-through' : undefined }}>{step.label}</span>
                 {step.pickupLocation ? (
-                  <span
-                    title={step.pickupLocationSnapped && step.pickupLocationRaw ? `Log: ${step.pickupLocationRaw}` : undefined}
-                    style={{
-                      display: 'block',
-                      fontFamily: F.body,
-                      fontSize: 12,
-                      color: step.pickupLocationSnapped ? C.acc : C.dim,
-                      marginTop: 2
-                    }}
-                  >Collect: {pickupActive && match ? stopPlaceText(match, step.pickupLocation, roster) : formatPlaceWithBodySystem(step.pickupLocation, roster)}{pickupActive && match ? <span style={{ marginLeft: 8 }}><MatchTag match={match} /></span> : null}</span>
+                  <PlaceLine
+                    prefix="Collect: "
+                    raw={step.pickupLocationRaw}
+                    place={step.pickupLocation}
+                    match={pickupActive ? match : null}
+                    roster={roster}
+                  />
                 ) : null}
                 {step.location ? (
-                  <span
-                    title={step.locationSnapped && step.locationRaw ? `Log: ${step.locationRaw}` : undefined}
-                    style={{
-                      display: 'block',
-                      fontFamily: F.body,
-                      fontSize: 12,
-                      color: step.locationSnapped ? C.acc : C.dim,
-                      marginTop: 2
-                    }}
-                  >{(() => { const shown = !pickupActive && match ? stopPlaceText(match, step.location, roster) : formatPlaceWithBodySystem(step.location, roster); return step.pickupLocation ? `Deliver: ${shown}` : shown })()}{!pickupActive && match ? <span style={{ marginLeft: 8 }}><MatchTag match={match} /></span> : null}</span>
+                  <PlaceLine
+                    prefix={step.pickupLocation ? 'Deliver: ' : ''}
+                    raw={step.locationRaw}
+                    place={step.location}
+                    match={!pickupActive ? match : null}
+                    roster={roster}
+                  />
                 ) : null}
               </span>
               {step.withdrawn && (

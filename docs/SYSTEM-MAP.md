@@ -370,7 +370,7 @@ read one `StopPlace` per stop.
 | File | Owns (batch 7) | Entry points |
 |---|---|---|
 | `src/other/otherResolve.ts` (new, pure) | The one normaliser and the evidence-weighing resolver; generic sites and their parent place | `placeKey()`, `resolveStopPlace(step, ctx)`, `resolvePlaceText(text, ctx, marker?)`, `matchWord(status)`, `NEAR_MAX_M`; types `MatchStatus`, `Evidence`, `Candidate`, `StopPlace` (`site?` for generic sites), `ResolveCtx` |
-| `src/other/otherNext.ts` | Stop rows, distances and route order read the resolver (one call per step per `listOpenStops` run); `findRosterLocation` (typed starts) uses `placeKey`; re-exports `NEAR_MAX_M` | `listOpenStops()` (`originIsRead?` opt; rows and groups carry `match`), `explainPlaceLookup()` (wrapper over `resolvePlaceText`) |
+| `src/other/otherNext.ts` | Stop rows, distances and route order read the resolver (one call per step per `listOpenStops` run); `findRosterLocation` (typed starts) uses `placeKey` (batch 9: removed, see [Name and place resolution](#name-and-place-resolution)); re-exports `NEAR_MAX_M` | `listOpenStops()` (`originIsRead?` opt; rows and groups carry `match`), `explainPlaceLookup()` (wrapper over `resolvePlaceText`) |
 | `src/other/renderer/state/otherJobs.ts`, `src/other/otherJob.ts` | Markers stored for every step whose objective has one (evidence); "learned" only for status `marker` | `placeSteps()` |
 | `src/other/renderer/state/otherDiag.ts`, `src/main/diagnostics.ts` (upstream) | SNAPSHOT row `match`; `other.matches`; `## MATCHES` after `## SNAPSHOT` ("(all exact)" when none) | `matchesText()` |
 | `src/other/renderer/components/MatchTag.tsx` (new), `OtherOverlay.tsx`, `pages/NextPage.tsx`, `pages/JobsParts.tsx` | The match tag (word + confidence colour, evidence tooltip); "<site> · at <place>" labels; "not sure: A or B?" line | `MatchTag` |
@@ -513,3 +513,70 @@ main/gameData ─► otherGameData:get ─► otherGameDataStore (both windows) 
 **Known limits.**
 - An UPDATE doesn't remove starmap-only places from the earlier positions file until the next REFRESH rebuilds the place list.
 - `data/uex/site-codes.json` is not in the `data/uex` hash sync; it changes only with a release or an UPDATE.
+
+## Name and place resolution
+
+Batch 9 (2026-10-14, CONTRACT10, user: "streamline ... the entire name/place resolution"). Rules 61-68 in
+[STANDALONE.md](../src/other/STANDALONE.md#one-nameplace-resolver-for-all-of-other-mode-batch-9-user-2026-10-14); audit in
+[OTHER-MODE-AUDIT.md](OTHER-MODE-AUDIT.md#one-nameplace-resolver-batch-9). Every Other-mode name or place lookup goes
+through `src/other/otherResolve.ts` (text) or `src/other/otherSiteCodes.ts` (codes). The text as read is always the
+input; imports never rename (rule 61). Every text lookup gets the match memory (renderer `currentMemoryLookup()`,
+main `matchMemory.getMemory()`). `test/replay/resolver_guard.mjs` fails on a name match done anywhere else.
+
+**Text -> place**
+
+| Lookup | Entry point | Called from | Tag shown |
+|---|---|---|---|
+| Stop's place (pickup while open, else drop-off; marker, generic site, memory) | `otherResolve.ts:resolveStopPlace(step, ctx, job?)` | `otherNext.ts:listOpenStops` (rows, route sort, overlay, Next), `JobsParts.tsx` (Jobs step), `otherDiag.ts` (SNAPSHOT `match`, `## MATCHES`) | overlay, Next tab, Jobs step (`MatchTag` -> MatchFix) |
+| Any place text without a step | `otherResolve.ts:resolvePlaceText(text, ctx, marker?, related?, jobTexts?)` | `resolveStopPlace`, `otherJobs.ts` proof compare, `otherDiag.ts` | via its caller |
+| Job import from Game.log | `otherResolve.ts:importPlace(raw, ctx)` | `otherLog.ts:stepFromParse(id, parsed, locations?, ctx?)` (renderer and main scan) | Jobs step (text as read + matched place + tag) |
+| Job import from a scan (OCR) | `otherResolve.ts:importPlace(raw, ctx, { ocr: true, label })` | `renderer/state/otherOcr.ts:applyOcrRows`, `OtherCaptureModal.tsx` (confirm screen) | scan confirm screen, then Jobs step |
+| Typed start | `otherResolve.ts:resolveStartText(text, ctx)` | `otherNext.ts:resolveOrigin({ typed, memory, ... })` -> `match` | Next tab and overlay, next to STARTING AT |
+| Log position clues (Objective Complete place, inventory) | `otherResolve.ts:resolveStartText(text, ctx)` | `renderer/state/otherJobs.ts:whereFromPlace` | where line (source shown) |
+| Map line (zone 1) names | `otherResolve.ts:resolveStartText` via the `resolve?` closure | `otherWhere.ts:resolveMapLine(..., resolve?)`, closure built in `main/whereAmI.ts` (main memory + site codes) | WHERE AM I result |
+| Marker placement (does the step's place have coordinates) | `otherResolve.ts:resolveStopPlace` | `renderer/state/otherJobs.ts:placeSteps` | |
+
+**Code -> place**
+
+| Lookup | Entry point | Called from |
+|---|---|---|
+| Wiki site codes, city codes, `RR_<BODY>_L<n>` / LEO | `otherSiteCodes.ts:placeForCode(code, locations)` -> `{ name, via: 'site' / 'city' / 'lagrange' }` | `otherCurrentLocation.ts` (inventory / location lines, parse only), the resolver's code evidence ("game code … ✓"), `otherWhere.ts` panel codes |
+| Site code in a text ("[DC_…]", panel style) | `otherSiteCodes.ts:codeFromText()`, `parentForCode()`, `siteByCode()` | `otherResolve.ts` |
+
+**Position -> place**
+
+| Lookup | Entry point | Called from |
+|---|---|---|
+| Nearest roster place to a point (within `NEAR_MAX_M`, 25 km) | `otherResolve.ts:nearestPlace(point, locations, maxM?)` | `otherNext.ts` (`near` labels), `otherJobs.ts` (proof "you were at", learned report), `otherWhere.ts` (display-info read) |
+| Body by name ("Hurston", "OOC_Stanton_1_Hurston") | `otherResolve.ts:findBody(name, locations, system?)` | `otherWhere.ts:resolveDisplayInfo` / `resolveMapLine` |
+| Marker zone host -> place | `otherMarkers.ts:locationByZ` (kept: geometry) | marker calibration |
+
+**Special cases (kept outside the resolver, allowlisted in the guard)**
+
+| What | Where | Why |
+|---|---|---|
+| Jump gateways | `otherGeo.ts:gateway`, `gatewayLocation` | exact jump-point rules |
+| Roster build (UEX + starmap merge by name) | `renderer/state/otherPlaces.ts:mergeLocations`, `main/uex.ts` (fill / add starmap positions) | builds the roster every lookup reads |
+| Body table | `otherBodies.ts` | planet / moon list by their own names |
+| Haul mode | `src/renderer/src/state/store.ts`, `shared/logLocation.ts:resolveLogLocation` | upstream, not Other mode |
+| Pass-through texts | `importPlace`: "Neutralize …" targets, "<System> System", "Patrol Coordinates" | not places |
+
+**Data flow.**
+
+```
+log line / scan text / typed start / log clue / map line
+   ─► text as read (locationRaw, pickupLocationRaw, typed text)            never renamed by an import
+   ─► otherResolve (placeKey, OCR folds, address + Lagrange rules, codes via placeForCode, memory, marker, here)
+   ─► StopPlace { status, confidence, evidence, candidates, point }
+        import: location = roster name only when sure (exact / corrected / user / learned / code, conf >= 8, +3 clear)
+   ─► MatchTag (scan confirm, Jobs, Next, overlay, STARTING AT) ─► MatchFix ─► memory ─► every lookup
+```
+
+Run (after `npm run build`): `node test/replay/replay.mjs resolver-scan-fix resolver-log-no-rename resolver-typed-start
+resolver-memory-everywhere`; pure: `node test/replay/resolve_checks.mjs`, `node test/replay/resolver_guard.mjs`
+(`--all` also lists the allowlisted hits).
+
+| File | Owns (batch 9) |
+|---|---|
+| `test/replay/resolver_guard.mjs` (new) | The guard: name matching outside the allowlist fails, each allowlist entry with its reason |
+| `test/replay/replay.mjs` | `resolver-scan-fix`, `resolver-log-no-rename`, `resolver-typed-start`, `resolver-memory-everywhere`; helpers `stubOcr()` (test seam: main's `ocr:run` / `ocr:preview` IPC answered with a fixed text), `scanToConfirm()`; `matchRun()` / `memLaunch()` take `typed` |

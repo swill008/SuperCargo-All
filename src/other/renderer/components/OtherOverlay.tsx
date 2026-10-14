@@ -100,9 +100,9 @@ export default function OtherOverlay(): React.ReactElement {
     return () => window.clearInterval(t)
   }, [])
   const origin = useMemo(
-    () => resolveOrigin({ typed: typedStart, typedAt: startTypedAt, where, mode: startMode, locations }),
+    () => resolveOrigin({ typed: typedStart, typedAt: startTypedAt, where, mode: startMode, locations, memory }),
     // eslint-disable-next-line react-hooks/exhaustive-deps
-    [typedStart, startTypedAt, where, startMode, locations, tick]
+    [typedStart, startTypedAt, where, startMode, locations, memory, tick]
   )
   // name kept for fallbacks (roster lookup when there is no point)
   const startLocation = origin.name ?? ''
@@ -405,6 +405,7 @@ export default function OtherOverlay(): React.ReactElement {
               <span style={{ ...hintStyle, letterSpacing: '0.08em' }}>FROM:</span>{' '}
               <span style={{ color: C.dim }}>{startName}</span>{` (${startWord})`}
               {startAcc != null ? <span style={{ marginLeft: 6 }}><AccTag score={startAcc} /></span> : null}
+              {origin.match ? <span style={{ marginLeft: 6 }}><MatchTag match={origin.match} /></span> : null}
             </span>
           ) : (
             <>

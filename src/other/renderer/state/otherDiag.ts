@@ -5,9 +5,9 @@
  */
 import type { Location } from '@shared/types'
 import type { ListOrder, OtherHistoryEntry, OtherJob, OtherStep } from '@other/otherJob'
-import { explainPlaceLookup, findRosterLocation, listOpenStops, locationPoint, resolveOrigin, stepActivePlace, stepIsPickup } from '@other/otherNext'
+import { listOpenStops, locationPoint, resolveOrigin, stepActivePlace, stepIsPickup } from '@other/otherNext'
 import { explainTravel, systemKey, type GeoPoint } from '@other/otherGeo'
-import type { StopPlace } from '@other/otherResolve'
+import { resolveStartText, type StopPlace } from '@other/otherResolve'
 import { accuracyWord, whereAccuracy, type DisplayInfo, type Where } from '@other/otherWhere'
 import { isRootFrame, isSmallZone, type MarkerPos } from '@other/otherMarkers'
 import { OTHER_SETTING_DEFAULTS, otherSetting, resolveWorkMode } from '@other/workMode'
@@ -234,9 +234,13 @@ export function otherDiagSnapshot(): Record<string, unknown> {
 
     // same origin the Next page uses (otherStartMode: auto = newer of typed and where, fixed = typed only)
     const startMode = otherSetting(settings, 'otherStartMode')
-    const origin = resolveOrigin({ typed: s.startLocation, typedAt: s.startTypedAt, where: s.where, mode: startMode, locations })
+    // match memory (user-set / learned places), same as Next and the overlay
+    const memory = currentMemoryLookup()
+    const origin = resolveOrigin({ typed: s.startLocation, typedAt: s.startTypedAt, where: s.where, mode: startMode, locations, memory })
     const start = origin.name ?? ''
-    const startLoc = start.trim() ? findRosterLocation(start, locations) : undefined
+    // the start's roster place from the one resolver (resolveOrigin's match when it gave one)
+    const startMatch = start.trim() ? (origin.match ?? resolveStartText(start, { locations, useMarker: false, memory })) : undefined
+    const startLoc = startMatch?.match
     const fromPoint = origin.point ?? locationPoint(startLoc)
     const useMarker = otherSetting(settings, 'otherMarkerDistance')
     const withdrawn = otherSetting(settings, 'otherWithdrawnSteps')
@@ -250,8 +254,6 @@ export function otherDiagSnapshot(): Record<string, unknown> {
     const distanceTable: Record<string, unknown> = {}
     // every open stop whose place isn't an exact name match (## MATCHES in the export)
     const matches: Record<string, unknown>[] = []
-    // match memory (user-set / learned places), same as Next and the overlay
-    const memory = currentMemoryLookup()
     for (const order of orders) {
       const rows = listOpenStops(live, start, locations, {
         showAll,
@@ -298,7 +300,8 @@ export function otherDiagSnapshot(): Record<string, unknown> {
           distanceSource: r.distanceSource,
           noDistance: r.noDistance,
           why: r.distance == null ? noDistanceWhy(r.step, r.match, r.job.missionId, startLoc, origin.point, useMarker, zones) : undefined,
-          lookup: explainPlaceLookup(place, locations),
+          // the resolver's answer for the text as read (place above is the step's current text)
+          lookup: { text: r.match.text, status: r.match.status, match: r.match.match?.name ?? null, hasCoords: hasCoords(r.match.match) },
           travel: (() => {
             const t = explainTravel(fromPoint, r.point, locations)
             return { ...t, meters: round(t.meters) }

@@ -8,53 +8,22 @@
  * positives. It fires 0-25 s after arriving; 12 of 15 arrivals got one directly, the other 3 were
  * repeat visits to a place already seen that session, which the hash learned here covers (15/15).
  * Codes are internal (Stanton2_Orison, RR_CRU_L1, RR_CRU_LEO, Stanton4_NewBabbage) and map to the
- * UEX roster by table; unknown codes (Pyro, outposts, roster gaps like New Babbage) give null rather
+ * UEX roster by the one code table (otherSiteCodes.placeForCode); unknown codes (Pyro, outposts, roster gaps like New Babbage) give null rather
  * than a guess. "Entered ... Jurisdiction / Monitored Space", ATC and quantum lines carry no usable
  * name. Stale: once you leave (Location hash changes away), `current` is null; `last` keeps the
  * last station, which can be hours old. One log of 7 (a 13-minute session) had no location at all.
  */
 import type { Location } from '@shared/types'
-
-const norm = (s: string): string => s.toLowerCase().replace(/[^a-z0-9]+/g, ' ').trim()
+import { placeForCode } from './otherSiteCodes'
 
 const RE_REQUEST = /requested inventory for Location\[([^\]]+)\]/
 const RE_MOVE = /is changing location\. Landing \[(\d+)\] -> \[(\d+)\]\. Location \[(\d+)\] -> \[(\d+)\]/
-
-const BODY: Record<string, string> = { HUR: 'HUR', CRU: 'CRU', ARC: 'ARC', MIC: 'MIC' }
-const LEO: Record<string, string> = {
-  HUR: 'Everus Harbor',
-  CRU: 'Seraphim Station',
-  ARC: 'Baijini Point',
-  MIC: 'Port Tressler'
-}
-const CITY: Record<string, string> = {
-  Stanton1_Lorville: 'Lorville',
-  Stanton2_Orison: 'Orison',
-  Stanton3_Area18: 'Area18',
-  Stanton4_NewBabbage: 'New Babbage'
-}
-
-/** game location code -> roster name, or null when it isn't on the roster */
-export function rosterNameForCode(code: string, locations: Location[]): string | null {
-  const byName = (name: string): string | null =>
-    locations.find((l) => norm(l.name) === norm(name))?.name ?? null
-  const rr = /^RR_([A-Z]{3})_(L[1-5]|LEO)$/i.exec(code.trim())
-  if (rr) {
-    const body = BODY[rr[1].toUpperCase()]
-    if (!body) return null
-    if (rr[2].toUpperCase() === 'LEO') return byName(LEO[body])
-    const want = norm(`${body}-${rr[2].toUpperCase()}`)
-    return locations.find((l) => norm(l.code || '') === want)?.name ?? null
-  }
-  const city = CITY[code.trim()]
-  return city ? byName(city) : null
-}
 
 /** stateless: the roster name a single line places the player at, or null */
 export function currentLocationFromLine(line: string, locations: Location[]): string | null {
   if (line.indexOf('requested inventory for Location[') < 0) return null
   const m = RE_REQUEST.exec(line)
-  return m ? rosterNameForCode(m[1], locations) : null
+  return m ? (placeForCode(m[1], locations)?.name ?? null) : null
 }
 
 export type CurrentLocationTracker = {

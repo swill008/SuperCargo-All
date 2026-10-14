@@ -1,14 +1,13 @@
 /**
- * Other-mode Next sort and UEX name snap.
- * Uses the UEX location roster and resolveLogLocation.
+ * Other-mode Next sort and distances.
+ * Every name/place lookup goes through otherResolve (resolveStartText / resolveStopPlace / nearestPlace).
  * Does not call planRoute / packer / hold.
  */
 import type { Location } from '@shared/types'
-import { resolveLogLocation, splitLogAddress } from '@shared/logLocation'
 import type { ListOrder, OtherJob, OtherStep } from '@other/otherJob'
 import { compareTravel, formatShortDistance, travel, type GeoPoint, type Travel } from './otherGeo'
 import { whereAccuracy, type Where, type WhereSource } from './otherWhere'
-import { NEAR_MAX_M, placeKey, resolveStopPlace, type ResolveCtx, type StopPlace } from './otherResolve'
+import { NEAR_MAX_M, resolveStartText, resolveStopPlace, type ResolveCtx, type StopPlace } from './otherResolve'
 import type { MemoryEntry } from './otherMemory'
 
 /** match memory lookup (memoryKey -> entry); otherMemoryStore's useMemoryLookup / memoryLookup */
@@ -24,10 +23,10 @@ function titleChip(raw: string): string {
 }
 
 /** Display-only: Name · Body [planet] · System [system]. Stored location stays the UEX name. */
-export function formatPlaceWithBodySystem(name: string, locations: Location[]): string {
+export function formatPlaceWithBodySystem(name: string, locations: Location[], memory?: MemoryLookup): string {
   const trimmed = name.trim()
   if (!trimmed) return trimmed
-  const hit = findRosterLocation(trimmed, locations)
+  const hit = startPlace(trimmed, locations, memory).match
   const parts = [trimmed]
   const body = hit?.body?.trim()
   const system = hit?.system?.trim()
@@ -54,129 +53,20 @@ export function findNextTravelStop<T extends { step: OtherStep }>(open: T[], fro
   return undefined
 }
 
-/** the shared place key (placeKey in otherResolve); kept for callers of the old name */
-export function foldPlaceName(s: string): string {
-  return placeKey(s)
-}
-
-/** fallback match on placeKey (equal, then one contains the other); prefers the address's system, then a place with coords */
-function findFolded(raw: string, locations: Location[]): Location | undefined {
-  const pool = foldedPool(raw, locations)
-  return pool[0]
-}
-
-/** roster places matching raw by placeKey, best first (equal before contains; address system, then coords, first) */
-function foldedPool(raw: string, locations: Location[]): Location[] {
-  const { systemHint } = splitLogAddress(raw)
-  const key = placeKey(raw)
-  if (key.length < 4 || !/\d/.test(key)) return []
-  // same place under two spellings (UEX "Center" without coords, starmap "Centre" with): take the one with coords
-  const rank = (hits: Location[]): Location[] =>
-    hits
-      .map((l, i) => ({ l, i, s: (systemHint && l.system === systemHint ? 2 : 0) + (hasCoords(l) ? 1 : 0) }))
-      .sort((a, b) => b.s - a.s || a.i - b.i)
-      .map((x) => x.l)
-  const exact = locations.filter((l) => placeKey(l.name) === key)
-  if (exact.length) return rank(exact)
-  return rank(
-    locations.filter((l) => {
-      const n = placeKey(l.name)
-      return n.length >= 4 && /\d/.test(n) && (n.includes(key) || key.includes(n))
-    })
-  )
-}
-
-/** a typed / named place (starts, other callers); open stops use resolveStopPlace */
-export function findRosterLocation(raw: string, locations: Location[]): Location | undefined {
-  const trimmed = raw.trim()
-  if (!trimmed || locations.length === 0) return undefined
-  const resolved = resolveLogLocation(trimmed, locations)
-  const key = resolved.toLowerCase()
-  const exact = locations.find((l) => l.name.toLowerCase() === key)
-  if (exact) return exact
-  return (
-    locations.find((l) => {
-      const n = l.name.toLowerCase()
-      return n.includes(key) || key.includes(n)
-    }) ?? findFolded(trimmed, locations)
-  )
-}
-
-export interface PlaceLookupExplain {
-  raw: string
-  /** the name findRosterLocation compares (resolveLogLocation of the trimmed text) */
-  cleaned: string
-  method: 'exact' | 'contains' | 'address' | 'folded' | 'none'
-  match?: string
-  hasCoords: boolean
-  /** up to 5 roster places the chosen step considered (or near names when nothing matched) */
-  candidates: { name: string; system: string | null; hasCoords: boolean }[]
-}
-
-/**
- * Diagnostics: the steps findRosterLocation takes for `raw`, and which one matched.
- * 'exact' = name equals the text; 'address' = equals it after resolveLogLocation cleaned it
- * (address suffix, tag, partial name); then 'contains', then 'folded' (OCR-tolerant). Read-only.
- */
-export function explainPlaceLookup(raw: string, locations: Location[]): PlaceLookupExplain {
-  const trimmed = raw.trim()
-  const cand = (ls: Location[]): PlaceLookupExplain['candidates'] =>
-    ls.slice(0, 5).map((l) => ({ name: l.name, system: l.system ?? null, hasCoords: hasCoords(l) }))
-  const out = (method: PlaceLookupExplain['method'], cleaned: string, match: Location | undefined, pool: Location[]): PlaceLookupExplain => ({
-    raw,
-    cleaned,
-    method: match ? method : 'none',
-    ...(match ? { match: match.name } : {}),
-    hasCoords: hasCoords(match),
-    candidates: cand(pool)
-  })
-  if (!trimmed || locations.length === 0) return out('none', trimmed, undefined, [])
-  const resolved = resolveLogLocation(trimmed, locations)
-  const key = resolved.toLowerCase()
-  const exactHits = locations.filter((l) => l.name.toLowerCase() === key)
-  if (exactHits.length) return out(key === trimmed.toLowerCase() ? 'exact' : 'address', resolved, exactHits[0], exactHits)
-  const containsHits = locations.filter((l) => {
-    const n = l.name.toLowerCase()
-    return n.includes(key) || key.includes(n)
-  })
-  if (containsHits.length) return out('contains', resolved, containsHits[0], containsHits)
-  // placeKey match (O/0, I/1, doubled zeros, Centre/Center); the chosen one first
-  const pool = foldedPool(trimmed, locations)
-  if (pool.length) return out('folded', resolved, pool[0], pool)
-  // nothing matched: roster names sharing a word (4+ letters) with the text, as a hint
-  const words = placeKey(trimmed).split(' ').filter((w) => w.length >= 4)
-  const near = words.length ? locations.filter((l) => placeKey(l.name).split(' ').some((w) => words.includes(w))) : []
-  return out('none', resolved, undefined, near)
-}
-
-/** Official UEX name only when the match is unique. Otherwise keep OCR text. */
-export function snapLocationToUex(raw: string, locations: Location[]): string {
-  const trimmed = raw.trim()
-  if (!trimmed || locations.length === 0) return trimmed
-  const resolved = resolveLogLocation(trimmed, locations)
-  const exact = locations.find(
-    (l) => l.name.toLowerCase() === resolved.toLowerCase() || l.name.toLowerCase() === trimmed.toLowerCase()
-  )
-  if (exact) return exact.name
-  const rawL = trimmed.toLowerCase()
-  const hits = locations.filter((l) => {
-    const n = l.name.toLowerCase()
-    return n.length >= 10 && rawL.includes(n)
-  })
-  if (hits.length === 1) return hits[0].name
-  return findFolded(trimmed, locations)?.name ?? trimmed
-}
-
 /** a roster place as a travel point (system/body carried); undefined without coords */
 export function locationPoint(l?: Location): GeoPoint | undefined {
   if (!l || l.x == null || l.y == null || l.z == null) return undefined
   return { x: l.x, y: l.y, z: l.z, system: l.system ?? null, body: l.body ?? null }
 }
 
-/** travel metres between two roster places (gateways need `locations`); null when unknown or no gateway */
-export function rosterDistance(a?: Location, b?: Location, locations: Location[] = []): number | null {
-  return travel(locationPoint(a), locationPoint(b), locations)?.meters ?? null
+/** a typed / named place (start, where-name) through the one resolver; no marker, no step */
+function startPlace(text: string, locations: Location[], memory?: MemoryLookup): StopPlace {
+  return resolveStartText(text, { locations, useMarker: false, ...(memory ? { memory } : {}) })
 }
+
+/** where a typed / named start is: the resolver's roster point, or undefined */
+const startPoint = (text: string, locations: Location[], memory?: MemoryLookup): GeoPoint | undefined =>
+  text.trim() ? startPlace(text, locations, memory).point : undefined
 
 type Pos = { x?: number; y?: number; z?: number }
 
@@ -214,7 +104,7 @@ export function stepTravelFromStart(
   job?: OtherJob,
   memory?: MemoryLookup
 ): Travel | null {
-  return travel(locationPoint(findRosterLocation(startName, locations)), stepPoint(step, locations, useMarker, job, memory), locations)
+  return travel(startPoint(startName, locations, memory), stepPoint(step, locations, useMarker, job, memory), locations)
 }
 
 /** distanceFromStart for a step: falls back to its marker position when the place has no UEX coords */
@@ -238,23 +128,6 @@ function compareStepsFrom(start: GeoPoint | undefined, locations: Location[], a:
   return compareTravel(ta, tb)
 }
 
-/** travel between two named places; null when either is unknown or no gateway joins them */
-export function travelFromStart(startName: string, destName: string, locations: Location[]): Travel | null {
-  return travel(
-    locationPoint(findRosterLocation(startName, locations)),
-    locationPoint(findRosterLocation(destName, locations)),
-    locations
-  )
-}
-
-export function distanceFromStart(
-  startName: string,
-  destName: string,
-  locations: Location[]
-): number | null {
-  return travelFromStart(startName, destName, locations)?.meters ?? null
-}
-
 /** UEX x/y/z are starmap meters. Large ranges: "38 Gm 302 Mm". */
 export function formatMapDistance(meters: number | null): string {
   if (meters == null) return '\u2014'
@@ -275,20 +148,6 @@ export function formatMapDistance(meters: number | null): string {
 export function formatDistance(m: number | null): string {
   if (m == null || !Number.isFinite(m)) return '\u2014'
   return formatShortDistance(m)
-}
-
-export function compareByDistanceFrom(
-  startName: string,
-  locations: Location[],
-  aName: string,
-  bName: string
-): number {
-  const start = locationPoint(findRosterLocation(startName, locations))
-  if (!start) return 0
-  return compareTravel(
-    travel(start, locationPoint(findRosterLocation(aName, locations)), locations),
-    travel(start, locationPoint(findRosterLocation(bName, locations)), locations)
-  )
 }
 
 export interface OpenStopRow {
@@ -334,21 +193,9 @@ export interface PlaceNear {
 /** how far a marker point may be from a roster place to be called "near" it (defined in otherResolve) */
 export { NEAR_MAX_M }
 
-/** nearest roster place (with coords) within 25 km of a point; undefined when none */
-export function nearestRosterPlace(p: GeoPoint | undefined, locations: Location[]): PlaceNear | undefined {
-  if (!p) return undefined
-  let best: PlaceNear | undefined
-  for (const l of locations) {
-    if (l.x == null || l.y == null || l.z == null) continue
-    const d = Math.hypot(l.x - p.x, l.y - p.y, l.z - p.z)
-    if (d <= NEAR_MAX_M && (!best || d < best.meters)) best = { name: l.name, meters: d }
-  }
-  return best
-}
-
 /** "<place, body, system> · near <name> (<dist>)"; the plain place line when there is no near place */
-export function formatPlaceNear(place: string, near: PlaceNear | undefined, locations: Location[]): string {
-  const base = formatPlaceWithBodySystem(place, locations)
+export function formatPlaceNear(place: string, near: PlaceNear | undefined, locations: Location[], memory?: MemoryLookup): string {
+  const base = formatPlaceWithBodySystem(place, locations, memory)
   if (!near) return base
   return `${base} \u00b7 near ${near.name} (${formatDistance(near.meters)})`
 }
@@ -380,6 +227,8 @@ export interface ResolvedOrigin {
   stale: boolean
   /** position accuracy 0-10 now (whereAccuracy, fades with age); null for typed or nothing set */
   accuracy: number | null
+  /** the resolver's answer for the typed / where name (resolveStartText); absent when there is no name */
+  match?: StopPlace
 }
 
 /**
@@ -393,12 +242,15 @@ export function resolveOrigin(o: {
   mode: 'auto' | 'fixed'
   now?: number
   locations: Location[]
+  /** match memory (user-set / learned places) for the typed / where name */
+  memory?: MemoryLookup
 }): ResolvedOrigin {
   const none: ResolvedOrigin = { name: null, label: null, kind: null, stale: false, accuracy: null }
   const typed = o.typed?.trim()
   const fromTyped = (): ResolvedOrigin => {
-    const point = locationPoint(findRosterLocation(typed!, o.locations))
-    return { name: typed!, label: typed!, ...(point ? { point } : {}), kind: 'typed', stale: false, accuracy: null }
+    const match = startPlace(typed!, o.locations, o.memory)
+    const point = match.point
+    return { name: typed!, label: typed!, ...(point ? { point } : {}), kind: 'typed', stale: false, accuracy: null, match }
   }
   if (o.mode === 'fixed') return typed ? fromTyped() : none
   const w = o.where
@@ -410,7 +262,8 @@ export function resolveOrigin(o: {
     const wt = timeOf(w.at)
     if (Number.isFinite(tt) && (!Number.isFinite(wt) || tt >= wt)) return fromTyped()
   }
-  const point = w.point ?? (wName ? locationPoint(findRosterLocation(wName, o.locations)) : undefined)
+  const match = wName ? startPlace(wName, o.locations, o.memory) : undefined
+  const point = w.point ?? match?.point
   const at = timeOf(w.at)
   const now = o.now ?? Date.now()
   return {
@@ -419,7 +272,8 @@ export function resolveOrigin(o: {
     ...(point ? { point } : {}),
     kind: w.source,
     stale: w.source !== 'typed' && Number.isFinite(at) && now - at > STALE_MS,
-    accuracy: w.source === 'typed' ? null : whereAccuracy(w, now)
+    accuracy: w.source === 'typed' ? null : whereAccuracy(w, now),
+    ...(match ? { match } : {})
   }
 }
 
@@ -686,8 +540,7 @@ export function listOpenStops(
   const useMarker = opts?.markerDistance !== false
   const origin = opts?.origin && hasCoords(opts.origin) ? opts.origin : undefined
   const hasStart = !!origin || !!startLocation.trim()
-  const start: GeoPoint | undefined =
-    origin ?? (startLocation.trim() ? locationPoint(findRosterLocation(startLocation, locations)) : undefined)
+  const start: GeoPoint | undefined = origin ?? startPoint(startLocation, locations, opts?.memory)
 
   // one resolve per step for this run; a read origin is "you are here" evidence
   const resolve = resolverFor({
