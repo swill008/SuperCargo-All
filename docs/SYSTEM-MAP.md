@@ -680,11 +680,13 @@ says which stops have a place problem; every list screen tints those rows, the o
 | File | Owns | Entry points |
 |---|---|---|
 | `src/other/renderer/stopIssue.ts` (new) | The shared rule: status `none` red ("no place" / "not found"), `guess` / `unsure` / `mismatch` amber; worst of several (red beats amber, with a count); row style (light tint + 3 px left stripe) and overlay word colour | `stopIssue(match, step?)`, `worstIssue(issues)`, `issueColor(level)`, `issueRowStyle(level)`, `issueTextStyle(level)`; types `IssueLevel`, `StopIssue` |
-| `src/other/renderer/pages/JobsParts.tsx`, `pages/NextPage.tsx`, `components/NeedsYourEye.tsx`, `components/OtherOverlay.tsx` | Use the rule: Jobs step rows and the collapsed job row (chip "✗ N step(s) need a place" / "? N step(s) to check"), Next rows/groups, Needs your eye rows tinted; overlay place name and objective text tinted; `MatchTag` unchanged (chip, opens `MatchFix`) | |
+| `src/other/renderer/pages/JobsParts.tsx`, `pages/NextPage.tsx`, `components/NeedsYourEye.tsx`, `components/OtherOverlay.tsx` | Use the rule: Jobs step rows and the collapsed job row (chip "✗ N step(s) need a place" / "? N step(s) to check"), Next rows/groups, Needs your eye rows tinted; overlay place name, objective text and "Next Location" place words tinted (words only); `MatchTag` unchanged (chip, opens `MatchFix`) | |
+| `src/other/renderer/components/OtherCaptureModal.tsx` | SCAN CONTRACT confirm screen: the "→ place" words tinted with `issueTextStyle` (words only, same rule) | |
+| `src/other/renderer/components/OtherOverlay.tsx` | Return to first stop (rule 93): OFF keeps the chosen stop (moves only when it is completed/abandoned); ON returns to stop 1 after the set seconds and at once on a real start change (name/kind, or the first stop in the order); live WHERE AM I reads and job-file saves never move the card | |
 | `test/replay/stopissue_checks.mjs` (new) | Pure checks of `stopIssue` / `worstIssue` for every match status | `node test/replay/stopissue_checks.mjs` |
-| `test/replay/replay.mjs` | Scenario `issue-tint` (real app path: tinted rows on the list screens, words only on the overlay) | `node test/replay/replay.mjs issue-tint` |
+| `test/replay/replay.mjs` | Scenario `issue-tint` (real app path: tinted rows on the list screens, words only on the overlay, incl. "Next Location"); scenario `overlay-stays-on-stop` (‹ › to a later stop stays there with the setting OFF through live reads and job-file saves; ON returns to stop 1); `resolver-scan-fix` checks the confirm screen's "→ place" tint and waits for the tag to settle | `node test/replay/replay.mjs issue-tint overlay-stays-on-stop resolver-scan-fix` |
 
-Run (after `npm run build`): `node test/replay/replay.mjs issue-tint`; pure: `node test/replay/stopissue_checks.mjs`.
+Run (after `npm run build`): `node test/replay/replay.mjs issue-tint overlay-stays-on-stop resolver-scan-fix`; pure: `node test/replay/stopissue_checks.mjs`.
 
 ## Data folder and releases (batch 12, 2026-10-14)
 

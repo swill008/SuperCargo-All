@@ -95,7 +95,7 @@ export function JobRow({ job, uex, expanded, editing, onToggle, onEdit, onCancel
       <Btn
         onClick={onToggle}
         data-issue={jobIssue?.level}
-        style={{ width: '100%', textAlign: 'left', background: 'transparent', border: 0, padding: jobIssue ? '14px 0 14px 8px' : '14px 0', cursor: 'pointer', display: 'grid', gridTemplateColumns: '70px 1fr 140px 130px 90px 40px', gap: 12, alignItems: 'center', ...(jobIssue ? issueRowStyle(jobIssue.level) : null) }}
+        style={{ width: '100%', textAlign: 'left', background: 'transparent', border: 0, padding: '14px 0 14px 8px', cursor: 'pointer', display: 'grid', gridTemplateColumns: '70px 1fr 140px 130px 90px 40px', gap: 12, alignItems: 'center', ...(jobIssue ? issueRowStyle(jobIssue.level) : null) }}
       >
         <span style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
           <span style={{ fontFamily: F.display, fontSize: 16, color: C.acc }}>{job.ref}</span>
@@ -128,7 +128,7 @@ export function JobRow({ job, uex, expanded, editing, onToggle, onEdit, onCancel
             <JobTags rep={job.rep} repMax={job.repMax} sharedBy={job.sharedBy} view={view} />
           </div>
         </div>
-        <span style={tagStyle}>{OTHER_KIND_LABEL[job.kind]}</span>
+        <span data-testid="job-kind" style={tagStyle}>{OTHER_KIND_LABEL[job.kind]}</span>
         <span style={{ fontFamily: F.mono, fontSize: 13, color: C.text }}>{job.reward ? `${job.reward.toLocaleString()} aUEC` : '\u2014'}</span>
         <span style={{ fontFamily: F.display, fontSize: 12, letterSpacing: '0.12em', color: statusColor }}>{job.status.toUpperCase()}</span>
         <span style={{ color: C.ghost }}>{expanded ? '\u25b2' : '\u25bc'}</span>
@@ -148,7 +148,7 @@ export function JobRow({ job, uex, expanded, editing, onToggle, onEdit, onCancel
             const issue = stopIssue(match, step)
             const pickupActive = stepIsPickup(step)
             return (
-            <div key={step.id} data-issue={issue?.level} style={{ display: 'flex', alignItems: 'center', gap: 12, padding: issue ? '7px 0 7px 8px' : '7px 0', borderBottom: `1px dotted ${C.lineFaint}`, opacity: step.withdrawn ? 0.5 : 1, ...(issue ? issueRowStyle(issue.level) : null) }}>
+            <div key={step.id} data-issue={issue?.level} style={{ display: 'flex', alignItems: 'center', gap: 12, padding: '7px 0 7px 8px', borderBottom: `1px dotted ${C.lineFaint}`, opacity: step.withdrawn ? 0.5 : 1, ...(issue ? issueRowStyle(issue.level) : null) }}>
               <span style={{ color: step.withdrawn ? C.ghost : step.done ? C.green : C.acc }}>{step.done ? '\u25c6' : '\u25c7'}</span>
               <span style={{ flex: 1, minWidth: 0 }}>
                 <span style={{ display: 'block', fontFamily: F.body, fontSize: 14, color: step.done || step.withdrawn ? C.dim : C.textBody, textDecoration: step.withdrawn ? 'line-through' : undefined }}>{step.label}</span>

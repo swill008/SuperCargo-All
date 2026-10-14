@@ -3297,6 +3297,9 @@ const scenarios = {
     let err = ''
     try {
       scan = await scanToConfirm(port, iport, TITLE, RAW, TAG.unsure)
+      // the S1DCO6 tag can still read "? not sure" for a moment after the Shubin tag shows (CI flake): poll for it
+      const corrected = await until(() => windowText(port, 'main').then((t) => (TAG.corrected.test(confirmPart(t)) ? t : '')), 12000)
+      if (corrected) scan.text = corrected
       fix = await uiWrongPick(port, 'main', TAG.unsure, 'SAL-2', SAL2)
       fixed = (await until(() => windowText(port, 'main').then((t) => (MEM_TAG.user.test(confirmPart(t)) ? t : '')), 8000)) || (await windowText(port, 'main'))
       confirmed = await clickButton(port, 'main', /^CONFIRM$/)
@@ -4316,11 +4319,45 @@ const scenarios = {
       await stop()
       return { v, err }
     }
-    const [m, oBad, oUnsure, oGood] = await Promise.all([
+    // two jobs: the current stop is Port Tressler (has a distance), the "Next Location" line names the other one
+    const nextLoc = async (kind, place) => {
+      const { port, stop } = await memLaunch(`issue-tint-next-${kind}`, {
+        jobs: [
+          { ref: 'J86', title: 'Overlay Run', steps: [goStep('s1', 'Port Tressler')] },
+          { ref: 'J87', title: 'Overlay Run Two', steps: [goStep('s1', place)] }
+        ]
+      })
+      let v = null
+      let err = ''
+      const read = () =>
+        cdpEval(
+          port,
+          'overlay',
+          `(() => {
+            const n = document.querySelector('[data-testid="overlay-next-location"]')
+            const cur = document.querySelector('[data-testid="overlay-stop-name"]')?.textContent ?? null
+            if (!n) return { found: false, cur }
+            const own = n.getAttribute('data-issue')
+            return { found: true, cur, text: n.textContent, level: own ?? n.querySelector('[data-issue]')?.getAttribute('data-issue') ?? null }
+          })()`
+        )
+      try {
+        v = await until(() => read().then((x) => (x?.found && x.text ? x : null)), 15000)
+        await sleep(800)
+        v = (await read()) ?? v
+      } catch (x) {
+        err = String(x?.message ?? x)
+      }
+      await stop()
+      return { v, err }
+    }
+    const [m, oBad, oUnsure, oGood, nBad, nGood] = await Promise.all([
       main(),
       overlay('bad', goStep('s1', BAD)),
       overlay('unsure', goStep('s1', SHUBIN)),
-      overlay('good', goStep('s1', 'Port Tressler'))
+      overlay('good', goStep('s1', 'Port Tressler')),
+      nextLoc('bad', BAD),
+      nextLoc('good', 'Everus Harbor')
     ])
     const j = m.jobs ?? {}
     const hdr = (t) => (j[t] ?? [])[0] ?? null
@@ -4344,7 +4381,236 @@ const scenarios = {
       ['Overlay: not-found stop name red', oBad.v?.level === 'red', `v=${short(oBad.v)} ${oBad.err}`],
       ['Overlay: not-found, only the words carry data-issue (not the card)', !!oBad.v?.level && okOnlyWords(oBad), `v=${short(oBad.v)}`],
       ['Overlay: not-sure stop name amber, only the words', oUnsure.v?.level === 'amber' && okOnlyWords(oUnsure), `v=${short(oUnsure.v)} ${oUnsure.err}`],
-      ['Overlay: exact stop has no data-issue anywhere', !!oGood.v?.name && !oGood.v.level && (oGood.v.all ?? []).length === 0, `v=${short(oGood.v)} ${oGood.err}`]
+      ['Overlay: exact stop has no data-issue anywhere', !!oGood.v?.name && !oGood.v.level && (oGood.v.all ?? []).length === 0, `v=${short(oGood.v)} ${oGood.err}`],
+      ['Overlay: "Next Location" on a not-found place has data-issue red', /Qzxv/.test(nBad.v?.text ?? '') && nBad.v?.level === 'red', `v=${short(nBad.v)} ${nBad.err}`],
+      ['Overlay: "Next Location" on an exact place has no data-issue', !!nGood.v?.found && /Everus|Port Tressler/.test(nGood.v.text ?? '') && !nGood.v.level, `v=${short(nGood.v)} ${nGood.err}`]
+    ]
+  },
+
+  // the overlay's current stop stays put (user 2026-10-14): a WHERE AM I read at the same place or a job-file save
+  // used to send it back to STOP 1 (setIdx(0) on every new origin point). It only goes back to 1 by the
+  // return-to-first timer (overlayReturnToFirst + overlayReturnSeconds) or a real start change (another place).
+  'overlay-stays-on-stop': async () => {
+    const jobs = ['Port Tressler', 'Lorville', 'Everus Harbor', 'Seraphim Station', 'Area18'].map((p, i) => ({ title: `Stay Run ${i + 1}`, steps: [goStep(`s${i + 1}`, p)] }))
+    const go = (port, n) =>
+      cdpEval(port, 'overlay', `(async () => { let k = 0; for (let i = 0; i < ${n}; i++) { const b = [...document.querySelectorAll('button')].find((x) => x.textContent.trim() === '\\u203a'); if (!b || b.disabled) break; b.click(); k++; await new Promise((r) => setTimeout(r, 300)) } return k })()`)
+    const stopNo = (port) => overlayHeader(port).then((v) => v?.stop ?? [])
+    const ready = (port) => until(() => stopNo(port).then((s) => (s[1] >= 4 ? s : null)), 20000)
+    const toThree = async (port) => {
+      await ready(port)
+      await go(port, 2)
+      return until(() => stopNo(port).then((s) => (s[0] === 3 ? s : null)), 5000)
+    }
+    // A: return-to-first off; same-place reads and a job-file save must leave it on stop 3
+    const stays = async () => {
+      const { e, port, stop, textFile } = await memLaunch('overlay-stays-on-stop', { jobs, read: true, settings: { overlayReturnToFirst: false } })
+      const r = { reads: [], save: null, err: '' }
+      try {
+        await until(() => (e.jobs()?.where?.name === COVALEX ? true : null), 15000)
+        r.at3 = await toThree(port)
+        r.name3 = (await overlayHeader(port))?.name ?? null
+        for (let i = 0; i < 3; i++) {
+          const w = await memRead(e, port, textFile)
+          await sleep(1500)
+          r.reads.push({ saved: !!w, stop: await stopNo(port), name: (await overlayHeader(port))?.name ?? null })
+        }
+        // back on stop 3 before the save, so this check stands on its own
+        await cdpEval(port, 'overlay', `(async () => { for (let i = 0; i < 6; i++) { const b = [...document.querySelectorAll('button')].find((x) => x.textContent.trim() === '\\u2039'); if (!b || b.disabled) break; b.click(); await new Promise((r) => setTimeout(r, 200)) } return true })()`)
+        r.preSave = await toThree(port)
+        const before = (e.jobs()?.jobs ?? []).length
+        e.append(L.accept(mission(), 'Bounty Hunt')) // a job-file save that adds no stop
+        r.saved = await until(() => ((e.jobs()?.jobs ?? []).length > before ? true : null), 10000)
+        await sleep(1500)
+        r.save = await stopNo(port)
+      } catch (x) {
+        r.err = String(x?.message ?? x)
+      }
+      await stop()
+      return r
+    }
+    // B: return-to-first on, 2 s: back to stop 1 after ~2 s, not at once
+    const timer = async () => {
+      const { port, stop } = await memLaunch('overlay-stays-on-stop-timer', { jobs, settings: { overlayReturnToFirst: true, overlayReturnSeconds: 2 } })
+      const r = { err: '' }
+      try {
+        r.at3 = await toThree(port)
+        const t0 = Date.now()
+        await sleep(600)
+        r.early = await stopNo(port)
+        r.back = await until(() => stopNo(port).then((s) => (s[0] === 1 ? s : null)), 6000)
+        r.ms = Date.now() - t0
+      } catch (x) {
+        r.err = String(x?.message ?? x)
+      }
+      await stop()
+      return r
+    }
+    // C: return-to-first on with a long wait (20 s): a read at another named place returns to stop 1 right away
+    const moved = async () => {
+      const { e, port, stop, textFile } = await memLaunch('overlay-stays-on-stop-moved', { jobs, read: true, settings: { overlayReturnToFirst: true, overlayReturnSeconds: 20 } })
+      const r = { err: '' }
+      try {
+        await until(() => (e.jobs()?.where?.name === COVALEX ? true : null), 15000)
+        r.at3 = await toThree(port)
+        const prev = e.jobs()?.where?.at
+        fs.writeFileSync(textFile, JSON.stringify({ zone2: OCR_SERAPHIM_HANGAR, zone1: '' }))
+        await cdpEval(port, 'main', 'window.supercargo.otherWhereRun()')
+        r.where = await until(() => (e.jobs()?.where?.at !== prev && /Seraphim/.test(e.jobs()?.where?.name ?? '') ? e.jobs().where.name : null), 10000)
+        const t0 = Date.now()
+        r.back = await until(() => stopNo(port).then((s) => (s[0] === 1 ? s : null)), 4000)
+        r.ms = Date.now() - t0
+      } catch (x) {
+        r.err = String(x?.message ?? x)
+      }
+      await stop()
+      return r
+    }
+    // D: return-to-first off, Distance order: a read at another place re-orders the stops; the card follows the
+    // chosen stop (same overlay-stop-name), whatever its STOP n/m number becomes
+    const follows = async () => {
+      const { e, port, stop, textFile } = await memLaunch('overlay-stays-on-stop-follows', { jobs, read: true, settings: { overlayReturnToFirst: false } })
+      const r = { err: '' }
+      const name = () => overlayHeader(port).then((v) => v?.name ?? null)
+      try {
+        await until(() => (e.jobs()?.where?.name === COVALEX ? true : null), 15000)
+        r.at3 = await toThree(port)
+        r.before = await name()
+        const prev = e.jobs()?.where?.at
+        fs.writeFileSync(textFile, JSON.stringify({ zone2: OCR_SERAPHIM_HANGAR, zone1: '' }))
+        await cdpEval(port, 'main', 'window.supercargo.otherWhereRun()')
+        r.where = await until(() => (e.jobs()?.where?.at !== prev && /Seraphim/.test(e.jobs()?.where?.name ?? '') ? e.jobs().where.name : null), 10000)
+        await sleep(2000)
+        r.after = await name()
+        r.stop = await stopNo(port)
+      } catch (x) {
+        r.err = String(x?.message ?? x)
+      }
+      await stop()
+      return r
+    }
+    const [a, b, c, d] = await Promise.all([stays(), timer(), moved(), follows()])
+    return [
+      ['A: overlay at STOP 3/n (n >= 4) after two ›', a.at3?.[0] === 3 && a.at3[1] >= 4, `at3=${short(a.at3)} ${a.err}`],
+      ['A: three WHERE AM I reads at the same place saved', a.reads.length === 3 && a.reads.every((x) => x.saved), `reads=${short(a.reads)} ${a.err}`],
+      ['A: same stop (overlay-stop-name) after each same-place read', !!a.name3 && a.reads.length === 3 && a.reads.every((x) => x.name === a.name3), `name3=${a.name3} reads=${short(a.reads)}`],
+      ['A: job file saved (new job from the log)', a.saved === true, `saved=${a.saved}`],
+      ['A: still STOP 3 after the job-file save', a.preSave?.[0] === 3 && a.save?.[0] === 3, `preSave=${short(a.preSave)} stop=${short(a.save)}`],
+      ['B: return on (2 s): at STOP 3, still 3 at 0.6 s', b.at3?.[0] === 3 && b.early?.[0] === 3, `at3=${short(b.at3)} early=${short(b.early)} ${b.err}`],
+      ['B: back to STOP 1 within ~2-5 s', b.back?.[0] === 1 && b.ms >= 1000 && b.ms <= 5500, `back=${short(b.back)} ms=${b.ms}`],
+      ['C: read at another named place (Seraphim) saved', !!c.where, `where=${c.where} at3=${short(c.at3)} ${c.err}`],
+      ['C: start change returns to STOP 1 right away (< 3 s, timer is 20 s)', c.at3?.[0] === 3 && c.back?.[0] === 1 && c.ms < 3000, `at3=${short(c.at3)} back=${short(c.back)} ms=${c.ms}`],
+      ['D: return off, read at another place (Seraphim) saved', d.at3?.[0] === 3 && !!d.where, `at3=${short(d.at3)} where=${d.where} ${d.err}`],
+      ['D: card still shows the same stop name after the re-order', !!d.before && d.after === d.before, `before=${d.before} after=${d.after} stop=${short(d.stop)}`]
+    ]
+  },
+
+  // Jobs tab: a tinted job (not-found place) and a fine job keep their KIND cell (job-kind) at the same left edge
+  'jobs-kind-aligned': async () => {
+    const T = { bad: 'Kind Bad Run', good: 'Kind Good Run' }
+    const { port, stop } = await memLaunch('jobs-kind-aligned', {
+      jobs: [
+        { ref: 'J88', title: T.bad, steps: [goStep('s1', 'Qzxv Brellin Outpost CR-9')] },
+        { ref: 'J89', title: T.good, steps: [goStep('s1', 'Port Tressler')] }
+      ]
+    })
+    let v = null
+    let err = ''
+    try {
+      await clickButton(port, 'main', /^JOBS$/)
+      await until(() => windowText(port, 'main').then((t) => (t.includes(T.good) && t.includes(T.bad) ? true : null)), 10000)
+      await sleep(600)
+      v = await cdpEval(
+        port,
+        'main',
+        `(() => {
+          const rows = {}
+          for (const [k, t] of Object.entries(${JSON.stringify(T)})) {
+            const b = [...document.querySelectorAll('button')].find((x) => x.textContent.includes(t))
+            // by test id; else (old code) the kind badge by its own text
+            const badge = (root) => root ? [...root.querySelectorAll('span, div')].find((el) => /^(DELIVERY|COLLECTION|MINING PO|SALVAGE|HAULING)$/.test([...el.childNodes].filter((n) => n.nodeType === 3).map((n) => n.textContent).join('').trim())) : null
+            const kind = b?.querySelector('[data-testid="job-kind"]') ?? b?.parentElement?.querySelector('[data-testid="job-kind"]') ?? badge(b)
+            const r = kind?.getBoundingClientRect()
+            const ref = b ? [...b.querySelectorAll('span')].find((el) => /^J8[89]$/.test(el.textContent.trim())) : null
+            const rr = ref?.getBoundingClientRect()
+            rows[k] = { row: !!b, kind: !!kind, left: r ? Math.round(r.left * 10) / 10 : null, refLeft: rr ? Math.round(rr.left * 10) / 10 : null, issue: b?.closest('[data-issue]')?.getAttribute('data-issue') ?? b?.querySelector('[data-issue]')?.getAttribute('data-issue') ?? null }
+          }
+          return rows
+        })()`
+      )
+    } catch (x) {
+      err = String(x?.message ?? x)
+    }
+    await stop()
+    return [
+      ['both job rows and their job-kind cells found; the bad one is tinted red', !!v?.bad?.kind && !!v?.good?.kind && v.bad.issue === 'red', `v=${short(v)} ${err}`],
+      ['job-kind left edge the same (±1 px) on the tinted and the fine row', v?.bad?.left != null && v?.good?.left != null && Math.abs(v.bad.left - v.good.left) <= 1, `bad=${v?.bad?.left} good=${v?.good?.left}`],
+      ['ref column (J88 / J89) left edge the same (±1 px) on the tinted and the fine row', v?.bad?.refLeft != null && v?.good?.refLeft != null && Math.abs(v.bad.refLeft - v.good.refLeft) <= 1, `bad=${v?.bad?.refLeft} good=${v?.good?.refLeft}`]
+    ]
+  },
+
+  // overlay: the Fix panel (MatchFix) opened from the current stop's tag closes when the stop changes (›), or at
+  // least never keeps showing the old stop's text
+  'overlay-fix-closes': async () => {
+    const A = 'Qzxv Brellin Outpost CR-9'
+    const B = 'Vxqq Drennor Outpost KT-4'
+    const { port, stop } = await memLaunch('overlay-fix-closes', {
+      jobs: [
+        { ref: 'J90', title: 'Fix Run One', steps: [goStep('s1', A)] },
+        { ref: 'J91', title: 'Fix Run Two', steps: [goStep('s1', B)] }
+      ]
+    })
+    const dlg = () =>
+      cdpEval(port, 'overlay', `(() => { const d = document.querySelector('[role="dialog"][aria-label="Fix this match"]'); return { open: !!d, text: d?.textContent?.slice(0, 400) ?? '', name: document.querySelector('[data-testid="overlay-stop-name"]')?.textContent ?? null } })()`)
+    const r = { err: '' }
+    try {
+      await until(() => overlayHeader(port).then((v) => (v?.stop?.[1] >= 2 ? v : null)), 15000)
+      r.tag = await cdpEval(port, 'overlay', `(() => { const w = document.querySelector('[data-testid="overlay-stop-tag"]'); const b = w?.querySelector('button, [role="button"]') ?? w?.firstElementChild ?? [...document.querySelectorAll('button, [role="button"]')].filter((x) => ${TAG.none}.test(x.textContent.trim())).sort((a, c) => a.textContent.length - c.textContent.length)[0]; if (!b) return false; b.click(); return true })()`)
+      r.opened = await until(() => dlg().then((d) => (d.open ? d : null)), 5000)
+      r.moved = await cdpEval(port, 'overlay', `(() => { const b = [...document.querySelectorAll('button')].find((x) => x.textContent.trim() === '\\u203a'); if (!b || b.disabled) return false; b.click(); return true })()`)
+      await sleep(800)
+      r.after = await dlg()
+    } catch (x) {
+      r.err = String(x?.message ?? x)
+    }
+    await stop()
+    const oldName = r.opened?.name ?? ''
+    const newName = r.after?.name ?? ''
+    return [
+      ['Fix panel opened from the current stop\'s tag', r.tag === true && !!r.opened?.open && !!oldName && r.opened.text.includes(oldName), `tag=${r.tag} opened=${short(r.opened)} ${r.err}`],
+      ['› moved to the other stop', r.moved === true && !!newName && newName !== oldName, `old=${oldName} new=${newName}`],
+      // user, 2026-10-14: the fix panel closes when its stop changes (never re-targets an open panel)
+      ['after ›: Fix panel closed', !!r.after && !r.after.open, `after=${short(r.after)}`]
+    ]
+  },
+
+  // SCAN CONTRACT confirm screen: the "→ place" text (scan-place) is tinted by the shared stopIssue rule: red for a
+  // not-found place, none for an exact one
+  'scan-place-tint': async () => {
+    const BAD = 'Qzxv Brellin Outpost CR-9'
+    const TITLE = 'Scan Tint Delivery'
+    const id = mission()
+    const RAW = ['Reward 12,500 aUEC', 'Primary Objectives', `Deliver Scrap to ${BAD}`, 'Go to Port Tressler'].join('\n')
+    const e = setup('scan-place-tint', { otherStartMode: 'fixed' }, { jobs: [logJob(id, { ref: 'J96', title: TITLE, steps: [] })], history: [], listOrder: 'distance', startLocation: 'Lorville', startTypedAt: iso(ago(60)) })
+    const port = await freePort()
+    const iport = await freePort()
+    const stop = await launch(e, [...cdpArgs(port), ...inspectArgs(iport)])
+    let scan = null
+    let places = []
+    let err = ''
+    try {
+      scan = await scanToConfirm(port, iport, TITLE, RAW, TAG.none)
+      await sleep(500)
+      places = await cdpEval(port, 'main', `[...document.querySelectorAll('[data-testid="scan-place"]')].map((x) => ({ text: x.textContent, level: x.getAttribute('data-issue') }))`)
+    } catch (x) {
+      err = String(x?.message ?? x)
+    }
+    await stop()
+    const bad = (places ?? []).find((p) => /Qzxv/.test(p.text))
+    const good = (places ?? []).find((p) => /Port Tressler/.test(p.text))
+    return [
+      ['UI: OCR stub, JOBS, job row, IMPORT FROM OCR, CAPTURE found', !!scan?.ui && Object.values(scan.ui).every(Boolean), `ui=${short(scan?.ui)} ${err}`],
+      ['confirm screen: "→ place" for the not-found place has data-issue red', bad?.level === 'red', `places=${short(places, 600)} confirm=${short(lineWith(confirmPart(scan?.text), /Qzxv|not found/i), 300)}`],
+      ['confirm screen: "→ place" for Port Tressler has no data-issue', !!good && !good.level, `places=${short(places, 600)}`]
     ]
   }
 }

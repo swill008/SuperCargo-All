@@ -460,7 +460,7 @@ export default function NextPage(): React.ReactElement {
               </span>
               {originAcc != null ? <AccSlider score={originAcc} /> : null}
               {/* how sure the start's name is (one resolver; click to fix) */}
-              <MatchTag match={origin.match} />
+              <MatchTag key={origin.match?.memoryKey ?? origin.match?.text ?? ''} match={origin.match} />
             </div>
           ) : null}
         </div>

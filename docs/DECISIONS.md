@@ -78,6 +78,12 @@ Marked **NOT DOING**: decided against, or left out on purpose.
   (16:15; "push this batch, then add refresh on the next batch" 16:17; approved 16:29, batch 5).
 - Overlay header has a fixed height so the card stops jumping when stepping between stops (batch 12, O1,
   from the user's report at 19:44; approved 20:24).
+- Overlay "Return to first stop" is honoured (2026-10-14, "we will hold the release until these are finished";
+  recommendations accepted): OFF keeps the card on the stop you chose (it moves only when that stop is completed or
+  abandoned); ON goes back to stop 1 after the set seconds, and right away when the start really changes (name/kind,
+  or the first stop in the order). Live WHERE AM I reads and job-file saves never move it. From the user's report:
+  "if i went to contract 4, it keept going back to the beginnig, to 1. even with the setting turned off."
+  (STANDALONE rule 93.)
 
 ## 4. WHERE AM I (position reading) and OCR
 
@@ -130,6 +136,9 @@ Marked **NOT DOING**: decided against, or left out on purpose.
   mismatch amber. Lists (Jobs, Next, Learned Data "Needs your eye") tint the row with a left stripe; the overlay
   tints only the words. "i just want the words of the mission with the tint, not the entire row"; the user agreed
   to rows for the list screens (2026-10-14, STANDALONE rule 38).
+- The problem tint also covers the overlay's "Next Location" place words and the SCAN CONTRACT confirm screen's
+  "→ place" words, words only, same rule as `stopIssue.ts` (2026-10-14, "we will hold the release until these are
+  finished"; recommendation accepted; STANDALONE rule 38).
 - **NOT DOING:** S5 bulk clean-up and S6 export/import of learned places (not picked, 18:54).
 
 ## 6. Settings
@@ -215,6 +224,14 @@ Marked **NOT DOING**: decided against, or left out on purpose.
 - Overlay FROM row moves to the bottom, under the buttons with a ~12 px gap, above the label; the 📍 pin gets a
   24x24 px click area (2026-10-14, "option a": "put some padding there so I dont accidently click a button instead
   of the pin"). Ships in R1 1.0.1.
+
+- Open questions answered 2026-10-14 ("1, c" / "4, c"): J04-style auto-OCR rows cut short are left as they are
+  (places fixed by hand with EDIT or the tag; no OCR capture change); the Tesseract console noise and the Supabase
+  Node 20 warning are left as they are (notes stay in docs/TODO.md).
+
+- Recommendations approved 2026-10-14 ("approved"): Jobs tab columns stay lined up (every job row gets the same left
+  space as a tinted one); stations stay "Seraphim Station (hangar)" with no planet added; the fix panel (MatchFix)
+  closes when the stop or start it belongs to changes, so it can never save a place against the wrong stop.
 
 ## 9. Reference data (ships, places, cargo grids, contract box sizes)
 

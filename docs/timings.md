@@ -47,3 +47,6 @@ with a push: + CI (~10 min, in the background); a release: + ~4 min.
 | 2026-10-14 | Location naming: panel, unit, e2e, audit, docs (parallel) | agent | 2-6 min | 1-4 min each | 22:48-22:52 |
 | 2026-10-14 | Panel fix after quick tests caught 2 regressions | agent | 2-6 min | 1 min | 22:53-22:54 |
 | 2026-10-14 | Quick tests + 10 targeted replay scenarios | test | ~4 min | 4 min | 22:55-22:59 |
+| 2026-10-14 | Final 1.0.1 items: overlay, capture, cols, keys, audit, docs agents (parallel) | agent | 2-6 min | 1-3 min each | 23:02-23:06 |
+| 2026-10-14 | e2e for all final items incl. old-code proofs (one agent, staggered) | agent | ~6 min | 10 min | 23:02-23:12 |
+| 2026-10-14 | Final full run: typecheck, checks, replay 529, 8 real logs | test | ~7 min | 6 min | 23:13-23:19 |

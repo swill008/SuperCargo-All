@@ -19,6 +19,7 @@ import { miniBtn, outlineBtn } from '../pages/JobsPartsStyles'
 import { OtherOcrShotView } from './OtherOcrShotView'
 import { MatchTag, stopPlaceText } from './MatchTag'
 import { useMemoryLookup } from '../state/otherMemoryStore'
+import { stopIssue, issueTextStyle } from '../stopIssue'
 import type { StopPlace } from '@other/otherResolve'
 import type { Location } from '@shared/types'
 
@@ -394,9 +395,15 @@ function ScanPlace({ match, text, roster, prefix }: {
   prefix: string
 }): React.ReactElement | null {
   if (!match || !text?.trim()) return null
+  const issue = stopIssue(match, { location: text })
   return (
     <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap', fontFamily: F.body, fontSize: 12, color: C.dim, marginTop: -4, marginBottom: 8 }}>
-      <span>{prefix ? `${prefix}: ` : ''}{'\u2192 '}<span style={{ color: C.textBody }}>{stopPlaceText(match, text, roster)}</span></span>
+      <span>
+        {prefix ? `${prefix}: ` : ''}
+        <span data-testid="scan-place" data-issue={issue?.level}>
+          {'\u2192 '}<span style={issue ? issueTextStyle(issue.level) : { color: C.textBody }}>{stopPlaceText(match, text, roster)}</span>
+        </span>
+      </span>
       <MatchTag match={match} />
     </div>
   )

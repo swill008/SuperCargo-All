@@ -23,6 +23,9 @@ import { stopIssue, issueTextStyle } from '../stopIssue'
 import { useMemoryLookup } from '../state/otherMemoryStore'
 import { setOverlayDiag, overlayDiag } from '../state/otherOverlayDiag'
 
+/** a stop's key: its place, lower case, spaces collapsed (same as groupKey in otherNext) */
+const stopKey = (g: { place: string }): string => g.place.toLowerCase().replace(/\s+/g, ' ').trim()
+
 /** AFK keep-alive state (src/other/otherAfk.ts AfkState); preload methods may be missing mid-build */
 interface AfkView { on: boolean; nextAt?: string; lastError?: string }
 interface AfkApi {
@@ -127,10 +130,39 @@ export default function OtherOverlay(): React.ReactElement {
 
   // set when the card jumped to the tracked job: the return-to-first timer leaves it there
   const heldByTrack = useRef(false)
+  // back to stop 1 at once only when the start really changes (its name or kind) or the first stop in the order
+  // changes, and only with "Return to first stop" on. Stable string keys: live reads at the same place and job-file
+  // saves make new objects but the same keys, so they never move the card (user, 2026-10-14, option A).
+  const startKey = `${origin.kind ?? ''}|${(origin.name ?? '').toLowerCase().trim()}`
+  const firstStopKey = groups[0] ? stopKey(groups[0]) : ''
+  // the card stays on the stop you chose, not on a list position: a live read can re-sort Distance/Route order, so
+  // after every regroup the card follows the chosen stop's key; if that stop is gone the clamp below applies
+  const chosenKey = useRef('')
+  const chosenIndex = (): number => (chosenKey.current ? groups.findIndex((g) => stopKey(g) === chosenKey.current) : -1)
   useEffect(() => {
+    const i = chosenIndex()
+    if (i >= 0) {
+      if (i !== idx) setIdx(i)
+    } else if (groups.length) {
+      chosenKey.current = stopKey(groups[Math.min(idx, groups.length - 1)])
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [groups])
+  // any move (‹ ›, tracked jump, return timer, reset, clamp) remembers the stop now shown
+  useEffect(() => {
+    if (groups[idx]) chosenKey.current = stopKey(groups[idx])
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [idx])
+  const lastKeys = useRef({ startKey, firstStopKey })
+  useEffect(() => {
+    const prev = lastKeys.current
+    if (prev.startKey === startKey && prev.firstStopKey === firstStopKey) return
+    lastKeys.current = { startKey, firstStopKey }
+    if (!returnToFirst) return
     setIdx(0)
+    chosenKey.current = firstStopKey
     heldByTrack.current = false
-  }, [startLocation, originPoint])
+  }, [startKey, firstStopKey, returnToFirst])
   const isTracked = (missionId: string | undefined): boolean => !!trackedMissionId && missionId === trackedMissionId
   // a new tracked mission (new trackedAt): jump to that job's next stop once the groups have it
   const [trackPending, setTrackPending] = useState(false)
@@ -143,6 +175,7 @@ export default function OtherOverlay(): React.ReactElement {
     const i = groups.findIndex((g) => g.rows.some((r) => r.job.missionId === trackedMissionId))
     if (i >= 0) {
       setIdx(i)
+      chosenKey.current = stopKey(groups[i])
       heldByTrack.current = true
     }
     setTrackPending(false)
@@ -190,7 +223,9 @@ export default function OtherOverlay(): React.ReactElement {
   }
 
   useEffect(() => {
-    if (idx >= groups.length) setIdx(Math.max(0, groups.length - 1))
+    // the chosen stop still exists: the regroup effect above moves the card to it
+    if (idx >= groups.length && chosenIndex() < 0) setIdx(Math.max(0, groups.length - 1))
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [idx, groups.length])
 
   // AFK keep-alive: main owns the timer; this shows it and toggles it
@@ -277,6 +312,8 @@ export default function OtherOverlay(): React.ReactElement {
   const match = group?.match
   // only the words are tinted on the overlay (user, 2026-10-14)
   const issue = current ? stopIssue(match, current.step) : null
+  // Next Location line: same rule, only the place words are tinted
+  const nextIssue = nextGroup ? stopIssue(nextGroup.match, nextGroup.rows[0]?.step) : null
   const placeShown = group && current
     ? match
       ? stopPlaceText(match, group.place || stepActivePlace(current.step) || current.step.label, locations)
@@ -373,7 +410,7 @@ export default function OtherOverlay(): React.ReactElement {
                 fontSize: 11, color: C.dim
               }}
             >
-              {current ? <span style={{ flex: 'none', display: 'inline-flex', alignItems: 'center' }}><MatchTag match={match} /></span> : null}
+              {current ? <span data-testid="overlay-stop-tag" style={{ flex: 'none', display: 'inline-flex', alignItems: 'center' }}><MatchTag key={group ? stopKey(group) : ''} match={match} /></span> : null}
               {groupTracked ? <span style={{ flex: 'none', display: 'inline-flex', alignItems: 'center' }}><TrackedTag /></span> : null}
               {placeRest ? (
                 <span style={{ minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis' }}>{placeRest}</span>
@@ -465,7 +502,7 @@ export default function OtherOverlay(): React.ReactElement {
           {nextGroup ? (
             <div style={{ marginTop: upcoming ? 4 : 0 }}>
               <span style={{ color: C.acc }}>Next Location</span>
-              <span>: {nextGroup.match ? stopPlaceText(nextGroup.match, nextGroup.place || stepActivePlace(nextGroup.rows[0].step), locations) : formatPlaceNear(nextGroup.place || stepActivePlace(nextGroup.rows[0].step), nextGroup.near, locations)}</span>
+              <span>: <span data-testid="overlay-next-location" data-issue={nextIssue?.level} style={nextIssue ? issueTextStyle(nextIssue.level) : undefined}>{nextGroup.match ? stopPlaceText(nextGroup.match, nextGroup.place || stepActivePlace(nextGroup.rows[0].step), locations) : formatPlaceNear(nextGroup.place || stepActivePlace(nextGroup.rows[0].step), nextGroup.near, locations)}</span></span>
               {nextLeg != null ? (
                 <span title={formatMapDistance(nextLeg)}>
                   {' \u00b7 '}{travelText(nextLeg, nextGroup.legJumps, nextGroup.legSurface, nextGroup.distanceSource === 'marker')}
@@ -558,7 +595,7 @@ export default function OtherOverlay(): React.ReactElement {
               <span style={{ ...hintStyle, letterSpacing: '0.08em' }}>FROM:</span>{' '}
               <span style={{ color: C.dim }}>{startName}</span>{` (${startWord})`}
               {startAcc != null ? <span style={{ marginLeft: 6 }}><AccTag score={startAcc} /></span> : null}
-              {origin.match ? <span style={{ marginLeft: 6 }}><MatchTag match={origin.match} /></span> : null}
+              {origin.match ? <span style={{ marginLeft: 6 }}><MatchTag key={origin.match?.memoryKey ?? origin.match?.text ?? ''} match={origin.match} /></span> : null}
             </span>
           ) : (
             <>
