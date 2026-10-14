@@ -38,6 +38,7 @@ function compactWhere(w: Where | null): Record<string, unknown> | null {
     name: w.name,
     label: w.label,
     source: w.source,
+    placeKind: w.placeKind ?? null,
     at: w.at,
     system: w.system,
     body: w.body,

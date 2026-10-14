@@ -3,6 +3,7 @@
 import type { Location } from "@shared/types";
 import type { GeoPoint } from "./otherGeo";
 import { bodyRadius, type BodyRadiusLookup } from "./otherMarkers";
+import { placeForCode } from "./otherSiteCodes";
 import {
   findBody,
   nearestPlace,
@@ -32,6 +33,8 @@ export interface Where {
   at: string;
   /** position accuracy 0-10 when the clue was taken (see ACCURACY); fades with whereAccuracy() */
   accuracy?: number;
+  /** display info: what named it, in order station > POI > planet > open space (only when none of the others apply) */
+  placeKind?: "station" | "poi" | "planet" | "space";
 }
 
 /** base accuracy per kind of reading (0 = no position). Typed has none: it is the user's choice. */
@@ -92,6 +95,12 @@ export interface DisplayInfo {
   playerLocation?: string;
   /** body index from "Stanton1" (1 = Hurston, 2 = Crusader, 3 = ArcCorp, 4 = microTech) */
   playerLocationIndex?: number;
+  /** the location code: "(LZ : X)" first, else the "player location" value with spaces -> "_" (e.g. "RR_CRU_LEO") */
+  playerLocationCode?: string;
+  /** a zone name says hangar / rest stop ("Hangar MediumFront RestStop …") */
+  inHangar?: boolean;
+  /** the station's exterior zone, e.g. "rs ext cru-leol" */
+  stationZone?: string;
   /** "ServerTime: Wed Oct 14 14:05:05 2026" as ISO (UTC) */
   serverTime?: string;
   /** "UniverseTime: …" raw */
@@ -345,12 +354,20 @@ export function parseDisplayInfo(text: string): DisplayInfo | null {
   let playerLocation: string | undefined;
   let playerLocationIndex: number | undefined;
   let system: string | null = null;
+  // OCR sometimes reads "location" as "tocation"
   const loc =
-    /player\s*location\s*[:;]?\s*([A-Za-z]+(?:\s?[0-9|]{1,2}[a-z]?\b)?)/i.exec(
+    /player\s*[lt]ocation\s*[:;]?\s*([A-Za-z]+(?:\s?[0-9|]{1,2}[a-z]?\b)?)/i.exec(
       t,
     );
+  const lz = /\(\s*LZ\s*[:;]?\s*([A-Za-z0-9_][A-Za-z0-9_\- ]*?)\s*\)/i.exec(t);
+  const locRaw = /player\s*[lt]ocation\s*[:;]?\s*([^\r\n(]+)/i.exec(t);
+  const playerLocationCode =
+    (lz?.[1] ?? locRaw?.[1] ?? "").trim().replace(/\s+/g, "_") || undefined;
   if (loc) {
     playerLocation = loc[1].replace(/\s+/g, "");
+    // a code (RR_CRU LEO, Stanton2_Orison) that isn't a "Stanton1"-style value: keep the whole code
+    if (!knownSystem(playerLocation) && playerLocationCode)
+      playerLocation = playerLocationCode;
     system = knownSystem(playerLocation) || null;
     const rest =
       system && playerLocation.toLowerCase().startsWith(system.toLowerCase())
@@ -388,6 +405,10 @@ export function parseDisplayInfo(text: string): DisplayInfo | null {
   if (playerLocation) out.playerLocation = playerLocation;
   if (playerLocationIndex !== undefined)
     out.playerLocationIndex = playerLocationIndex;
+  if (playerLocationCode) out.playerLocationCode = playerLocationCode;
+  if (zones.some((z) => /hangar|rest\s*stop/i.test(z.name))) out.inHangar = true;
+  const sz = zones.find((z) => /^rs[\s_]*ext\b/i.test(z.name));
+  if (sz) out.stationZone = sz.name;
   const st = serverTime(t);
   if (st) out.serverTime = st;
   const ut = /Universe\s*Time\s*[:;]?\s*([^\r\n]+)/i.exec(t);
@@ -395,6 +416,53 @@ export function parseDisplayInfo(text: string): DisplayInfo | null {
   const tm = trackedMission(t);
   if (tm) out.trackedMission = tm;
   return out;
+}
+
+/** a station by roster name: orbital stations, rest stops, L-point stations */
+const STATION_NAME = /\b(?:station|harbor|port|point)\b|^[A-Z]{3}-L[1-5]\b/i;
+
+/** "rs ext cru-leol" -> "RR_CRU_LEO" (the station's exterior zone names its RR code; OCR may add a trailing l) */
+function codeFromStationZone(zone: string | undefined): string | undefined {
+  const m = zone
+    ? /^rs[\s_]*ext[\s_]*(hur|cru|arc|mic)[\s_-]*(l[1-5]|leo)/i.exec(zone)
+    : null;
+  return m ? `RR_${m[1].toUpperCase()}_${m[2].toUpperCase()}` : undefined;
+}
+
+/**
+ * the station / POI the panel names (player location code; the station's zone only when there is no code), or null:
+ * station = an RR_ (Lagrange / LEO) code or a station-named roster place; POI = any other place the code maps to
+ */
+function namedByPanel(
+  info: DisplayInfo,
+  locations: Location[],
+  resolve: WhereResolve,
+): { loc: Location; kind: "station" | "poi"; code: string; check: string } | {
+  miss: string;
+} | null {
+  const tries: { code: string; from: string }[] = [];
+  if (info.playerLocationCode)
+    tries.push({ code: info.playerLocationCode, from: "player location" });
+  // the zone only when the panel gives no code: an unknown code falls back to planet / open space
+  const zc = info.playerLocationCode
+    ? undefined
+    : codeFromStationZone(info.stationZone);
+  if (zc) tries.push({ code: zc, from: `zone "${info.stationZone}"` });
+  if (!tries.length) return null;
+  for (const t of tries) {
+    const hit = placeForCode(t.code, locations);
+    if (!hit) continue;
+    // the roster entry (body, system) through the one resolver; hit.name is the roster's own spelling
+    const sp = resolve(hit.name);
+    const loc = sp.match;
+    if (!loc || NOT_SURE.has(sp.status)) continue;
+    const kind =
+      hit.via === "lagrange" || (hit.via === "site" && STATION_NAME.test(loc.name))
+        ? "station"
+        : "poi";
+    return { loc, kind, code: t.code, check: `${t.code} (${t.from}) -> ${loc.name}` };
+  }
+  return { miss: tries.map((t) => t.code).join(", ") };
 }
 
 // ---- resolving against the roster (names via otherResolve: findBody / resolveStartText / nearestPlace) ----
@@ -873,6 +941,47 @@ export function resolveDisplayInfo(
   }
 
   const base = { source: "displayinfo" as const, at, accuracy };
+
+  // 1 station, 2 POI: the panel's own location code names the place, used only where the position
+  // rule would say planet ("<body> · N km up") or open space; a place the position already names is kept.
+  // The position stays the panel's point.
+  const byCode = (): Where | null => {
+    const named = namedByPanel(info, locations, resolve);
+    if (!named) return null;
+    if ("miss" in named) {
+      checks.push({
+        item: "named by player location",
+        ok: false,
+        why: `${named.miss}: not a known place`,
+      });
+      return null;
+    }
+    checks.push({ item: "named by player location", ok: true, why: named.check });
+    const loc = named.loc;
+    const body = loc.body ?? nearLoc?.name ?? null;
+    const sys = system ?? (knownSystem(loc.system) || null);
+    const label =
+      named.kind === "station"
+        ? info.inHangar
+          ? `${loc.name} (hangar)`
+          : loc.name
+        : body && body !== loc.name
+          ? `${loc.name} · ${body}`
+          : loc.name;
+    return {
+      ...base,
+      name: loc.name,
+      label,
+      point: geo(p!, sys, body),
+      system: sys,
+      body,
+      placeKind: named.kind,
+    };
+  };
+
+  /** a roster place named by distance: station, planet/moon or other place */
+  const kindOf = (l: Placed): "station" | "poi" | "planet" =>
+    isBody(l, pool) ? "planet" : STATION_NAME.test(l.name) ? "station" : "poi";
   if (nearLoc) {
     const body = nearLoc.name;
     const hit = nearest(
@@ -887,8 +996,11 @@ export function resolveDisplayInfo(
         point: geo(p, system, body),
         system,
         body,
+        placeKind: kindOf(hit.loc),
       };
     }
+    const coded = byCode();
+    if (coded) return coded;
     const parts = [body];
     if (up !== undefined) parts.push(formatUp(up));
     if (hit) parts.push(`${formatWhereDistance(hit.d)} from ${hit.loc.name}`);
@@ -899,6 +1011,7 @@ export function resolveDisplayInfo(
       point: geo(p, system, body),
       system,
       body,
+      placeKind: "planet",
     };
   }
   const hit = nearest(p, pool);
@@ -912,8 +1025,11 @@ export function resolveDisplayInfo(
       point: geo(p, sys, body),
       system: sys,
       body,
+      placeKind: kindOf(hit.loc),
     };
   }
+  const coded = byCode();
+  if (coded) return coded;
   const bodyLoc = info.body ? bodyOrPlace(info.body, system) : null;
   return {
     ...base,
@@ -922,6 +1038,7 @@ export function resolveDisplayInfo(
     point: geo(p, system, null),
     system,
     body: null,
+    placeKind: "space",
   };
 }
 

@@ -386,6 +386,8 @@ function record(r: WhereRunResult, why: Why, seam: boolean): void {
       system: r.where?.system,
       body: r.where?.body,
       source: r.where?.source,
+      placeKind: r.where?.placeKind,
+      locationCode: r.info?.playerLocationCode,
       error: r.error,
       note: r.note,
       accuracy: r.where?.accuracy,

@@ -413,6 +413,18 @@ const OCR_SPACE_TOP3 = [
   '',
   'FPS 111.3 - 9.0ms [8.8ms]'
 ].join('\n')
+// the user's real r_DisplayInfo in Seraphim Station's hangar (station over Crusader)
+const OCR_SERAPHIM_HANGAR = [
+  'Zone: Hangar MediumFront RestStop 878945478212 Pos: 7.42m -125.91m 7.98m',
+  'Zone: rs ext cru-leol Pos: -2536.72m -534.32m -51.02m',
+  'Zone: 00C Stanton 2 Crusader Pos: 5873.5499km -1384.6519km 5566.0595km',
+  'Zone: SolarSystem 874535716059 Pos: -18960653.6168km -2659120.6337km 5566.0595km',
+  'Zone: Root Pos: -18960653.6168km -2659120.6337km 5566.0595km',
+  'Current player location : RR_CRU LEO (LZ : RR_CRU_LEO)',
+  'Planet:00C Stanton 2 Crusader (working) (Load Complete)',
+  'CamPos Planet Zone: 5873549.901329 -1384651.879383 5566059.478207',
+  'Radius: 7450010.000000 ElevationUnderCam: 2.500000 Altitude 759547.012265'
+].join('\n')
 // CONTRACT7: the user's real r_DisplayInfo reads at Covalex S1DC06 on Hurston (WHERE AM I HISTORY of the 12:02 export,
 // verbatim OCR text, junk included; no player names in them). Before batch 6: RAPPEL read as "Rappel · 46.4 km",
 // OPEN1/OPEN2 as "Open space" (body lookup failed, star-frame lines used), PLANET as Covalex 305 m.
@@ -2101,6 +2113,61 @@ const scenarios = {
       ['run ok from zone 2', r?.ok === true && r?.zone === 2, `result=${JSON.stringify(r)?.slice(0, 300)} ${err}`],
       ['accuracy 9', r?.where?.accuracy === 9, `accuracy=${r?.where?.accuracy}`],
       ['saved with a star-frame point', !!w?.point && Math.abs(w.point.x - 12472406290) < 5e6, `where=${JSON.stringify(w)}`]
+    ]
+  },
+
+  // WHERE AM I at a station: the user's real panel in Seraphim Station's hangar names the start "Seraphim Station
+  // (hangar)" (placeKind 'station') in the overlay FROM row and on the Next tab, never "Open space"; the stop's distance
+  // still comes from the panel's SolarSystem position (not the roster's station point); a later true open-space read
+  // still shows "Open space".
+  'where-station-hangar': async () => {
+    const step = { id: 's1', kind: 'go', label: 'Go to Lorville', location: 'Lorville', have: 0, need: 1, done: false }
+    const e = setup('where-station-hangar', { otherStartMode: 'auto' }, { jobs: [logJob(mission(), { steps: [step] })], history: [], listOrder: 'distance' })
+    const textFile = path.join(e.home, 'where-text.json')
+    fs.writeFileSync(textFile, JSON.stringify({ zone2: OCR_SERAPHIM_HANGAR, zone1: '' }))
+    const port = await freePort()
+    const iport = await freePort()
+    const stop = await launch(e, [...cdpArgs(port), ...inspectArgs(iport)], { SC_WHERE_TEXT_FILE: textFile })
+    const fromRowText = () => cdpEval(port, 'overlay', `document.querySelector('[data-testid="overlay-from-row"]')?.innerText ?? ''`)
+    let w
+    let from = ''
+    let next = ''
+    let snap = null
+    let w2
+    let from2 = ''
+    let err = ''
+    try {
+      await cdpEval(port, 'main', 'window.supercargo.otherWhereRun()')
+      w = await until(() => (e.jobs()?.where?.source === 'displayinfo' ? e.jobs().where : null))
+      from = (await until(() => fromRowText().then((t) => (/seraphim/i.test(t ?? '') ? t : '')), 8000)) || (await fromRowText())
+      next = await nextText(port, /Seraphim Station \(hangar\)/, 8000)
+      snap = snapshotJson(await exportNow(e, port, iport, 'where-station-hangar'))
+      // a true open-space read afterwards still says "Open space"
+      const prev = w?.at
+      fs.writeFileSync(textFile, JSON.stringify({ zone2: OCR_SPACE_TOP3, zone1: '' }))
+      await cdpEval(port, 'main', 'window.supercargo.otherWhereRun()')
+      w2 = await until(() => (e.jobs()?.where && e.jobs().where.at !== prev ? e.jobs().where : null), 8000)
+      from2 = (await until(() => fromRowText().then((t) => (/open space/i.test(t ?? '') ? t : '')), 8000)) || (await fromRowText())
+    } catch (x) {
+      err = String(x?.message ?? x)
+    }
+    await stop()
+    const lor = ROSTER.find((l) => l.name === 'Lorville')
+    // the panel's SolarSystem line, in metres
+    const panel = { x: -18960653616.8, y: -2659120633.7, z: 5566059.5 }
+    const want = lor ? Math.hypot(panel.x - lor.x, panel.y - lor.y, panel.z - lor.z) : null
+    const fromStation = rosterDist('Seraphim Station', 'Lorville')
+    const row = (snap?.other?.distanceTable?.distance ?? []).find((r) => /Lorville/.test(String(r.place)))
+    const nextStart = lineWith(next, /Seraphim|Open space/i)
+    return [
+      ['where.name Seraphim Station, placeKind station', w?.name === 'Seraphim Station' && w?.placeKind === 'station', `where=${JSON.stringify(w)?.slice(0, 400)} ${err}`],
+      ['where.label "Seraphim Station (hangar)"', /^Seraphim Station \(hangar\)/.test(w?.label ?? ''), `label=${w?.label}`],
+      ['point is still the panel position', !!w?.point && Math.abs(w.point.x - panel.x) < 5e3 && Math.abs(w.point.y - panel.y) < 5e3, `point=${JSON.stringify(w?.point)}`],
+      ['overlay FROM row: "Seraphim Station (hangar)", not Open space', /Seraphim Station \(hangar\)/.test(from) && !/open space/i.test(from), `from=${JSON.stringify(from)} ${err}`],
+      ['Next tab start: "Seraphim Station (hangar)", not Open space', /Seraphim Station \(hangar\)/.test(next) && !/open space/i.test(next), `next=${JSON.stringify(nextStart.slice(0, 300))}`],
+      ['Lorville distance from the panel position (not the station point)', row?.distance > 0 && want != null && Math.abs(row.distance - want) < 50000 && Math.abs(row.distance - fromStation) > 1e6, `row=${row?.distance} want=${Math.round(want)} fromStationPoint=${Math.round(fromStation)}`],
+      ['second read in open space: label Open space, no placeKind station', /open space/i.test(w2?.label ?? '') && w2?.placeKind !== 'station', `where2=${JSON.stringify(w2)?.slice(0, 300)}`],
+      ['second read: FROM row shows Open space', /open space/i.test(from2) && !/hangar/i.test(from2), `from2=${JSON.stringify(from2)}`]
     ]
   },
 

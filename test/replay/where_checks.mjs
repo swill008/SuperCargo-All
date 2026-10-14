@@ -477,6 +477,44 @@ safe('real history (batch 6)', () => {
   check('real history (batch 6)', 'space read keeps the SolarSystem line (accuracy 9)', sp?.accuracy === 9 && sp.name === null, j(sp?.label))
 })
 
+// ---- WHERE AM I names the place: station -> POI -> planet (within 100 km) -> open space ----
+// The user's real station panel (Seraphim Station hangar, RR_CRU_LEO).
+const DI_STATION = `Zone: Hangar MediumFront RestStop 878945478212 Pos: 7.42m -125.91m 7.98m
+Zone: rs ext cru-leol Pos: -2536.72m -534.32m -51.02m
+Zone: 00C Stanton 2 Crusader Pos: 5873.5499km -1384.6519km 5566.0595km
+Zone: SolarSystem 874535716059 Pos: -18960653.6168km -2659120.6337km 5566.0595km
+Zone: Root Pos: -18960653.6168km -2659120.6337km 5566.0595km
+Current player location : RR_CRU LEO (LZ : RR_CRU_LEO)
+Planet:00C Stanton 2 Crusader (working) (Load Complete)
+CamPos Planet Zone: 5873549.901329 -1384651.879383 5566059.478207
+Radius: 7450010.000000 ElevationUnderCam: 2.500000 Altitude 759547.012265`
+
+safe('place naming', () => {
+  const ST = 'Seraphim Station' // RR_CRU_LEO = Crusader's LEO station (otherSiteCodes LEO table)
+  check('place naming', `roster has ${ST}`, !!loc(ST), '')
+  const solar = { x: -18960653616.8, y: -2659120633.7, z: 5566059.5 }
+  const station = (what, text, hangar) => {
+    const i = W.parseDisplayInfo(text)
+    check('place naming', `${what}: playerLocationCode RR_CRU_LEO`, i?.playerLocationCode === 'RR_CRU_LEO', j(i?.playerLocationCode))
+    check('place naming', `${what}: inHangar ${hangar}`, !!i?.inHangar === hangar, j({ inHangar: i?.inHangar, stationZone: i?.stationZone }))
+    const w = i && W.resolveDisplayInfo(i, roster, AT)
+    const want = hangar ? `${ST} (hangar)` : ST
+    check('place naming', `${what}: placeKind station, label "${want}"`, w?.placeKind === 'station' && w.label.startsWith(ST) && w.label.endsWith('(hangar)') === hangar && w.label === want, j({ kind: w?.placeKind, label: w?.label }))
+    check('place naming', `${what}: point is the panel's SolarSystem position, not the roster's`, w?.point && dist(w.point, solar) < 1 && dist(w.point, loc(ST)) > 1000, j(w?.point))
+    check('place naming', `${what}: a check entry records the naming`, (i?.checks ?? []).some((c) => c.ok && c.item === 'named by player location' && /RR_CRU_LEO|Seraphim/.test(c.why ?? '')), j((i?.checks ?? []).find((c) => c.item === 'named by player location') ?? null))
+  }
+  station('real station panel', DI_STATION, true)
+  station('"tocation" OCR', DI_STATION.replace('player location', 'player tocation'), true)
+  station('no hangar zone', DI_STATION.split('\n').filter((l) => !l.includes('Hangar')).join('\n'), false)
+
+  const unk = W.parseDisplayInfo(DI_STATION.replaceAll('RR_CRU_LEO', 'RR_XYZ_Q9'))
+  const wu = unk && W.resolveDisplayInfo(unk, roster, AT)
+  check('place naming', 'unknown code RR_XYZ_Q9 -> placeKind space, "Open space · …"', unk?.playerLocationCode === 'RR_XYZ_Q9' && wu?.placeKind === 'space' && /^Open space · /.test(wu?.label ?? ''), j({ code: unk?.playerLocationCode, kind: wu?.placeKind, label: wu?.label }))
+
+  const wp = W.resolveDisplayInfo(W.parseDisplayInfo(REAL_NEAR_HURSTON), roster, AT)
+  check('place naming', 'planet case still "Hurston · 49 km up · …", placeKind planet', wp?.placeKind === 'planet' && /^Hurston · 49 km up · /.test(wp?.label ?? ''), j({ kind: wp?.placeKind, label: wp?.label }))
+})
+
 let failed = 0
 for (const { name, what, ok, detail } of results) {
   if (!ok) failed++

@@ -44,3 +44,6 @@ with a push: + CI (~10 min, in the background); a release: + ~4 min.
 | 2026-10-14 | Problem tint: 4 screen agents + unit + docs/audit (parallel) | agent | 2-6 min | 1-2 min each | 22:41-22:42 |
 | 2026-10-14 | Problem tint e2e incl. old-code proof | agent | ~6 min | 3 min | 22:41-22:44 |
 | 2026-10-14 | Quick tests + 7 targeted replay scenarios | test | ~4 min | 4 min | 22:45-22:49 |
+| 2026-10-14 | Location naming: panel, unit, e2e, audit, docs (parallel) | agent | 2-6 min | 1-4 min each | 22:48-22:52 |
+| 2026-10-14 | Panel fix after quick tests caught 2 regressions | agent | 2-6 min | 1 min | 22:53-22:54 |
+| 2026-10-14 | Quick tests + 10 targeted replay scenarios | test | ~4 min | 4 min | 22:55-22:59 |

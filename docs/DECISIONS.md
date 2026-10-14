@@ -100,6 +100,13 @@ Marked **NOT DOING**: decided against, or left out on purpose.
   and yes go ahead and push it", batch 4b).
 - When the screen's Altitude is garbled, work the altitude out from the position and the planet's size
   (batch 12, O3, approved 20:24).
+- WHERE AM I names the place in order: station, POI, planet, then open space (2026-10-14, "I think we have the data
+  to display if im on a planet, station or POI ... Open space should be when not in any of these situations";
+  "sounds good, code it"). Station from the panel's player-location code or a hangar / rest-stop / station zone
+  ("Seraphim Station (hangar)" in a hangar); POI as "<name> · <body>"; planet within 100 km as "Hurston · N km up";
+  "Open space" only when none apply. Distances keep the panel's exact position; unknown codes keep the old wording
+  (STANDALONE rules 16, 32). (refined 2026-10-14: the earlier "Open space" wording, used for any read not on a
+  planet zone line, including at a station.)
 
 ## 5. Place matching: resolver, match memory, learned data
 
