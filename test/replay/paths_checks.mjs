@@ -398,8 +398,18 @@ safe("holdsData", () => {
     check("holdsData", `list has ${n}`, DC.isDataEntry(n));
   }
   check("holdsData", "settings.json never one of them", !DC.isDataEntry("settings.json"));
-  fs.mkdirSync(path.join(d, "logs"));
-  check("holdsData", "a SuperCargo folder counts", DC.holdsData(d) === true);
+  for (const n of ["logs", "exports", "outbox", "game-data"]) {
+    const f = fresh(`only-${n}`);
+    W(f, `${n}/mine.txt`, "theirs");
+    check("holdsData", `a folder with only ${n}/ doesn't count`, DC.holdsData(f) === false);
+  }
+  for (const n of DC.DATA_DIRS) fs.mkdirSync(path.join(d, n));
+  check("holdsData", "SuperCargo folder names alone don't count", DC.holdsData(d) === false);
+  W(d, "history.json", "{}");
+  check("holdsData", "history.json counts", DC.holdsData(d) === true);
+  const u = fresh("only-uex");
+  W(u, "uex-vehicles.json", "{}");
+  check("holdsData", "a uex-*.json cache counts", DC.holdsData(u) === true);
 });
 
 safe("checkDataFolder", () => {
@@ -482,6 +492,17 @@ safe("switchTo", () => {
   check("switchTo", "settings.json, Moved for Repair and other files not copied",
     !fs.existsSync(path.join(empty, "notes.txt")) && !fs.existsSync(path.join(empty, "Moved for Repair")) &&
       !fs.existsSync(path.join(empty, "settings.json")), fs.readdirSync(empty).join(", "));
+
+  const logsT = fresh("picked-logs-only");
+  W(logsT, "logs/supercargo.log", "their own log");
+  W(logsT, "exports/mine.txt", "their export");
+  const rl = DF.switchTo(logsT, deps);
+  check("switchTo", "folder with only logs/ and exports/: data copied in, not used as existing",
+    rl.ok && !rl.usedExisting && rl.copied > 0 && fs.existsSync(path.join(logsT, "history.json")) &&
+      fs.existsSync(path.join(logsT, "other-jobs.json")) && same(saved.at(-1).dataFolder, logsT), J(rl));
+  check("switchTo", "folder with only logs/: its own files not overwritten",
+    fs.readFileSync(path.join(logsT, "logs", "supercargo.log"), "utf8") === "their own log" &&
+      fs.readFileSync(path.join(logsT, "exports", "mine.txt"), "utf8") === "their export");
 
   const goodT = fresh("picked-good");
   W(goodT, "history.json", J({ entries: [] }));

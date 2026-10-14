@@ -13,6 +13,7 @@ import {
   initUpdater,
   checkForUpdates,
   downloadUpdate,
+  cancelDownload,
   skipVersion,
   lastUpdateState,
   takeUpdatedNotice,
@@ -1026,6 +1027,10 @@ function registerIpc(): void {
   })
   ipcMain.handle(IPC.updaterDownload, async () => {
     await downloadUpdate()
+    return true
+  })
+  ipcMain.handle(IPC.updaterCancel, () => {
+    cancelDownload()
     return true
   })
   ipcMain.handle(IPC.updaterSkip, (_e, version: unknown) => {

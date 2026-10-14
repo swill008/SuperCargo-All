@@ -1,4 +1,4 @@
-import React, { useEffect } from 'react'
+import React, { useCallback, useEffect } from 'react'
 import type { ReleaseNote, UpdateState } from '@shared/types'
 import { useStore } from '../state/store'
 import { C, F, GLOW } from '../theme'
@@ -11,8 +11,14 @@ export default function UpdateWindow(): React.ReactElement | null {
   const open = useStore((s) => s.updateWindowOpen)
   const update = useStore((s) => s.update)
   const appVersion = useStore((s) => s.appVersion)
-  const close = useStore((s) => s.closeUpdateWindow)
+  const closeWindow = useStore((s) => s.closeUpdateWindow)
   const checkForUpdates = useStore((s) => s.checkForUpdates)
+  // like Gremlin: closing the window during a download cancels it (Update Now starts it again)
+  // reads the state at the moment of closing, not the last render (an Esc right as the download starts must cancel it)
+  const close = useCallback((): void => {
+    if (useStore.getState().update?.kind === 'downloading') void window.supercargo.cancelUpdateDownload()
+    closeWindow()
+  }, [closeWindow])
 
   useEffect(() => {
     if (!open) return
@@ -80,6 +86,7 @@ export default function UpdateWindow(): React.ReactElement | null {
                 <ActLink href={releasePageUrl(update.version)}>Open Release Page</ActLink>
               </>
             )}
+            {kind === 'downloading' && <Act onClick={() => void window.supercargo.cancelUpdateDownload()}>Cancel</Act>}
             {kind !== 'downloading' && (
               <Act onClick={close}>{kind === 'available' || kind === 'ready' ? 'Later' : 'Close'}</Act>
             )}

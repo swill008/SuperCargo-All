@@ -178,6 +178,21 @@ Marked **NOT DOING**: decided against, or left out on purpose.
 - Releases run from the `features` branch; `main` is updated to match it ("we run it from Features, and update
   main to match", 2026-10-14).
 
+- Batch 12 follow-up questions (2026-10-14, answered with full context after "these are decisions and I need to
+  understand the reason why, and what the impacts are"):
+  - Q1: the release workflow keeps refusing an already released version even with publish unticked ("this will be a
+    release, not a test build").
+  - Q2: closing the update window during a download cancels it, like Gremlin.
+  - Q3: Check for Updates works while in a crew (it already did; no change).
+  - Q4: keep the "(SKIPPED)" marker on the Settings version status.
+  - Q5: CHANGE... copies SuperCargo files and folders only.
+  - Q6: a picked folder counts as holding SuperCargo data only when it has SuperCargo's own files (not a logs,
+    exports, outbox or game-data folder).
+  - Q7: if Reset can't move a locked file at start-up, the app shows an error and closes.
+  - Q8: the start label stays as it is ("the label is fine"; the problem was the squished overlay rows, fixed by O1).
+  - Q9: rep shows exactly what the contract says ("just show what the contract says, nothing more"); no range totals.
+  - Q10: a file missing from the author's list or one that can't be saved counts as a failure and shows the warning.
+
 ## 9. Reference data (ships, places, cargo grids, contract box sizes)
 
 - Reference data keeps coming from the original author's repo, "since I still use thier program"; the

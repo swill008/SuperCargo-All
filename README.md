@@ -29,6 +29,7 @@ Updates" window opens and shows what's new in every version since yours (newest 
 release notes on GitHub.
 
 - **Update Now** (installed copy) downloads the update with a progress bar and checks the file before it is used.
+  **Cancel**, or closing the window, stops the download (like Gremlin); Update Now starts it again.
   Then **Install and Restart** finishes it, or **Later** leaves a small "Update ready" bar so you can do it when it
   suits you. If the download fails, **Try Again** or open the release page.
 - **Open Release Page** (portable copy) takes you to the download.

@@ -163,6 +163,7 @@ const api = {
   checkForUpdates: (): Promise<boolean> => ipcRenderer.invoke(IPC.updaterCheck),
   quitAndInstall: (): Promise<boolean> => ipcRenderer.invoke(IPC.updaterQuitAndInstall),
   downloadUpdate: (): Promise<boolean> => ipcRenderer.invoke(IPC.updaterDownload),
+  cancelUpdateDownload: (): Promise<boolean> => ipcRenderer.invoke(IPC.updaterCancel),
   skipUpdate: (version: string): Promise<boolean> => ipcRenderer.invoke(IPC.updaterSkip, version),
   getUpdateState: (): Promise<UpdateState | null> => ipcRenderer.invoke(IPC.updaterState),
   getUpdatedNotice: (): Promise<UpdatedNotice | null> => ipcRenderer.invoke(IPC.updaterUpdatedNotice),

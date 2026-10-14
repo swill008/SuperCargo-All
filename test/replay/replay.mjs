@@ -3443,6 +3443,13 @@ const scenarios = {
     // CONTRACT14 A: CHANGE… uses the picked folder AS IS (no SuperCargo subfolder is made in it)
     const pickedMoved = path.join(e.home, 'Moved Data') // a space in the path, as Windows user folders often have
     fs.mkdirSync(pickedMoved, { recursive: true })
+    // Q6: a folder holding only a logs folder (and an empty exports folder) is not SuperCargo data: CHANGE… still
+    // copies the current data in, and the user's own file inside logs/ is left as it was
+    const OWN_LOG = path.join(pickedMoved, 'logs', 'my-own-notes.txt')
+    const OWN_LOG_TEXT = 'not a SuperCargo file\n'
+    fs.mkdirSync(path.dirname(OWN_LOG), { recursive: true })
+    fs.writeFileSync(OWN_LOG, OWN_LOG_TEXT)
+    fs.mkdirSync(path.join(pickedMoved, 'exports'), { recursive: true })
     const moved = pickedMoved
     const existing = path.join(e.home, 'Existing')
     fs.mkdirSync(existing, { recursive: true })
@@ -3544,7 +3551,9 @@ const scenarios = {
       ['getDataFolder: default folder, isDefault, no fallback', same(r.info1?.folder, e.data) && r.info1?.isDefault === true && !r.info1?.fallback && same(r.info1?.defaultFolder, e.data), `info=${short(r.info1)}`],
       ['Settings GENERAL shows DATA FOLDER with the folder and "default"', /^DATA FOLDER$/m.test(r.gen1) && r.gen1.includes(e.data) && /default/i.test(dataFolderLine), `line=${short(dataFolderLine, 300)}`],
       ['CHANGE to a folder with SuperCargo data: used as is, nothing overwritten', r.choseExisting?.ok === true && r.choseExisting?.usedExisting === true && (r.choseExisting?.copied ?? 0) === 0 && fs.readFileSync(path.join(existing, 'other-jobs.json'), 'utf8') === existingJobs, `result=${short(r.choseExisting, 300)}`],
-      ['CHANGE to an empty folder copies the data (jobs file with the job)', r.chose?.ok === true && (r.chose?.copied ?? 0) > 0 && !!findJob(movedJobs1, id1), `result=${short(r.chose, 300)} movedJobs=${short(movedJobs1?.jobs?.map((j) => j.missionId))}`],
+      ['Q6 CHANGE to a folder with only logs/ (+ exports/): not treated as SuperCargo data, the data is copied', r.chose?.ok === true && r.chose?.usedExisting !== true && (r.chose?.copied ?? 0) > 0, `result=${short(r.chose, 300)}`],
+      ['Q6 the folder\'s own file in logs/ is untouched (after the copy and the restart)', readText(OWN_LOG) === OWN_LOG_TEXT, `text=${short(readText(OWN_LOG))}`],
+      ['CHANGE to an empty folder (only logs/, exports/) copies the data (jobs file with the job)', r.chose?.ok === true && (r.chose?.copied ?? 0) > 0 && !!findJob(movedJobs1, id1), `result=${short(r.chose, 300)} movedJobs=${short(movedJobs1?.jobs?.map((j) => j.missionId))}`],
       ['CHANGE uses the picked folder as is (no subfolder made in it)', same(r.chose?.info?.pending ?? r.info2?.pending, pickedMoved) && subfolders.length === 0, `pending=${r.chose?.info?.pending ?? r.info2?.pending} subfolders=${short(subfolders)}`],
       ['settings.dataFolder saved in the default folder settings.json', same(set1?.dataFolder, moved), `dataFolder=${set1?.dataFolder}`],
       ['the change waits for a restart (pending), RESTART relaunches', same(r.info2?.pending, moved) && same(r.info2?.folder, e.data) && (r.relaunch?.relaunch ?? 0) >= 1, `info=${short(r.info2)} restart=${short(r.relaunch)}`],
@@ -3728,7 +3737,40 @@ const scenarios = {
       }
       return out
     }
-    const [fail, nonotes, portable, upToDate] = await Promise.all([
+    // Q2: closing the window (Escape) during a download cancels it, like Gremlin. The Escape is sent from the
+    // renderer's own onUpdate listener on the first 'downloading' state (the 3 test steps are ~150 ms apart);
+    // downloadStepMs slows the test feed where the updater supports it (ignored otherwise).
+    const ESC_ON_DOWNLOAD = `(() => { window.__scEscArmed = true; if (!window.__scEscHook) { window.__scEscHook = true; window.supercargo.onUpdate((s) => { if (s.kind === 'downloading' && window.__scEscArmed) { window.__scEscArmed = false; window.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true })) } }) } return true })()`
+    const cancelV = variant('cancel', { version: V2, notes: NOTES, downloadStepMs: 1000 }, async (port, iport, o, ev) => {
+      await until(() => appText(port).then((t) => AVAILABLE(V2).test(t)), 15000)
+      await cdpEval(port, 'main', ESC_ON_DOWNLOAD)
+      const n = (await updStates(port)).length
+      o.update = await uiClick(port, BTN.updateNow)
+      // back to available after a downloading state
+      o.after = await until(
+        () =>
+          updStates(port).then((s) => {
+            const a = s.slice(n)
+            const i = a.findIndex((x) => x.kind === 'downloading')
+            return i >= 0 && a.slice(i + 1).some((x) => x.kind === 'available') ? a : null
+          }),
+        15000
+      )
+      o.logged = !!(await until(() => /update download cancelled/i.test(ev.log()), 8000))
+      // a left-over download would have finished by now (3 steps of up to 1 s)
+      await sleep(4000)
+      o.states = (await updStates(port)).slice(n)
+      o.state = await updState(port)
+      o.windowOpen = await uiHas(port, BTN.updateNow)
+      o.text = await appText(port)
+      // Update Now again (window reopened by hand) downloads to ready
+      o.reopened = await checkByHand(port)
+      await until(() => appText(port).then((t) => AVAILABLE(V2).test(t)), 15000)
+      const m = (await updStates(port)).length
+      o.update2 = await uiClick(port, BTN.updateNow)
+      o.again = await until(() => updStates(port).then((s) => (s.slice(m).some((x) => x.kind === 'ready') ? s.slice(m) : null)), 20000)
+    })
+    const [fail, nonotes, portable, upToDate, cancel] = await Promise.all([
       variant('fail', { version: V2, notes: NOTES, failDownload: 'size check failed (test)' }, async (port, iport, o) => {
         await until(() => appText(port).then((t) => AVAILABLE(V2).test(t)), 15000)
         o.update = await uiClick(port, BTN.updateNow)
@@ -3750,8 +3792,12 @@ const scenarios = {
       }),
       variant('uptodate', { version: APP_VERSION, upToDate: true }, async (port, iport, o) => {
         o.text = (await until(() => appText(port).then((t) => (/is up to date/i.test(t) ? t : '')), 15000)) || (await appText(port))
-      })
+      }),
+      cancelV
     ])
+    const cKinds = (cancel.states ?? []).map((s) => s.kind)
+    const cFirstDl = cKinds.indexOf('downloading')
+    const cBack = cKinds.indexOf('available', cFirstDl + 1)
     const kinds = r.states.map((s) => s.kind)
     const dl = r.states.filter((s) => s.kind === 'downloading')
     const readyState = r.states.find((s) => s.kind === 'ready')
@@ -3777,6 +3823,10 @@ const scenarios = {
       ['notes null: "Release notes unavailable." with the link, Update Now still there', /Release notes unavailable\./i.test(nonotes.text ?? '') && /Full release notes on GitHub/i.test(nonotes.text ?? '') && nonotes.update, `update=${nonotes.update} ${nonotes.err}`],
       ['zip copy: Open Release Page / Skip This Version / Later, no Update Now', portable.btns?.page && portable.btns?.skip && portable.btns?.later && !portable.btns?.updateNow, `btns=${short(portable.btns)} ${portable.err}`],
       ['zip copy: Open Release Page opens the release url', !!portable.page && (portable.opened?.length ?? 0) > 0, `opened=${short(portable.opened)}`],
+      ['Q2 Escape during the download cancels it: state back to available for the same version', !!cancel.update && cFirstDl >= 0 && cBack > cFirstDl && cancel.states[cBack]?.version === V2 && cancel.state?.kind === 'available' && cancel.state?.version === V2, `kinds=${short(cKinds)} state=${short(cancel.state, 200)} ${cancel.err ?? ''}`],
+      ['Q2 cancel logged ("update download cancelled")', cancel.logged === true, `logged=${cancel.logged}`],
+      ['Q2 no ready arrives after the cancel, window closed, no "Downloading update" bar left', cBack > 0 && !cKinds.slice(cBack).includes('ready') && !cancel.windowOpen && !/Downloading update/i.test(cancel.text ?? ''), `after=${short(cKinds.slice(cBack))} windowOpen=${cancel.windowOpen} bar=${short(lineWith(cancel.text, /Downloading update/i), 120)}`],
+      ['Q2 Update Now again (window reopened) downloads to ready', !!cancel.reopened && !!cancel.update2 && !!cancel.again?.some((x) => x.kind === 'ready' && x.version === V2), `reopened=${cancel.reopened} clicked=${cancel.update2} kinds=${short(cancel.again?.map((x) => x.kind))}`],
       ['up to date by hand: "SuperCargo-OtherModes R1 <v> is up to date."', new RegExp(`R1 ${reEsc(APP_VERSION)} is up to date`, 'i').test(upToDate.text ?? ''), `line=${short(lineWith(upToDate.text, /up to date/i), 200)} ${upToDate.err}`]
     ]
   },

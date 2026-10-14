@@ -61,6 +61,7 @@ export const IPC = {
   updaterCheck: 'updater:check',
   updaterQuitAndInstall: 'updater:quitAndInstall',
   updaterDownload: 'updater:download', // Update Now (installed copy) / Try Again after a failed download
+  updaterCancel: 'updater:cancel', // the update window was closed during a download: stop it (like Gremlin)
   updaterSkip: 'updater:skip', // Skip This Version (version) -> saves settings.skippedUpdateVersion
   updaterState: 'updater:state', // -> UpdateState | null (last state, for a window opened later)
   updaterUpdatedNotice: 'updater:updatedNotice', // -> UpdatedNotice | null (once per update)

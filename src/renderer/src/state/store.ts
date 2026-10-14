@@ -708,7 +708,9 @@ export const useStore = create<StoreState>((set, get) => {
   // an offer from the start-up check opens the Check for Updates window by itself (like Gremlin);
   // a skipped version, up to date and a failed check stay quiet. A check by hand opened it already.
   const onUpdateState = (u: UpdateState): void => {
-    const open = u.kind === 'available' && !u.skipped && !isCompactWindow
+    // opens by itself for a check's result only; the offer sent back after a cancelled download leaves the window as it is
+    const afterCancel = get().update?.kind === 'downloading'
+    const open = u.kind === 'available' && !u.skipped && !isCompactWindow && !afterCancel
     set(open ? { update: u, updateWindowOpen: true } : { update: u })
   }
   let rerouteTimer: ReturnType<typeof setTimeout> | null = null

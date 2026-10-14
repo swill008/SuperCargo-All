@@ -2,7 +2,7 @@
 // Nothing downloads until the user picks Update Now; Install and Restart installs. The zip copy only links to the
 // release page. autoUpdater needs app ready, touch only after whenReady.
 
-import electronUpdater, { type AppUpdater, type UpdateInfo } from 'electron-updater'
+import electronUpdater, { type AppUpdater, type CancellationToken, type UpdateInfo } from 'electron-updater'
 import { app, type BrowserWindow } from 'electron'
 import fs from 'fs'
 import path from 'path'
@@ -36,6 +36,14 @@ let offered: { version: string; sizeBytes?: number } | null = null
 /** check / download running in electron-updater; its 'error' event maps to error or failed */
 let phase: 'idle' | 'check' | 'download' = 'idle'
 let byHandCheck = false
+/** the last offer sent, shown again after a cancelled download */
+let offerState: AvailableState | null = null
+/** cancels the running electron-updater download (window closed or Cancel, like Gremlin) */
+let downloadToken: CancellationToken | null = null
+/** the last download's promise; a new one waits for a cancelled one to settle */
+let lastDownload: Promise<unknown> | null = null
+/** test feed: bumped by a cancel so the running timer steps stop */
+let testRun = 0
 /** notes per offered version, fetched once per session */
 const notesCache = new Map<string, ReleaseNote[] | null>()
 
@@ -71,8 +79,23 @@ function readTestFeed(): TestFeed | null {
   }
 }
 
+type AvailableState = Extract<UpdateState, { kind: 'available' }>
+
+/** The state after a cancelled download: the same offer again (Gremlin goes back to "available"). */
+export function offerAfterCancel(offer: AvailableState | null, version: string): AvailableState {
+  if (offer && offer.version === version) return offer
+  return { kind: 'available', version, notes: null, url: releasePageUrl(version), portable: false }
+}
+
+/** electron-updater rejects a cancelled download with CancellationError ("cancelled"); not a failure. */
+export function isCancelError(err: unknown): boolean {
+  if (err == null || typeof err !== 'object') return false
+  return (err as Error).constructor?.name === 'CancellationError' || (err as Error).message === 'cancelled'
+}
+
 function send(state: UpdateState): void {
   lastState = state
+  if (state.kind === 'available') offerState = state
   const win = deps?.getWindow() ?? null
   if (win && !win.isDestroyed()) win.webContents.send(IPC.evtUpdate, state)
 }
@@ -152,6 +175,7 @@ export function initUpdater(d: UpdaterDeps): void {
     send({ kind: 'upToDate', version: app.getVersion() })
   })
   au.on('download-progress', (p) => {
+    if (phase !== 'download') return // cancelled
     logger.debug('net', 'update download', { percent: Math.round(p.percent) })
     send({
       kind: 'downloading',
@@ -168,6 +192,7 @@ export function initUpdater(d: UpdaterDeps): void {
     send({ kind: 'ready', version: info.version, verified: true })
   })
   au.on('error', (err) => {
+    if (isCancelError(err)) return // a cancel is not a failed download
     const message = errMessage(err)
     logger.warn('net', 'update error', { phase, error: message })
     failCurrent(message)
@@ -203,12 +228,15 @@ async function testDownload(): Promise<void> {
   const feed = readTestFeed()
   const version = offered?.version ?? feed?.version ?? ''
   const total = offered?.sizeBytes ?? 85_000_000
+  const run = ++testRun
+  send({ kind: 'downloading', version, percent: 0, transferred: 0, total })
   for (const step of [1, 2, 3]) {
     if (step === 3 && feed?.failDownload) {
       logger.warn('net', 'update download failed (test)', { error: feed.failDownload })
       return send({ kind: 'failed', version, message: feed.failDownload })
     }
     await later(150)
+    if (run !== testRun) return // cancelled
     const transferred = Math.round((total * step) / 3)
     send({ kind: 'downloading', version, percent: Math.round((100 * step) / 3), transferred, total })
   }
@@ -266,12 +294,39 @@ export async function downloadUpdate(): Promise<void> {
   phase = 'download'
   logger.info('net', 'update download start', { version: offered.version })
   send({ kind: 'downloading', version: offered.version, percent: 0, total: offered.sizeBytes })
+  // a cancelled download still settling would be handed back as "already in progress"
+  if (lastDownload) await lastDownload.catch(() => undefined)
+  if (phase !== 'download') return // cancelled while waiting
+  const token = new electronUpdater.CancellationToken()
+  downloadToken = token
+  const p = updater().downloadUpdate(token)
+  lastDownload = p
   try {
-    await updater().downloadUpdate()
+    await p
   } catch (e) {
+    if (token.cancelled || isCancelError(e)) return // cancelDownload already sent the offer again
     logger.warn('net', 'update download failed', { error: errMessage(e) })
     failCurrent(errMessage(e))
+  } finally {
+    if (downloadToken === token) downloadToken = null
+    if (lastDownload === p) lastDownload = null
   }
+}
+
+/** The update window was closed (or Cancel) during a download: stop it and offer the same version again.
+ *  Update Now later starts the download again. */
+export function cancelDownload(): void {
+  if (lastState?.kind !== 'downloading') return
+  const version = lastState.version
+  logger.info('net', 'update download cancelled', { version })
+  if (testFeedPath()) {
+    testRun++
+  } else {
+    phase = 'idle'
+    downloadToken?.cancel()
+    downloadToken = null
+  }
+  send(offerAfterCancel(offerState, version))
 }
 
 /** Skip This Version: the start-up check stays quiet about this version from now on. */

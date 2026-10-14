@@ -235,7 +235,7 @@ the damaged-data check, the update window, reference data status, overlay fixes 
     `other-bodies.json`, `other-uex-places.json`, the `uex-*.json` caches, `game-data/`, `logs/` (`supercargo.log`,
     `trace*.jsonl`), `ocr-samples/`, `other-ocr-session/`, `outbox/` + `upload-queue.json`, `reference-data-status.json`,
     and `exports/` (default folder of the diagnostics and run-export save dialogs). These known names are the
-    "SuperCargo files"; `holdsData(dir)` is true when any of them exists in that folder's root. `settings.json` is never
+    "SuperCargo files"; `holdsData(dir)` is true only when one of the SuperCargo files (not just a folder such as logs, exports, outbox or game-data) is in that folder's root (Q6, 2026-10-14). `settings.json` is never
     one of them (never moved, never copied). `settings.json` is always in the default folder
     (`settingsFile()`), so a moved folder can be found. Large re-downloadable caches (`tessdata/`, `ocr-model/`) and
     Chromium's own files stay in Electron's userData (`cachePath()`).
@@ -271,7 +271,8 @@ the damaged-data check, the update window, reference data status, overlay fixes 
 88. **The Check for Updates window** (`UpdateWindow.tsx`, modal). Opens by itself when the start-up check finds a
     version that isn't skipped; stays quiet at start-up for skipped / up to date / error. Available: "R1 <new> is
     available. You have R1 <cur>." with the notes and Update Now / Skip This Version / Later (portable: Open Release
-    Page / Skip This Version / Later). Update Now: progress bar ("Downloading… 12.3 / 85.0 MB"), then electron-updater
+    Page / Skip This Version / Later). Update Now: progress bar ("Downloading… 12.3 / 85.0 MB") with a Cancel button; Cancel or closing the window
+    during the download cancels it and the offer shows again (like Gremlin, Q2 2026-10-14), then electron-updater
     checks size and sha512 from `latest.yml`; ready: "Downloaded and checked. Install and Restart to finish." (Install
     and Restart / Later; Later leaves a small "Update ready — INSTALL AND RESTART" bar). A failed check of the download
     is "The download failed: <msg>" with Try Again / Open Release Page / Close; a failed check for updates is

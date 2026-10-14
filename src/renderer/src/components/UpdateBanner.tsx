@@ -30,15 +30,6 @@ export default function UpdateBanner(): React.ReactElement | null {
     )
   }
 
-  if (update?.kind === 'downloading' && !windowOpen) {
-    bars.push(
-      <Bar key="dl" tone="quiet">
-        <Dot />
-        <span style={textStyle}>Downloading update... {Math.round(update.percent)}%</span>
-      </Bar>
-    )
-  }
-
   if (update?.kind === 'ready' && !windowOpen) {
     bars.push(
       <Bar key="ready" tone="loud">

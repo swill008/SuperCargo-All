@@ -47,9 +47,11 @@ export function dataEntries(dir: string): string[] {
   }
 }
 
-/** dir already holds SuperCargo data */
+const DIRS = new Set(DATA_DIRS.map(lc))
+
+/** dir already holds SuperCargo data: a SuperCargo file in its root (folders such as logs/ or exports/ have common names, so they don't count) */
 export function holdsData(dir: string): boolean {
-  return dataEntries(dir).length > 0
+  return dataEntries(dir).some((n) => !DIRS.has(lc(n)))
 }
 
 // shape tests copied from the loaders (store.ts readJson merges onto defaults; the Other loaders need an object;
