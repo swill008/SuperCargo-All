@@ -151,7 +151,7 @@ export const CARGO_GRIDS: Record<string, ShipGrids> = {
 
 // authored markup (per-bay faces + layout fixes), synced like the uex lists
 // (markup tool -> data/uex/grid-faces.json); no markup until roster loads, packer falls back to dense pack
-type BayInfo = Partial<Pick<CargoGrid, 'faces' | 'group' | 'x' | 'y' | 'z' | 'w' | 'l' | 'h' | 'rot' | 'hidden'>>
+type BayInfo = Partial<Pick<CargoGrid, 'faces' | 'name' | 'maxSize' | 'autoLoad' | 'group' | 'x' | 'y' | 'z' | 'w' | 'l' | 'h' | 'rot' | 'hidden'>>
 let MARKUP: Record<string, Record<string, BayInfo>> = {}
 let FRAMES: Record<string, NonNullable<ShipMarkup['frame']>> = {}
 let OFF_GRIDS: Record<string, NonNullable<ShipMarkup['offGrid']>> = {}
@@ -167,7 +167,7 @@ export function setGridFaces(ships: ShipMarkup[]): void {
   const anchored: Record<string, boolean> = {}
   for (const s of ships) {
     const bays: Record<string, BayInfo> = {}
-    for (const b of s.bays) bays[b.id] = { faces: b.faces, group: b.group, x: b.x, y: b.y, z: b.z, w: b.w, l: b.l, h: b.h, rot: b.rot, hidden: b.hidden }
+    for (const b of s.bays) bays[b.id] = { faces: b.faces, name: b.name, maxSize: b.maxSize, autoLoad: b.autoLoad, group: b.group, x: b.x, y: b.y, z: b.z, w: b.w, l: b.l, h: b.h, rot: b.rot, hidden: b.hidden }
     map[s.ship] = bays
     if (s.frame) frames[s.ship] = s.frame
     if (s.offGrid) offGrids[s.ship] = s.offGrid
@@ -179,19 +179,26 @@ export function setGridFaces(ships: ShipMarkup[]): void {
   ANCHORED = anchored
 }
 
+// 4.10.2 renamed the Connies "Mk IV"
+function canonShip(ship: string): string {
+  if (CARGO_GRIDS[ship] || MARKUP[ship]) return ship
+  const bare = ship.replace(/ Mk I?V /, ' ')
+  return CARGO_GRIDS[bare] || MARKUP[bare] ? bare : ship
+}
+
 /** authored bow/starboard, or undefined (the view defaults bow to z-). */
 export function shipFrame(ship: string): NonNullable<ShipMarkup['frame']> | undefined {
-  return FRAMES[ship]
+  return FRAMES[canonShip(ship)]
 }
 
 /** true when bays are authored around world 0, view renders real coords instead of centering the bounding box */
 export function shipAnchored(ship: string): boolean {
-  return !!ANCHORED[ship]
+  return !!ANCHORED[canonShip(ship)]
 }
 
 /** off-grid stash pad size for a ship, null when turned off; falls back to defaults per-axis */
 export function offGridFor(ship: string): { w: number; l: number; h: number; x?: number; y?: number; z?: number } | null {
-  const o = OFF_GRIDS[ship]
+  const o = OFF_GRIDS[canonShip(ship)]
   if (o && !o.on) return null
   return {
     w: o?.w ?? OFF_GRID_DEFAULT.w,
@@ -203,8 +210,9 @@ export function offGridFor(ship: string): { w: number; l: number; h: number; x?:
 
 /** true once a ship's exit faces are authored for the delivery-aware packer; else falls back to dense pack */
 export function hasGridMarkup(ship: string): boolean {
-  if (FRAMES[ship]) return true
-  const bays = MARKUP[ship]
+  const key = canonShip(ship)
+  if (FRAMES[key]) return true
+  const bays = MARKUP[key]
   return !!bays && Object.values(bays).some((b) => b.faces && Object.keys(b.faces).length > 0)
 }
 
@@ -238,11 +246,43 @@ function deriveFloor(faces?: Partial<Record<BayDir, BayFaceKind>>): BayDir | und
   return (Object.keys(faces) as BayDir[]).find((d) => faces[d] === 'floor')
 }
 
+export const bayLabel = (id: string): string => id.replace(/-/g, ' ').replace(/\b[a-z]/g, (c) => c.toUpperCase())
+
+// so a new ship needs no release
+function baysFromMarkup(bays: Record<string, BayInfo>): CargoGrid[] {
+  const out: CargoGrid[] = []
+  for (const [id, m] of Object.entries(bays)) {
+    // unsized, nothing to pack into
+    if (m.hidden || m.w === undefined || m.l === undefined || m.h === undefined) continue
+    out.push({
+      id,
+      name: m.name ?? bayLabel(id),
+      x: m.x ?? 0,
+      y: m.y ?? 0,
+      z: m.z ?? 0,
+      w: m.w,
+      l: m.l,
+      h: m.h,
+      scu: m.w * m.l * m.h,
+      ...(m.maxSize !== undefined ? { maxSize: m.maxSize } : {}),
+      ...(m.autoLoad !== undefined ? { autoLoad: m.autoLoad } : {}),
+      ...(m.group !== undefined ? { group: m.group } : {}),
+      ...(m.rot !== undefined ? { rot: m.rot } : {}),
+      faces: m.faces,
+      exit: deriveExit(m.faces),
+      ...(deriveFloor(m.faces) ? { floor: deriveFloor(m.faces) } : {}),
+      source: 'override'
+    })
+  }
+  return out
+}
+
 /** all grids for a ship, optionally limited to installed modules */
 export function gridsFor(ship: string, installed?: string[]): CargoGrid[] {
-  const rec = CARGO_GRIDS[ship]
-  if (!rec) return []
-  const bays = MARKUP[ship]
+  const key = canonShip(ship)
+  const bays = MARKUP[key]
+  const rec = CARGO_GRIDS[key]
+  if (!rec) return bays ? baysFromMarkup(bays) : []
   return rec.grids
     .filter((g) => !g.moduleId || !installed || installed.includes(g.moduleId))
     .filter((g) => !bays?.[g.id]?.hidden)
@@ -258,6 +298,8 @@ export function gridsFor(ship: string, installed?: string[]): CargoGrid[] {
         ...(m.w !== undefined ? { w: m.w } : {}),
         ...(m.l !== undefined ? { l: m.l } : {}),
         ...(m.h !== undefined ? { h: m.h } : {}),
+        ...(m.maxSize !== undefined ? { maxSize: m.maxSize } : {}),
+        ...(m.autoLoad !== undefined ? { autoLoad: m.autoLoad } : {}),
         ...(m.group !== undefined ? { group: m.group } : {}),
         ...(m.rot !== undefined ? { rot: m.rot } : {}),
         faces: m.faces,

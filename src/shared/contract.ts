@@ -1,55 +1,14 @@
-import type { DeliveryObjective } from './types'
-
 export interface ParsedTitle {
   rank: string
   haulType: string
   pickup: string
 }
 
-// CIG bug: multi-pickup single-drop hauls spawn ALL cargo at the last listed pickup
-export function collapseLastPickup(o: DeliveryObjective): DeliveryObjective {
-  if (!o.pickups || o.pickups.length < 2) return o
-  // ocr sometimes leaks the destination into the pickup list; collapsing onto it would kill the route job
-  const dest = o.destination.trim().toLowerCase()
-  const real = o.pickups.filter((p) => p.trim().toLowerCase() !== dest)
-  const last = real.length ? real[real.length - 1] : o.pickups[o.pickups.length - 1]
-  return { ...o, originalPickups: o.originalPickups ?? o.pickups, pickups: [last] }
-}
-
-// a broken cross-system slot shows "LocationNAddress" in the details list and the objectives
-// repeat another slot's name to cover for it; physically the cargo sits at the Pyro-side Nyx gate
-const BROKEN_SLOT_LOCATION = 'Nyx Gateway (Pyro)'
+// broken slot token stays raw so it's fixable
 const PLACEHOLDER_RE = /^(?:location|destination)\s*\d*\s*address\s*\d*$/i
 
-/** broken-slot tokens survive parse and review verbatim, the collapse reads them */
 export function isBrokenSlotToken(s: string): boolean {
   return PLACEHOLDER_RE.test(s.trim())
-}
-
-export function resolveBrokenPickups(o: DeliveryObjective): DeliveryObjective {
-  if (!o.pickups || o.pickups.length < 2) return o
-  const seen = new Set<string>()
-  let changed = false
-  const pickups = o.pickups.map((p) => {
-    const k = p.trim().toLowerCase()
-    if (PLACEHOLDER_RE.test(k) || seen.has(k)) {
-      changed = true
-      return BROKEN_SLOT_LOCATION
-    }
-    seen.add(k)
-    return p
-  })
-  return changed ? { ...o, originalPickups: o.originalPickups ?? o.pickups, pickups } : o
-}
-
-export function applyPickupBug(o: DeliveryObjective): DeliveryObjective {
-  return collapseLastPickup(resolveBrokenPickups(o))
-}
-
-export function restorePickups(o: DeliveryObjective): DeliveryObjective {
-  if (!o.originalPickups) return o
-  const { originalPickups, ...rest } = o
-  return { ...rest, pickups: originalPickups }
 }
 
 // game logs cross-system drops as just "Pyro System", real station needs OCR
@@ -102,8 +61,10 @@ export function parseContractTitle(raw: string): ParsedTitle {
   return { rank, haulType, pickup }
 }
 
-export function isHaulingGenerator(generator: string): boolean {
-  return /haul/i.test(generator)
+// event generators never say haul
+export function isHaulingContract(generator: string, contractName: string, title: string): boolean {
+  if (generator || contractName) return /haul/i.test(generator) || /haul/i.test(contractName)
+  return /haul/i.test(title)
 }
 
 // in-game names where the humanized generator isn't right
@@ -118,6 +79,8 @@ export function contractParty(generator?: string): string {
   return generator
     .replace(/_/g, ' ')
     .replace(/([a-z])([A-Z])/g, '$1 $2')
+    // LingFamilyHauling_Hauling doubles up
+    .replace(/\b(\w+)(?:\s+\1\b)+/gi, '$1')
     .replace(/\s+/g, ' ')
     .trim()
 }

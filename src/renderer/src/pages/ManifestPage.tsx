@@ -6,7 +6,7 @@ import { deriveStopsWithPickups, deriveRouteStops, deriveContracts, deriveTotals
 import { buildLoadingSteps, loadProfile } from '../state/loading'
 import { gridCapacity } from '@shared/cargoGrids'
 import PageHeader, { PAGE_PADDING } from '../components/PageHeader'
-import { Btn } from '../components/ui'
+import { Btn, ScuInput, useCanEdit } from '../components/ui'
 import LoadBar from '../components/LoadBar'
 import Typeahead from '../components/Typeahead'
 import TurnInModal from '../components/TurnInModal'
@@ -31,6 +31,7 @@ export default function ManifestPage(): React.ReactElement {
   const unmarkTurnIn = useStore((s) => s.unmarkTurnIn)
   const looseBoxes = useStore((s) => s.looseBoxes)
   const setObjectiveBoxes = useStore((s) => s.setObjectiveBoxes)
+  const canEdit = useCanEdit()
 
   const [turnIn, setTurnIn] = useState<{ stop: Stop; item: StopItem } | null>(null)
   const [editBoxes, setEditBoxes] = useState<{ contractId: string; objectiveId: string; commodity: string; scu: number; boxes: BoxAllocation[] } | null>(null)
@@ -69,7 +70,7 @@ export default function ManifestPage(): React.ReactElement {
     return (
       <div style={{ padding: PAGE_PADDING }}>
         <PageHeader title="CARGO MANIFEST" subtitle="No active contracts" />
-        <EmptyState onAdd={() => openCapture()} />
+        <EmptyState onAdd={canEdit ? () => openCapture() : undefined} />
       </div>
     )
   }
@@ -78,7 +79,7 @@ export default function ManifestPage(): React.ReactElement {
     <div style={{ padding: PAGE_PADDING }}>
       <PageHeader
         title="CARGO MANIFEST"
-        subtitle={`${totals.contracts} active contracts · ${stops.filter((s) => !s.done).length} stops`}
+        subtitle={`${totals.contracts} active contracts, ${stops.filter((s) => !s.done).length} stops`}
         right={<GroupToggle groupBy={groupBy} setGroupBy={setGroupBy} />}
       />
 
@@ -103,20 +104,22 @@ export default function ManifestPage(): React.ReactElement {
 
       <StartLocationPicker />
 
-      <MissingObjectivesBanner
-        contracts={derivedContracts.filter((c) => c.objCount === 0)}
-        onAdd={openCapture}
-      />
+      {canEdit && (
+        <MissingObjectivesBanner
+          contracts={derivedContracts.filter((c) => c.objCount === 0)}
+          onAdd={openCapture}
+        />
+      )}
 
       {groupBy === 'destination' ? (
-        <ByDestination stops={stops} showBoxMath={showBoxMath} holdScu={capMax} offGrid={offGrid} onTurnIn={(stop, item) => setTurnIn({ stop, item })} onEditBoxes={openBoxEdit} />
+        <ByDestination stops={stops} showBoxMath={showBoxMath} holdScu={capMax} offGrid={offGrid} onTurnIn={(stop, item) => setTurnIn({ stop, item })} onEditBoxes={canEdit ? openBoxEdit : undefined} />
       ) : (
-        <ByContract contracts={derivedContracts} showBoxMath={showBoxMath} onEditBoxes={openBoxEdit} />
+        <ByContract contracts={derivedContracts} showBoxMath={showBoxMath} onEditBoxes={canEdit ? openBoxEdit : undefined} />
       )}
 
       {turnIn && (
         <TurnInModal
-          heading={turnIn.stop.code ? `${turnIn.stop.code} · ${turnIn.stop.name}` : turnIn.stop.name}
+          heading={turnIn.stop.code ? `${turnIn.stop.code} ${turnIn.stop.name}` : turnIn.stop.name}
           sub="Mark what you handed over. You can change it until the contract completes."
           items={[
             {
@@ -199,19 +202,21 @@ function MissingObjectivesBanner({
         }}
         hoverStyle={{ background: 'rgba(216,166,74,0.12)' }}
       >
-        ADD OBJECTIVES · {first.ref}
+        ADD OBJECTIVES {first.ref}
       </Btn>
     </div>
   )
 }
 
-function StartLocationPicker(): React.ReactElement {
+function StartLocationPicker(): React.ReactElement | null {
   const startLocation = useStore((s) => s.startLocation)
   const setStartLocation = useStore((s) => s.setStartLocation)
   const locations = useStore((s) => s.locations)
   const route = useStore((s) => s.route)
   const names = useMemo(() => locations.map((l) => l.name), [locations])
   const loadHere = route?.steps.find((s) => s.nodeKey === 'depot')?.loadAfter ?? 0
+  const canEdit = useCanEdit()
+  if (!canEdit && !startLocation) return null
 
   return (
     <div style={{ display: 'flex', alignItems: 'center', gap: 12, flexWrap: 'wrap', marginBottom: 22 }}>
@@ -219,15 +224,19 @@ function StartLocationPicker(): React.ReactElement {
         STARTING AT
       </span>
       <div style={{ flex: '1 1 240px', minWidth: 220, maxWidth: 380 }}>
-        <Typeahead
-          value={startLocation}
-          options={names}
-          freeText={false}
-          search
-          maxResults={12}
-          onSelect={setStartLocation}
-          placeholder="Where you're starting (optional)"
-        />
+        {canEdit ? (
+          <Typeahead
+            value={startLocation}
+            options={names}
+            freeText={false}
+            search
+            maxResults={12}
+            onSelect={setStartLocation}
+            placeholder="Where you're starting (optional)"
+          />
+        ) : (
+          <span style={{ fontFamily: F.body, fontSize: 15, color: C.text }}>{startLocation}</span>
+        )}
       </div>
       {startLocation && (
         <>
@@ -236,6 +245,7 @@ function StartLocationPicker(): React.ReactElement {
               ↥ load {fmt(loadHere)} SCU here
             </span>
           )}
+          {canEdit && (
           <Btn
             onClick={() => setStartLocation('')}
             title="Clear the starting location"
@@ -255,6 +265,7 @@ function StartLocationPicker(): React.ReactElement {
           >
             CLEAR
           </Btn>
+          )}
         </>
       )}
     </div>
@@ -333,27 +344,32 @@ function ByDestination({
   holdScu: number
   offGrid: Map<string, OffGridTally>
   onTurnIn: (stop: Stop, item: StopItem) => void
-  onEditBoxes: (contractId: string, objectiveId: string) => void
+  onEditBoxes?: (contractId: string, objectiveId: string) => void
 }): React.ReactElement {
+  const canEdit = useCanEdit()
   const reorderStops = useStore((s) => s.reorderStops)
   const [dragIdx, setDragIdx] = useState<number | null>(null)
   const [overIdx, setOverIdx] = useState<number | null>(null)
 
   return (
     <div>
-      <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 16, color: C.faint }}>
-        <DotsIcon />
-        <span style={{ fontFamily: F.display, fontSize: 11, letterSpacing: '0.18em' }}>
-          DRAG STOPS TO REORDER DELIVERY
-        </span>
-      </div>
+      {canEdit && (
+        <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 16, color: C.faint }}>
+          <DotsIcon />
+          <span style={{ fontFamily: F.display, fontSize: 11, letterSpacing: '0.18em' }}>
+            DRAG STOPS TO REORDER DELIVERY
+          </span>
+        </div>
+      )}
 
-      {stops.map((stop) => (
+      {stops.map((stop) => {
+        const movable = canEdit && !stop.start && !stop.done
+        return (
         <div
           key={`${stop.idx}-${stop.pickupOnly ? 'p' : 'd'}-${stop.destination}`}
-          draggable={!stop.start && !stop.done}
+          draggable={movable}
           onDragStart={(e) => {
-            if (stop.start || stop.done) return
+            if (!movable) return
             setDragIdx(stop.idx)
             try {
               e.dataTransfer.effectAllowed = 'move'
@@ -362,13 +378,13 @@ function ByDestination({
             }
           }}
           onDragOver={(e) => {
-            if (stop.start || stop.done) return
+            if (!movable) return
             e.preventDefault()
             if (overIdx !== stop.idx) setOverIdx(stop.idx)
           }}
           onDragLeave={() => setOverIdx((v) => (v === stop.idx ? null : v))}
           onDrop={(e) => {
-            if (stop.start || stop.done) return
+            if (!movable) return
             e.preventDefault()
             const fromKey = dragIdx !== null ? stops[dragIdx]?.nodeKey : undefined
             if (fromKey && stop.nodeKey && fromKey !== stop.nodeKey) reorderStops(fromKey, stop.nodeKey)
@@ -444,17 +460,10 @@ function ByDestination({
               </div>
               {showBoxMath ? (
                 <div style={{ fontFamily: F.mono, fontSize: 13, color: off ? C.amber : '#b6bec0' }}>
-                  <span style={{ color: C.faint }}>· </span>
                   {off ? (
                     `${off.breakdown} off grid`
                   ) : (
-                    <span
-                      onClick={() => onEditBoxes(item.contractId, item.objectiveId)}
-                      title="Click to edit the box sizes"
-                      style={{ cursor: 'pointer', borderBottom: '1px dashed rgba(255,255,255,0.22)' }}
-                    >
-                      {item.boxStr || '-'}
-                    </span>
+                    <BoxStr text={item.boxStr} onEdit={onEditBoxes && (() => onEditBoxes(item.contractId, item.objectiveId))} />
                   )}
                 </div>
               ) : (
@@ -463,7 +472,7 @@ function ByDestination({
               <div style={{ fontFamily: F.mono, fontSize: 12, color: C.dim, textAlign: 'right' }}>
                 {item.boxCount} box
               </div>
-              {item.delivered ? (
+              {item.delivered || !canEdit ? (
                 <span />
               ) : (
                 <Btn
@@ -482,13 +491,15 @@ function ByDestination({
             <PickupSection items={stop.pickups} showBoxMath={showBoxMath} label={!stop.pickupOnly} onEditBoxes={onEditBoxes} />
           )}
         </div>
-      ))}
+        )
+      })}
     </div>
   )
 }
 
-function PickupSection({ items, showBoxMath, label, onEditBoxes }: { items: PickupItem[]; showBoxMath: boolean; label: boolean; onEditBoxes: (contractId: string, objectiveId: string) => void }): React.ReactElement {
+function PickupSection({ items, showBoxMath, label, onEditBoxes }: { items: PickupItem[]; showBoxMath: boolean; label: boolean; onEditBoxes?: (contractId: string, objectiveId: string) => void }): React.ReactElement {
   const setPickedUp = useStore((s) => s.setPickedUp)
+  const canEdit = useCanEdit()
   return (
     <div style={{ marginTop: 6 }}>
       {label && (
@@ -509,10 +520,20 @@ function PickupSection({ items, showBoxMath, label, onEditBoxes }: { items: Pick
               opacity: it.picked ? 0.5 : 1
             }}
           >
-            <div style={{ fontFamily: F.mono, fontSize: 17, color: C.green, textAlign: 'right', textDecoration: it.picked ? 'line-through' : 'none' }}>
-              {it.scu}
-              <span style={{ fontSize: 11, color: C.dim }}> SCU</span>
-            </div>
+            {it.counted ? (
+              <div style={{ fontFamily: F.mono, fontSize: 17, color: C.green, textAlign: 'right', textDecoration: it.picked ? 'line-through' : 'none' }}>
+                {it.scu}
+                <span style={{ fontSize: 11, color: C.dim }}> SCU</span>
+              </div>
+            ) : (
+              canEdit ? (
+                <ScuCount item={it} />
+              ) : (
+                <div style={{ fontFamily: F.mono, fontSize: 17, color: C.amber, textAlign: 'right' }}>
+                  ?<span style={{ fontSize: 11, color: C.dim }}> SCU</span>
+                </div>
+              )
+            )}
             <div style={{ display: 'flex', alignItems: 'baseline', gap: 11, minWidth: 0 }}>
               <span style={{ fontFamily: F.body, fontSize: 15, color: C.green, whiteSpace: 'nowrap', flex: 'none' }}>
                 {it.commodity}
@@ -528,20 +549,13 @@ function PickupSection({ items, showBoxMath, label, onEditBoxes }: { items: Pick
             </div>
             {showBoxMath ? (
               <div style={{ fontFamily: F.mono, fontSize: 13, color: '#b6bec0' }}>
-                <span style={{ color: C.faint }}>· </span>
-                <span
-                  onClick={() => onEditBoxes(it.contractId, it.objectiveId)}
-                  title="Click to edit the box sizes"
-                  style={{ cursor: 'pointer', borderBottom: '1px dashed rgba(255,255,255,0.22)' }}
-                >
-                  {it.boxStr || '-'}
-                </span>
+                <BoxStr text={it.boxStr} onEdit={onEditBoxes && (() => onEditBoxes(it.contractId, it.objectiveId))} />
               </div>
             ) : (
               <div />
             )}
             <div style={{ fontFamily: F.mono, fontSize: 12, color: C.dim, textAlign: 'right' }}>{it.boxCount} box</div>
-            {it.pickupKey ? (
+            {it.pickupKey && canEdit && it.counted ? (
               <Btn
                 onClick={() => setPickedUp(it.contractId, it.objectiveId, it.pickupKey as string, !it.picked)}
                 title={it.picked ? 'Uncheck this pickup' : 'Check off this pickup'}
@@ -560,7 +574,19 @@ function PickupSection({ items, showBoxMath, label, onEditBoxes }: { items: Pick
   )
 }
 
+// game only shows the contract total
+function ScuCount({ item }: { item: PickupItem }): React.ReactElement {
+  const setPickupScu = useStore((s) => s.setPickupScu)
+  return (
+    <div style={{ display: 'flex', alignItems: 'center', gap: 5, justifyContent: 'flex-end' }}>
+      <ScuInput big onSave={(n) => setPickupScu(item.contractId, item.objectiveId, item.pickupIndex, n)} />
+      <span style={{ fontSize: 11, color: C.dim, fontFamily: F.mono }}>SCU</span>
+    </div>
+  )
+}
+
 function StopHeader({ stop, offCount = 0 }: { stop: Stop; offCount?: number }): React.ReactElement {
+  const canEdit = useCanEdit()
   const locations = useStore((s) => s.locations)
   const loc = useMemo(() => locations.find((l) => l.name === stop.destination), [locations, stop.destination])
   const external = stop.hasElevator ?? loc?.hasElevator
@@ -574,10 +600,12 @@ function StopHeader({ stop, offCount = 0 }: { stop: Stop; offCount?: number }): 
         <div style={{ color: C.acc, display: 'flex', flex: 'none', fontSize: 19, lineHeight: 1 }} title="Starting location">
           ▸
         </div>
-      ) : (
+      ) : canEdit ? (
         <div style={{ cursor: 'grab', color: '#a3adb1', display: 'flex', flex: 'none' }} title="Drag to reorder">
           <GripIcon />
         </div>
+      ) : (
+        <div style={{ width: 14, flex: 'none' }} />
       )}
       <span
         style={{
@@ -641,7 +669,7 @@ function OffGridBadge({ variant, count }: { variant: 'tag' | 'rollup'; count?: n
         <path d="M13.5 13.5l7 7M20.5 13.5v7h-7" />
       </svg>
       <span style={{ fontFamily: F.display, fontSize: 10, fontWeight: 600, letterSpacing: '0.14em' }}>
-        OFF GRID{rollup && count ? ` · ${count}` : ''}
+        OFF GRID{rollup && count ? ` ${count}` : ''}
       </span>
     </span>
   )
@@ -655,7 +683,7 @@ function PickupNote({ pickups }: { pickups?: string[] }): React.ReactElement | n
       title={`Pick up from ${uniq.join(', ')}`}
       style={{ fontFamily: F.body, fontSize: 11.5, color: C.acc, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}
     >
-      ↤ from {uniq.join(' · ')}
+      ↤ from {uniq.join(', ')}
     </span>
   )
 }
@@ -679,7 +707,7 @@ function ByContract({
 }: {
   contracts: ReturnType<typeof deriveContracts>
   showBoxMath: boolean
-  onEditBoxes: (contractId: string, objectiveId: string) => void
+  onEditBoxes?: (contractId: string, objectiveId: string) => void
 }): React.ReactElement {
   return (
     <div>
@@ -692,7 +720,7 @@ function ByContract({
                 {c.title}
               </div>
               <div style={{ fontFamily: F.body, fontSize: 12, color: C.dim, marginTop: 2 }}>
-                {c.pickup ? `Pickup · ${c.pickup} · ` : ''}max box {c.maxBox} SCU
+                {c.pickup ? `Pickup ${c.pickup}, ` : ''}max box {c.maxBox} SCU
               </div>
             </div>
             <div style={{ fontFamily: F.mono, fontSize: 15, color: C.text, textShadow: GLOW, flex: 'none' }}>
@@ -716,14 +744,7 @@ function ByContract({
               </div>
               {showBoxMath ? (
                 <div style={{ fontFamily: F.mono, fontSize: 13, color: '#b6bec0' }}>
-                  <span style={{ color: C.faint }}>· </span>
-                  <span
-                    onClick={() => onEditBoxes(c.id, o.objectiveId)}
-                    title="Click to edit the box sizes"
-                    style={{ cursor: 'pointer', borderBottom: '1px dashed rgba(255,255,255,0.22)' }}
-                  >
-                    {o.boxStr || '-'}
-                  </span>
+                  <BoxStr text={o.boxStr} onEdit={onEditBoxes && (() => onEditBoxes(c.id, o.objectiveId))} />
                 </div>
               ) : (
                 <div />
@@ -737,7 +758,7 @@ function ByContract({
   )
 }
 
-function EmptyState({ onAdd }: { onAdd: () => void }): React.ReactElement {
+function EmptyState({ onAdd }: { onAdd?: () => void }): React.ReactElement {
   return (
     <div
       style={{
@@ -753,6 +774,7 @@ function EmptyState({ onAdd }: { onAdd: () => void }): React.ReactElement {
       <div style={{ fontFamily: F.body, fontSize: 14, color: C.dim, maxWidth: 460, lineHeight: 1.6 }}>
         Accept a hauling contract in-game, or add one manually.
       </div>
+      {onAdd && (
       <Btn
         onClick={onAdd}
         style={{
@@ -771,7 +793,21 @@ function EmptyState({ onAdd }: { onAdd: () => void }): React.ReactElement {
       >
         + ADD CONTRACT
       </Btn>
+      )}
     </div>
+  )
+}
+
+function BoxStr({ text, onEdit }: { text: string; onEdit?: () => void }): React.ReactElement {
+  if (!onEdit) return <span>{text || '-'}</span>
+  return (
+    <span
+      onClick={onEdit}
+      title="Click to edit the box sizes"
+      style={{ cursor: 'pointer', borderBottom: '1px dashed rgba(255,255,255,0.22)' }}
+    >
+      {text || '-'}
+    </span>
   )
 }
 

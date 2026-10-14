@@ -2,7 +2,7 @@ import { app, BrowserWindow, ipcMain, dialog, shell, session, globalShortcut, sc
 import * as path from 'node:path'
 import * as fs from 'node:fs'
 import { IPC } from '@shared/channels'
-import type { AppSettings, ManifestDoc, HistoryDoc, OcrEditTally, OcrResult, BoxSizeReport } from '@shared/types'
+import type { AppSettings, ManifestDoc, HistoryDoc, OcrEditTally, OcrResult, OcrWaitState, BoxSizeReport, CrewSnapshot, CrewMember, CrewMirror } from '@shared/types'
 import { loadSettings, saveSettings, loadManifest, saveManifest, loadHistory, saveHistory, loadWindowState, saveWindowState } from './store'
 import { detectInstalls, orderChannels, channelFromPath } from './installDetect'
 import { LogWatcher } from './logWatcher'
@@ -19,6 +19,7 @@ import * as telemetry from './telemetry'
 import * as usageStats from './usageStats'
 import { ensureOtherIpc, routeAccepted } from '@other/main/register'
 import * as boxReports from './boxReports'
+import * as crew from './crew'
 import appIcon from '../../resources/icon.png?asset'
 
 let mainWindow: BrowserWindow | null = null
@@ -381,6 +382,11 @@ async function runOcrTracked(): Promise<OcrResult> {
 // pushed back over ipc so the renderer can merge it in
 async function runOcrAndPush(targetMissionId?: string): Promise<void> {
   if (ocrBusy) return
+  // hotkey mid-wait: screen's up, snap now
+  if (!targetMissionId && waitCapture) {
+    waitCapture.snapNow()
+    return
+  }
   ocrBusy = true
   send(IPC.evtOcrStatus, 'recognizing')
   try {
@@ -401,6 +407,80 @@ async function runOcrAndPush(targetMissionId?: string): Promise<void> {
     ocrBusy = false
     send(IPC.evtOcrStatus, 'idle')
   }
+}
+
+// shared accept fires before mobiGlas is open
+let waitCapture: {
+  missionId: string
+  timer: ReturnType<typeof setTimeout> | null
+  cancelled: boolean
+  snapNow: () => void
+} | null = null
+
+const WAIT_RETRY_MS = 3000
+const WAIT_DEADLINE_MS = 40000 // renderer's capture net gives up at 45s, stay under it
+
+function stopWaitCapture(): void {
+  if (!waitCapture) return
+  waitCapture.cancelled = true
+  if (waitCapture.timer) clearTimeout(waitCapture.timer)
+  waitCapture = null
+  broadcast(IPC.evtOcrWait, { active: false })
+}
+
+function startWaitCapture(missionId: string, info: Omit<OcrWaitState, 'active' | 'missionId'>): void {
+  stopWaitCapture()
+  const state: NonNullable<typeof waitCapture> = {
+    missionId,
+    timer: null,
+    cancelled: false,
+    snapNow: () => {}
+  }
+  waitCapture = state
+  broadcast(IPC.evtOcrWait, { ...info, active: true, missionId })
+  send(IPC.evtOcrStatus, 'recognizing')
+  const deadline = Date.now() + WAIT_DEADLINE_MS
+  const attempt = async (force = false): Promise<void> => {
+    if (state.cancelled) return
+    if (ocrBusy) {
+      state.timer = setTimeout(() => void attempt(force), 1000)
+      return
+    }
+    ocrBusy = true
+    let result: OcrResult | null = null
+    try {
+      result = await runOcrTracked()
+    } catch {
+      // stays null
+    } finally {
+      ocrBusy = false
+    }
+    if (state.cancelled) return
+    const onScreen = !!result?.ok && result.objectives.length > 0
+    if (onScreen || force || Date.now() >= deadline) {
+      stopWaitCapture()
+      send(IPC.evtOcrResult, {
+        ...(result ?? {
+          ok: false,
+          engine: settings.ocrEngine || 'tesseract',
+          ms: 0,
+          confidence: 0,
+          rawText: '',
+          objectives: [],
+          error: 'screen capture failed'
+        }),
+        targetMissionId: missionId
+      })
+      send(IPC.evtOcrStatus, 'idle')
+      return
+    }
+    state.timer = setTimeout(() => void attempt(), WAIT_RETRY_MS)
+  }
+  state.snapNow = () => {
+    if (state.timer) clearTimeout(state.timer)
+    void attempt(true)
+  }
+  state.timer = setTimeout(() => void attempt(), WAIT_RETRY_MS)
 }
 
 // let contract panel render first
@@ -555,6 +635,21 @@ function registerIpc(): void {
     return true
   })
 
+  const crewHandlers = {
+    status: (up: boolean, error?: string) => send(IPC.evtCrewStatus, { up, error }),
+    members: (m: CrewMember[]) => send(IPC.evtCrewMembers, m)
+  }
+  ipcMain.handle(IPC.crewStart, (_e, name: string) => crew.startCrew(name, crewHandlers))
+  ipcMain.handle(IPC.crewJoin, (_e, p: { code: string; name: string }) =>
+    crew.joinCrew(p.code, p.name, {
+      ...crewHandlers,
+      snapshot: (snap: CrewSnapshot) => send(IPC.evtCrewSnapshot, snap)
+    })
+  )
+  ipcMain.handle(IPC.crewLeave, () => crew.leaveCrew())
+  ipcMain.handle(IPC.crewEnd, () => crew.endCrew())
+  ipcMain.handle(IPC.crewPublish, (_e, snap: Omit<CrewSnapshot, 'rev'>) => crew.publish(snap))
+
   ipcMain.handle(IPC.compactShow, () => showCompact())
   ipcMain.handle(IPC.compactHide, () => hideCompact())
   ipcMain.handle(IPC.compactIsOpen, () =>
@@ -566,6 +661,8 @@ function registerIpc(): void {
     positionCompact()
   })
   // mirror loading walkthrough to overlay
+  ipcMain.on(IPC.crewMirror, (e, m: CrewMirror) => broadcast(IPC.evtCrewMirror, m, e.sender.id))
+  ipcMain.on(IPC.crewMirrorAsk, (e) => broadcast(IPC.evtCrewMirrorAsk, null, e.sender.id))
   ipcMain.on(IPC.loadingStateSet, (e, s: { active: boolean; idx: number }) => {
     broadcast(IPC.evtLoadingState, s, e.sender.id)
   })
@@ -643,8 +740,15 @@ function registerIpc(): void {
   ipcMain.handle(IPC.ocrPreview, () => capturePreview(settings))
   ipcMain.handle(IPC.ocrRun, () => runOcrTracked())
   // only for genuinely-new hauling contracts
-  ipcMain.on(IPC.ocrRequestCapture, (_e, missionId: unknown) => {
-    scheduleAutoCapture(typeof missionId === 'string' ? missionId : undefined)
+  ipcMain.on(IPC.ocrRequestCapture, (_e, missionId: unknown, wait: unknown) => {
+    const id = typeof missionId === 'string' ? missionId : undefined
+    // recapture cancels the wait
+    stopWaitCapture()
+    if (id && wait && typeof wait === 'object') {
+      startWaitCapture(id, wait as Omit<OcrWaitState, 'active' | 'missionId'>)
+    } else {
+      scheduleAutoCapture(id)
+    }
   })
   ipcMain.handle(
     IPC.ocrSaveSample,

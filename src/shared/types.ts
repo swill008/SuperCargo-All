@@ -20,9 +20,9 @@ export interface BoxAllocation {
   count: number
 }
 
-/** a contract dropoff marker's coords, pulled from the CreateMarker log line */
-export interface MarkerDropoff {
-  /** dropoff index within the mission (dropoff_<uuid>_N) */
+/** from the CreateMarker log line */
+export interface MarkerPoint {
+  /** the N in pickup_<uuid>_N */
   index: number
   x: number
   y: number
@@ -36,8 +36,8 @@ export interface DeliveryObjective {
   destination: string
   /** empty = use contract pickup */
   pickups?: string[]
-  /** full pickup list before the last-pickup-only collapse; present = collapsed */
-  originalPickups?: string[]
+  /** parallel to pickups; null = not counted */
+  pickupScu?: (number | null)[]
   destinationFull?: string
   boxes: BoxAllocation[]
   /** pre-edit breakdown, stamped on first hand edit; absent = never corrected */
@@ -91,12 +91,10 @@ export interface HaulingContract {
   commodityBoxSizes?: Record<string, number>
   /** pre-edit max box, stamped on first hand edit */
   originalMaxBoxSize?: number
-  /** all cargo at the last listed pickup (game bug); objectives stay collapsed while set */
-  lastPickupOnly?: boolean
-  /** user flipped the pickup-bug toggle by hand; feeds override authoring */
-  lastPickupOnlyManual?: boolean
   /** dropoff marker coords from the log, for recovering a destination the game left unresolved */
-  markerDropoffs?: MarkerDropoff[]
+  markerDropoffs?: MarkerPoint[]
+  /** in slot order */
+  markerPickups?: MarkerPoint[]
 }
 
 /** per-channel Game.log path */
@@ -152,6 +150,8 @@ export interface AppSettings {
   /** keep + upload each confirmed capture to train the shared OCR model */
   contributeTrainingData: boolean
   telemetryClientId: string
+  /** just a label, not an account */
+  crewName: string
 
   /** anonymous usage snapshot on launch; on by default */
   shareUsageStats: boolean
@@ -275,6 +275,9 @@ export interface RouteLoadLine {
   totalBreakdown: string
   destination: string
   multiPickup: boolean
+  /** -1 = not a split haul */
+  pickupIndex: number
+  counted: boolean
   objectiveId: string
   contractId: string
   /** 1-based trip for this objective */
@@ -401,9 +404,8 @@ export interface ContractAcceptedEvent {
   maxBoxSize?: number
   /** per-commodity max box size (lowercased name), from contract overrides */
   commodityBoxSizes?: Record<string, number>
-  /** bugged multi-pickup class: everything spawns at the last pickup; from contract overrides */
-  lastPickupOnly?: boolean
-  markerDropoffs?: MarkerDropoff[]
+  markerDropoffs?: MarkerPoint[]
+  markerPickups?: MarkerPoint[]
 }
 
 /** community-sourced fix for a contract whose real box sizes differ from the defaults */
@@ -417,8 +419,6 @@ export interface ContractOverride {
   maxBoxSize?: number
   /** commodity name -> max box size */
   commodities?: Record<string, number>
-  /** all cargo at the last listed pickup (game bug); collapse the others */
-  lastPickupOnly?: boolean
 }
 
 /** sent once, when a contract with hand-corrected box sizes ends */
@@ -446,10 +446,6 @@ export interface BoxSizeReport {
     originalBoxes?: BoxAllocation[]
     delivered: boolean
   }[]
-  /** pickup-bug collapse in effect when the contract ended */
-  lastPickupOnly?: boolean
-  /** collapse was toggled by hand, not by an override; authoring signal */
-  lastPickupOnlyManual?: boolean
 }
 
 export interface ObjectiveEvent {
@@ -545,6 +541,12 @@ export type BayDir = 'x+' | 'x-' | 'y+' | 'y-' | 'z+' | 'z-'
 export interface BayMarkup {
   id: string
   faces?: Partial<Record<BayDir, BayFaceKind>>
+  /** only read for ships the build doesn't know */
+  name?: string
+  /** SCU; absent = no cap */
+  maxSize?: number
+  /** false = shown, never auto-filled */
+  autoLoad?: boolean
   /** which combined hold this bay belongs to, bays sharing a group pack as one room; absent = use generated */
   group?: number
   /** position/size override correcting the generated layout; absent = use generated. */
@@ -651,6 +653,16 @@ export interface OcrResult {
   targetMissionId?: string
 }
 
+/** shared accept, hold for the screen */
+export interface OcrWaitState {
+  active: boolean
+  missionId?: string
+  title?: string
+  contractor?: string
+  rank?: string
+  pickup?: string
+}
+
 export interface OcrEngineInfo {
   id: string
   label: string
@@ -681,3 +693,45 @@ export type UpdateState =
   | { kind: 'downloading'; percent: number }
   | { kind: 'downloaded'; version: string }
   | { kind: 'error'; message: string }
+
+export interface CrewMirror {
+  doc: ManifestDoc
+  ship: string
+  installedModules: string[]
+  member: boolean
+}
+
+export interface CrewSnapshot {
+  /** members drop anything not newer */
+  rev: number
+  leader: string
+  ship: string
+  installedModules: string[]
+  manifest: ManifestDoc
+  /** as placed, hand-moves included */
+  boxes: FrozenBox[]
+  /** null = not in loading mode */
+  loadingIdx: number | null
+  /** mismatched build renders the grid wrong */
+  appVersion: string
+  gridFacesHash: string
+}
+
+export type CrewRole = 'leader' | 'member'
+
+export interface CrewMember {
+  name: string
+  role: CrewRole
+  /** two people can share a name */
+  id: string
+}
+
+export interface CrewState {
+  role: CrewRole | null
+  code: string
+  connected: boolean
+  /** epoch ms */
+  lastAt: number
+  members: CrewMember[]
+  error?: string
+}

@@ -1,7 +1,7 @@
 /**
  * Map Game.log accept / objective lines onto Other-mode jobs.
  *
- * Haul generators stay with stock SuperCargo (isHaulingGenerator).
+ * Haul generators stay with stock SuperCargo (isHaulingContract).
  * This file only classifies everything else.
  *
  * Tested against Stacie's LIVE Game.log (2026-09-12):
@@ -11,7 +11,7 @@
  *   Go to X / Neutralize X
  */
 import type { Location } from '@shared/types'
-import { isHaulingGenerator } from '@shared/contract'
+import { isHaulingContract } from '@shared/contract'
 import type { OtherJobKind, OtherStep, OtherStepKind } from '@other/otherJob'
 import { snapOtherLocation } from '@other/otherLocationSnap'
 
@@ -32,10 +32,10 @@ export function isOtherGenerator(generator: string | undefined | null): boolean 
   return !!generator
 }
 
-export function kindFromGenerator(generator: string, title = ''): OtherJobKind {
+export function kindFromGenerator(generator: string, title = '', contractName = ''): OtherJobKind {
   const g = generator.toLowerCase()
   const t = title.toLowerCase()
-  if (isHaulingGenerator(generator) || /haul/.test(t)) return 'hauling'
+  if (isHaulingContract(generator, contractName, title) || /haul/.test(t)) return 'hauling'
   if (/salvage/.test(g) || /salvage/.test(t)) return 'salvage'
   if (/mining|resourcegathering/.test(g) && !/salvage/.test(g)) return 'mining'
   if (/recover|collector/.test(g) || /retriev|recover|ranta|collection/.test(t)) return 'collection'

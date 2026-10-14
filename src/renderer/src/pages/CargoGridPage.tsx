@@ -11,7 +11,7 @@ import { buildLoadingSteps, buildLoadEvents, filterDeferredSteps, loadProfile, w
 import { firstTripBudget, computeRoutePlan } from '../state/route'
 import { splitDestination } from '../data/stations'
 import { gridsFor, shipFrame, shipAnchored, offGridFor, gridCapacity, loadableGrids, type CargoGrid } from '@shared/cargoGrids'
-import type { BayDir } from '@shared/types'
+import type { BayDir, RouteLoadLine } from '@shared/types'
 import { packCargo, provePeel, type Placement, type PackBox } from '@shared/packer'
 import { setAsideToUnload, looseSummary, bucketDecision, type SetAside, type BucketDecision } from '@shared/loadout'
 import { listBreakdown, boxList } from '@shared/box'
@@ -19,7 +19,7 @@ import { fixtureMap, planHold } from '@shared/hold'
 import { packRun } from '@shared/walkPack'
 import { BOX_DIMS } from '@shared/boxGeometry'
 import type { FrozenBox, GridView, LoadedPin, StorAllCrate, BoxAllocation } from '@shared/types'
-import { Btn } from '../components/ui'
+import { Btn, ScuInput, useCanEdit } from '../components/ui'
 import BoxEditModal from '../components/BoxEditModal'
 import PageHeader, { PAGE_PADDING } from '../components/PageHeader'
 import Placeholder from '../components/Placeholder'
@@ -735,7 +735,7 @@ export default function CargoGridPage(): React.ReactElement {
         const step = base.find((s) => s.kind === 'load' && s.loadIds.includes(id))
         const line = step?.lines.find((l) => l.objectiveId === id)
         if (!step || !line) return { id, label: id }
-        return { id, label: `${line.commodity} · ${line.totalScu} SCU · ${step.code || step.label} → ${destLabelOf(line.destination)}` }
+        return { id, label: `${line.commodity} ${line.totalScu} SCU ${step.code || step.label} → ${destLabelOf(line.destination)}` }
       })
   }, [frozenSteps, liveSteps, deferredObjectives, tickedObj])
 
@@ -798,18 +798,22 @@ export default function CargoGridPage(): React.ReactElement {
     pins: Map<string, Placement>
     source: PackBox[]
   } | null>(null)
+  // already aboard, pins never move
+  const aboardObjectives = useMemo(
+    () =>
+      new Set(
+        contracts.flatMap((c) =>
+          c.objectives
+            .filter((o) => (o.pickedUpAt?.length ?? 0) > 0 && !o.delivered && o.turnedInScu === undefined)
+            .map((o) => o.id)
+        )
+      ),
+    [contracts]
+  )
   const loadingPack = useMemo(() => {
     if (!loadSteps.length) return null
     const source = frozenBoxes ?? applyDropSeq(packBoxes(contracts, order, true) as PackBox[])
-    // aboard cargo loads at step 0 (its pickup was dropped)
-    const aboardObjs = new Set(
-      contracts.flatMap((c) =>
-        c.objectives
-          .filter((o) => (o.pickedUpAt?.length ?? 0) > 0 && !o.delivered && o.turnedInScu === undefined)
-          .map((o) => o.id)
-      )
-    )
-    const events = buildLoadEvents(loadSteps, source, aboardObjs)
+    const events = buildLoadEvents(loadSteps, source, aboardObjectives)
     const looseIds = new Set(source.filter((b) => looseBoxes.includes(boxKey(b))).map((b) => b.id))
     // aboard cargo is locked where it loaded; re-plan packs around it, per bay floor axis
     const pins = new Map<string, Placement>()
@@ -842,7 +846,7 @@ export default function CargoGridPage(): React.ReactElement {
       count: s.placements.length + s.unplaced.length
     }))
     return { snaps, stepBoxes: events.map((e) => e.load), conc: whole.concessions.length }
-  }, [loadSteps, grids, contracts, order, frozenBoxes, looseBoxes, loadedPins, fixtures, spaceDeliveryPiles])
+  }, [loadSteps, grids, contracts, order, frozenBoxes, looseBoxes, loadedPins, fixtures, spaceDeliveryPiles, aboardObjectives])
 
   // pickup key per aboard box, so a frozen pin matches a hand-placed one
   const pickupKeyById = useMemo(() => {
@@ -889,6 +893,22 @@ export default function CargoGridPage(): React.ReactElement {
     const { homes } = packRun(grids, boxes, { gap: spaceDeliveryPiles ? 1 : 0, fixtures })
     return boxes.map((b) => freezeBox(objMeta, b, homes.get(b.id)))
   }, [livePack, grids, objMeta, spaceDeliveryPiles, fixtures])
+  // what the leader sees, hand-moves included
+  const setCrewBoxes = useStore((s) => s.setCrewBoxes)
+  const crewRole = useStore((s) => s.crew.role)
+  const canEdit = crewRole !== 'member'
+  useEffect(() => {
+    if (crewRole !== 'leader') return
+    const snap = loading && loadingPack ? loadingPack.snaps[loadIdx] : null
+    if (!snap) {
+      setCrewBoxes(plan)
+      return
+    }
+    const at = new Map(snap.placements.map((p) => [p.box.id, p]))
+    const shown = [...snap.placements.map((p) => p.box), ...snap.unplaced, ...snap.loose]
+    setCrewBoxes(shown.map((b) => freezeBox(objMeta, b, at.get(b.id))))
+  }, [crewRole, loading, loadingPack, loadIdx, plan, objMeta, setCrewBoxes])
+
   const result = useMemo(() => {
     const loadable = grids.filter((g) => g.autoLoad !== false)
     const capacity = loadable.reduce((a, g) => a + g.w * g.l * g.h, 0)
@@ -937,8 +957,6 @@ export default function CargoGridPage(): React.ReactElement {
     return loadingPack.snaps[at].loose
   }, [loading, loadingPack, loadIdx])
   const offGrid = useMemo(() => looseSummary(looseNow), [looseNow])
-  // heavy once off-grid cargo is a real slice of the hold, not a box or two
-  const offGridHeavy = result.capacity > 0 && offGrid.scu > result.capacity * 0.04
 
   // replan must never change what's visible at the same step; log what moved if it does
   const blinkRef = useRef<{ idx: number; ids: Set<string>; pins: number; loose: number; steps: number } | null>(null)
@@ -1629,9 +1647,17 @@ export default function CargoGridPage(): React.ReactElement {
       d: [...deferredObjectives].sort(),
       g: [...grabbedObjectives].sort(),
       l: [...looseBoxes].sort(),
-      c: crates.map((c) => c.size).sort((a, b) => a - b)
+      c: crates.map((c) => c.size).sort((a, b) => a - b),
+      // reorders and new contracts re-solve too
+      o: order,
+      k: contracts
+        .filter((c) => !c.pendingOcr)
+        .flatMap((c) => c.objectives.map((ob) => `${ob.id}|${ob.scuAmount}|${ob.destination}`))
+        .sort()
     })
   const lastSolvedSig = useRef('')
+  // re-solving per drag lags, wait for step forward
+  const layoutDirty = useRef(false)
   useEffect(() => {
     if (loading) lastSolvedSig.current = compositionSig()
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -1641,6 +1667,7 @@ export default function CargoGridPage(): React.ReactElement {
   const resolveTail = (fx?: Map<string, Placement>, replanCurrent = false): void => {
     const cur = loadSteps[loadIdx]
     if (!loading || !frozenSteps || !cur) return
+    layoutDirty.current = false
     const aboard = new Set<string>()
     // seed aboard from the live snap not pins, else a delivered box's stale pin re-boards it
     const curIds = new Set(cur.kind === 'load' ? cur.loadIds : [])
@@ -1688,6 +1715,11 @@ export default function CargoGridPage(): React.ReactElement {
       n++
     }
     setFrozenSteps(combined)
+    // rebuilt list shouldn't move the cursor
+    const anchor = combined.findIndex(
+      (f) => f.kind === cur.kind && f.nodeKey === cur.nodeKey && f.trip === cur.trip && f.boundFor === cur.boundFor
+    )
+    if (anchor >= 0 && anchor !== loadIdx) setLoadIdx(anchor)
     // re-seat existing boxes into the new drop order
     const nextBoxes = frozenBoxes
     if (nextBoxes)
@@ -1698,6 +1730,16 @@ export default function CargoGridPage(): React.ReactElement {
         })
       )
   }
+
+  // add/remove/reorder mid-load re-solves the tail
+  useEffect(() => {
+    if (!loading) return
+    const sig = compositionSig()
+    if (sig === lastSolvedSig.current) return
+    lastSolvedSig.current = sig
+    resolveTail()
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [loading, order, contracts])
 
   // does the open step's own cargo have a box with no seat?
   const curUnfit = useMemo(() => {
@@ -1787,6 +1829,7 @@ export default function CargoGridPage(): React.ReactElement {
           if (Object.keys(pins).length) {
             for (const key of Object.keys(pins)) if (looseBoxes.includes(key)) setBoxLoose(key, false)
             addLoadedPins(pins)
+            layoutDirty.current = true
           }
         }
         if (ghost.members) setSel(new Set())
@@ -1801,6 +1844,8 @@ export default function CargoGridPage(): React.ReactElement {
   }
 
   const startDrag = (key: string, pl: Placement, g: CargoGrid, e: ThreeEvent): void => {
+    // read-only for crew
+    if (!canEdit) return
     const ne = e.nativeEvent
     if (ne.ctrlKey || ne.metaKey || ne.shiftKey) {
       setSel((s) => {
@@ -2007,11 +2052,13 @@ export default function CargoGridPage(): React.ReactElement {
   useEffect(() => {
     if (!loading || !frozenSteps) return
     for (const [key, p] of Object.entries(loadedPins)) {
+      // re-plan can renumber the trip, box is still aboard
+      if (aboardObjectives.has(key.split('#')[0])) continue
       // unknown key = squatter; ahead-of-cursor pins are the rewind's job, don't race the re-solve
       if (!stepPos.byPickup.has(p.pickupKey)) clearLoadedPin(key)
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [loading, frozenSteps, stepPos, loadedPins])
+  }, [loading, frozenSteps, stepPos, loadedPins, aboardObjectives])
 
   // every box gets pinned on show so the re-solver can't shuffle it; a delivery can still drop its floor, so the pin follows the settled snap down
   useEffect(() => {
@@ -2102,7 +2149,7 @@ export default function CargoGridPage(): React.ReactElement {
   if (visibleCount === 0 && !loading) {
     return (
       <div style={{ padding: PAGE_PADDING }}>
-        <PageHeader title="CARGO GRID" subtitle={`${activeShip} · 3D load plan`} />
+        <PageHeader title="CARGO GRID" subtitle={`${activeShip} 3D load plan`} />
         <Placeholder
           phase="Cargo Grid"
           lines={[
@@ -2121,7 +2168,7 @@ export default function CargoGridPage(): React.ReactElement {
     <div style={{ padding: PAGE_PADDING, display: 'flex', flexDirection: 'column', height: '100%', minHeight: 0 }}>
       <PageHeader
         title="CARGO GRID"
-        subtitle={`${activeShip}${loading ? ' · loading' : ' · load planner'}`}
+        subtitle={`${activeShip}${loading ? ' loading' : ' load planner'}`}
       />
 
       <div style={{ display: 'flex', gap: 18, alignItems: 'baseline', flexWrap: 'wrap', margin: '2px 0 10px' }}>
@@ -2135,7 +2182,7 @@ export default function CargoGridPage(): React.ReactElement {
           {over
             ? '▲ OVER CAPACITY (overflow not shown)'
             : result.squeezed
-              ? '✓ FITS · PACKED TIGHT'
+              ? '✓ PACKED TIGHT'
               : '✓ EVERYTHING FITS'}
         </span>
         {loading && offGrid.count > 0 && (
@@ -2145,7 +2192,6 @@ export default function CargoGridPage(): React.ReactElement {
           >
             <OffGridGlyph />
             <span style={{ fontFamily: F.mono }}>off grid {offGrid.count} {offGrid.count === 1 ? 'box' : 'boxes'} / {fmt(offGrid.scu)} SCU</span>
-            {offGridHeavy && <span style={{ fontStyle: 'italic', color: C.amber }}>· watch your total</span>}
           </span>
         )}
       </div>
@@ -2163,6 +2209,7 @@ export default function CargoGridPage(): React.ReactElement {
               key={`${currentLoad?.kind ?? 'done'}-${loadIdx}`}
               step={currentLoad}
               steps={loadSteps}
+              readOnly={!canEdit}
               objColors={objColor}
               loose={looseNow}
               setAside={setAside}
@@ -2220,9 +2267,21 @@ export default function CargoGridPage(): React.ReactElement {
               idx={loadIdx}
               total={loadSteps.length}
               turnedIn={turnedIn}
-              onTurnIn={(entries) => turnInDestination(entries)}
+              onTurnIn={(entries) => {
+                turnInDestination(entries)
+                // advance once the whole drop is handled
+                const cur = loadSteps[loadIdx]
+                if (cur?.kind === 'drop') {
+                  const done = new Set(entries.map((e) => e.objectiveId))
+                  if (cur.dropIds.every((id) => done.has(id) || turnedIn[id] !== undefined)) setLoadIdx((i) => i + 1)
+                }
+              }}
               onUnmark={(ids) => unmarkTurnIn(ids)}
               onLoaded={() => {
+                if (!canEdit) {
+                  setLoadIdx((i) => Math.min(i + 1, loadSteps.length - 1))
+                  return
+                }
                 // ticks manifest pickups and locks each box where the plan put it
                 if (currentLoad?.kind === 'load') {
                   const key = pickupVisitKey(currentLoad.nodeKey, currentLoad.trip)
@@ -2243,13 +2302,17 @@ export default function CargoGridPage(): React.ReactElement {
                     addLoadedPins(pins)
                   }
                 }
-                // re-pack only when inputs changed since last checkpoint; won't-fit already resolved on arrival
+                // rearranged layout counts from here
                 const sig = compositionSig()
-                if (sig !== lastSolvedSig.current) resolveTail()
+                if (sig !== lastSolvedSig.current || layoutDirty.current) resolveTail()
                 lastSolvedSig.current = sig
                 setLoadIdx((i) => i + 1)
               }}
               onBack={() => {
+                if (!canEdit) {
+                  setLoadIdx((i) => Math.max(0, i - 1))
+                  return
+                }
                 // re-opens the step you land on; the back-movement effect unwinds the rest
                 const prev = loadSteps[loadIdx - 1]
                 if (prev?.kind === 'load')
@@ -2304,7 +2367,7 @@ export default function CargoGridPage(): React.ReactElement {
           }}
           style={{ position: 'relative', flex: 1, minHeight: portrait ? 170 : 320, border: `1px solid ${C.line}`, borderRadius: 6, overflow: 'hidden', background: 'radial-gradient(ellipse at 50% 40%, #06090b, #000)' }}
         >
-        {loading && (shiftHeld || marquee) && (
+        {loading && canEdit && (shiftHeld || marquee) && (
           <div
             onPointerDown={onMarqueeDown}
             onPointerMove={onMarqueeMove}
@@ -2327,7 +2390,7 @@ export default function CargoGridPage(): React.ReactElement {
             )}
           </div>
         )}
-        {loading && (
+        {loading && canEdit && (
           <Btn
             onClick={() => {
               if (!confirmReset) {
@@ -2356,10 +2419,10 @@ export default function CargoGridPage(): React.ReactElement {
             }}
             hoverStyle={{ border: `1px solid ${C.red}`, background: 'rgba(236,116,112,0.10)' }}
           >
-            {confirmReset ? 'CONFIRM · RESET' : 'RESET ROUTE'}
+            {confirmReset ? 'CONFIRM RESET' : 'RESET ROUTE'}
           </Btn>
         )}
-        {loading && (
+        {loading && canEdit && (
           <Btn
             onClick={() => setShelfOpen((v) => !v)}
             title="Park Stor-All crates for personal storage"
@@ -2388,7 +2451,7 @@ export default function CargoGridPage(): React.ReactElement {
             {dropNotice}
           </div>
         )}
-        {loading && shelfOpen && (
+        {loading && canEdit && shelfOpen && (
           <div style={{ position: 'absolute', top: 10, left: 10, zIndex: 4, display: 'flex', flexDirection: 'column', gap: 6, background: 'rgba(8,12,16,0.94)', border: `1px solid ${C.lineStrong}`, borderRadius: 6, padding: 10, maxWidth: 190 }}>
             <span style={{ fontFamily: F.display, fontSize: 10.5, fontWeight: 600, letterSpacing: '0.16em', color: STOR_ORANGE }}>
               STOR-ALL
@@ -2411,7 +2474,7 @@ export default function CargoGridPage(): React.ReactElement {
             </span>
           </div>
         )}
-        {loading && (
+        {loading && canEdit && (
           <div style={{ position: 'absolute', bottom: 10, left: 10, zIndex: 4, pointerEvents: 'none', background: 'rgba(8,12,16,0.82)', border: `1px solid ${C.lineFaint}`, borderRadius: 6, padding: '8px 11px', fontFamily: F.mono, fontSize: 10.5, lineHeight: 1.7, color: C.dim, display: 'flex', flexDirection: 'column' }}>
             {[
               ['Drag', 'move a box'],
@@ -2426,7 +2489,7 @@ export default function CargoGridPage(): React.ReactElement {
             ))}
           </div>
         )}
-        {loading && (
+        {loading && canEdit && (
           <Btn
             onClick={() => void updateSettings({ spaceDeliveryPiles: !spaceDeliveryPiles })}
             title="Experimental: leave a gap between cargo for different stops, when there's room"
@@ -2449,11 +2512,11 @@ export default function CargoGridPage(): React.ReactElement {
           >
             <span style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-end', gap: 1, lineHeight: 1.15 }}>
               <span style={{ fontSize: 8, letterSpacing: '0.18em', color: C.amber, opacity: 0.85 }}>EXPERIMENTAL</span>
-              <span>INCLUDE GAPS · {spaceDeliveryPiles ? 'ON' : 'OFF'}</span>
+              <span>INCLUDE GAPS {spaceDeliveryPiles ? 'ON' : 'OFF'}</span>
             </span>
           </Btn>
         )}
-        {!loading && (
+        {!loading && canEdit && (
           <div
             style={{
               position: 'absolute',
@@ -2789,7 +2852,7 @@ export default function CargoGridPage(): React.ReactElement {
           >
             <div style={{ fontWeight: 600 }}>{hover.commodity}</div>
             <div style={{ color: C.dim, fontSize: 12 }}>
-              {hover.size} SCU · {hover.dest}
+              {hover.size} SCU {hover.dest}
             </div>
           </div>
         )}
@@ -2861,7 +2924,8 @@ function LoadingPanel({
   onEditBoxes,
   onRepack,
   onExit,
-  onRestart
+  onRestart,
+  readOnly
 }: {
   step: LoadingStep | undefined
   steps: LoadingStep[]
@@ -2894,6 +2958,7 @@ function LoadingPanel({
   onRepack: () => void
   onExit: () => void
   onRestart: () => void
+  readOnly: boolean
 }): React.ReactElement {
   const isDrop = step?.kind === 'drop'
   const { series, peak } = useMemo(() => loadProfile(steps), [steps])
@@ -2945,22 +3010,24 @@ function LoadingPanel({
     return (
       <div style={{ border: `1px solid ${C.green}`, borderRadius: 6, padding: '14px 16px', height: '100%', boxSizing: 'border-box', display: 'flex', alignItems: 'center', gap: 14, flexWrap: 'wrap' }}>
         <span style={{ fontFamily: F.display, fontSize: 14, fontWeight: 600, letterSpacing: '0.1em', color: C.green, textShadow: GLOW }}>
-          ✓ ROUTE WALKED · {total} STEPS
+          ✓ ROUTE WALKED - {total} STEPS
         </span>
         <span style={{ fontFamily: F.body, fontSize: 12.5, color: C.dim }}>
           Start over to walk it again, or exit back to the full load plan.
         </span>
         <span style={{ marginLeft: 'auto', display: 'inline-flex', gap: 8, flexWrap: 'wrap' }}>
           {navBtn('BACK', onBack, idx === 0)}
-          {navBtn('START OVER', onRestart)}
-          {navBtn('EXIT', onExit)}
+          {!readOnly && navBtn('START OVER', onRestart)}
+          {!readOnly && navBtn('EXIT', onExit)}
         </span>
       </div>
     )
   }
 
   const isLoad = step.kind === 'load'
-  const blockAdvance = blockKind != null
+  // can't pack what nobody's counted
+  const uncounted = step.kind === 'load' && step.lines.some((l) => l.multiPickup && !l.counted)
+  const blockAdvance = blockKind != null || uncounted
   const destLabel = destLabelOf(step.boundFor)
   // contiguous steps at this location
   let visitStart = idx
@@ -2988,14 +3055,16 @@ function LoadingPanel({
 
   return (
     <div style={{ position: 'relative', border: `1px solid ${C.acc}`, borderRadius: 6, background: C.accFill, height: '100%', boxSizing: 'border-box', display: 'flex', flexDirection: 'column', overflow: 'hidden' }}>
-      <Btn
-        onClick={onExit}
-        title="Exit loading mode"
-        style={{ position: 'absolute', top: 8, right: 8, zIndex: 2, width: 30, height: 30, display: 'flex', alignItems: 'center', justifyContent: 'center', border: `1px solid ${C.lineStrong}`, background: 'rgba(0,0,0,0.25)', color: C.dim, fontFamily: F.display, fontSize: 18, lineHeight: 1, cursor: 'pointer' }}
-        hoverStyle={{ color: C.text, border: `1px solid ${C.acc}` }}
-      >
-        ✕
-      </Btn>
+      {!readOnly && (
+        <Btn
+          onClick={onExit}
+          title="Exit loading mode"
+          style={{ position: 'absolute', top: 8, right: 8, zIndex: 2, width: 30, height: 30, display: 'flex', alignItems: 'center', justifyContent: 'center', border: `1px solid ${C.lineStrong}`, background: 'rgba(0,0,0,0.25)', color: C.dim, fontFamily: F.display, fontSize: 18, lineHeight: 1, cursor: 'pointer' }}
+          hoverStyle={{ color: C.text, border: `1px solid ${C.acc}` }}
+        >
+          ✕
+        </Btn>
+      )}
       <div style={{ display: 'flex', alignItems: 'baseline', gap: 12, flexWrap: 'wrap', padding: '14px 44px 10px 16px', flex: 'none' }}>
         <span style={{ fontFamily: F.display, fontSize: 12, letterSpacing: '0.18em', color: C.acc }}>
           STEP {steps[0]?.start ? idx : idx + 1} / {steps[0]?.start ? total - 1 : total}
@@ -3004,16 +3073,18 @@ function LoadingPanel({
           STOP {stopNum} / {stopTotal}
         </span>
         <span style={{ fontFamily: F.display, fontSize: 16, fontWeight: 600, color: C.text, textShadow: GLOW }}>
-          {step.code && step.code.toLowerCase() !== step.label.toLowerCase() ? `${step.code} · ` : ''}{step.label}
+          {step.code && step.code.toLowerCase() !== step.label.toLowerCase() ? `${step.code} ` : ''}{step.label}
         </span>
-        <Btn
-          onClick={onRepack}
-          title="Boxes missing or doubled up? Re-plan this step without moving"
-          style={{ marginLeft: 'auto', border: `1px solid ${C.lineStrong}`, background: 'transparent', color: C.dim, fontFamily: F.display, fontSize: 10, fontWeight: 600, letterSpacing: '0.14em', padding: '5px 10px', cursor: 'pointer' }}
-          hoverStyle={{ color: C.text, border: `1px solid ${C.acc}` }}
-        >
-          REPACK
-        </Btn>
+        {!readOnly && (
+          <Btn
+            onClick={onRepack}
+            title="Boxes missing or doubled up? Re-plan this step without moving"
+            style={{ marginLeft: 'auto', border: `1px solid ${C.lineStrong}`, background: 'transparent', color: C.dim, fontFamily: F.display, fontSize: 10, fontWeight: 600, letterSpacing: '0.14em', padding: '5px 10px', cursor: 'pointer' }}
+            hoverStyle={{ color: C.text, border: `1px solid ${C.acc}` }}
+          >
+            REPACK
+          </Btn>
+        )}
       </div>
 
       <div style={{ padding: '0 16px 10px', flex: 'none' }}>
@@ -3071,13 +3142,14 @@ function LoadingPanel({
                 {isPast && <span style={{ marginLeft: 'auto', fontFamily: F.body, fontSize: 11, color: C.green }}>✓ done</span>}
               </div>
               <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
-                {s.lines.map((l) =>
+                {s.lines.map((l, i) =>
                   load ? (
                     <LoadLineRow
                       key={l.objectiveId}
                       line={l}
                       color={objColors.get(l.objectiveId)}
-                      onEdit={isCurrent ? () => onEditBoxes(l) : undefined}
+                      onEdit={isCurrent && !readOnly ? () => onEditBoxes(l) : undefined}
+                      showTell={i === 0 || s.lines[i - 1].contractId !== l.contractId}
                     />
                   ) : !isFinalChunk(l) ? (
                     <SplitDropRow key={l.objectiveId} line={l} />
@@ -3087,7 +3159,7 @@ function LoadingPanel({
                 )}
               </div>
               {!load && <GrabOffGrid loose={loose} dropIds={s.dropIds} />}
-              {load && isCurrent && (
+              {load && isCurrent && !readOnly && (
                 <PickupDecision
                   decision={bucketDecision(setAside, unplaced, new Set(s.loadIds))}
                   destLabel={destLabelOf(s.boundFor)}
@@ -3103,17 +3175,17 @@ function LoadingPanel({
         })}
       </div>
 
-      {isLoad && grab && (
+      {isLoad && grab && !readOnly && (
         <div style={{ margin: '0 16px', padding: '10px 0 8px', borderTop: `1px solid ${C.lineFaint}`, flex: 'none' }}>
           <div style={{ fontFamily: F.display, fontSize: 11.5, fontWeight: 700, letterSpacing: '0.12em', color: C.amber }}>
-            ALSO HERE · SKIP THE RETURN
+            ALSO AT THIS LOCATION
           </div>
           <div style={{ fontFamily: F.mono, fontSize: 11, color: C.body, margin: '4px 0 8px' }}>
-            {grab.count} boxes / {grab.scu} SCU are set for a return at step {grab.stepNo}. Grab them now and skip that stop.
+            {grab.count} boxes / {grab.scu} SCU planned for step {grab.stepNo}
           </div>
           {grab.offGrid && (
             <div style={{ fontFamily: F.mono, fontSize: 11, color: '#ec7470', margin: '0 0 8px' }}>
-              the grid only seats part of it: {grab.offGrid.count} boxes / {grab.offGrid.scu} SCU go OFF GRID
+              {grab.offGrid.count} boxes / {grab.offGrid.scu} SCU go off grid
             </div>
           )}
           <Btn
@@ -3121,19 +3193,19 @@ function LoadingPanel({
             style={{ width: '100%', border: `1px solid ${C.amber}`, background: 'rgba(255,180,60,0.1)', color: C.text, fontFamily: F.display, fontSize: 12, fontWeight: 600, letterSpacing: '0.14em', padding: 8, cursor: 'pointer' }}
             hoverStyle={{ background: 'rgba(255,180,60,0.22)' }}
           >
-            {grab.offGrid ? 'GRAB IT NOW · EXTRAS OFF GRID' : 'GRAB IT NOW'}
+            GRAB IT NOW
           </Btn>
         </div>
       )}
-      {isLoad && grabbedHere.length > 0 && (
+      {isLoad && grabbedHere.length > 0 && !readOnly && (
         <div style={{ padding: '0 16px 8px', fontFamily: F.mono, fontSize: 10.5, color: C.dim, flex: 'none' }}>
-          grabbed early cargo is in this load ·{' '}
+          grabbed early cargo is in this load{' '}
           <span style={{ color: C.amber, cursor: 'pointer' }} onClick={() => onUngrab(grabbedHere)}>
             undo
           </span>
         </div>
       )}
-      {deferred.length > 0 && (
+      {deferred.length > 0 && !readOnly && (
         <div style={{ margin: '0 16px', padding: '9px 0 8px', borderTop: `1px solid ${C.lineFaint}`, flex: 'none' }}>
           <div style={{ fontFamily: F.display, fontSize: 10, fontWeight: 700, letterSpacing: '0.18em', color: C.ghost, marginBottom: 7 }}>
             COMING BACK LATER
@@ -3150,7 +3222,7 @@ function LoadingPanel({
           </div>
         </div>
       )}
-      {blockKind && (
+      {blockKind && !readOnly && (
         <div style={{ margin: '0 16px', padding: '9px 11px', border: `1px solid ${C.amber}`, borderRadius: 5, background: 'rgba(201,176,126,0.08)', flex: 'none' }}>
           <span style={{ fontFamily: F.body, fontSize: 12, lineHeight: 1.5, color: C.amber }}>
             {blockKind === 'overload'
@@ -3161,15 +3233,20 @@ function LoadingPanel({
       )}
       <div style={{ display: 'flex', gap: 8, padding: '10px 16px 14px', flex: 'none', borderTop: `1px solid ${C.lineFaint}` }}>
         {arrowBtn('‹', onBack, idx === 0)}
-        {isLoad ? (
+        {readOnly ? (
+          <>
+            <span style={{ flex: 1 }} />
+            {arrowBtn('›', onLoaded, idx >= total - 1)}
+          </>
+        ) : isLoad ? (
           <Btn
             onClick={onLoaded}
             disabled={blockAdvance}
-            title={blockAdvance ? 'Make the call above first' : undefined}
+            title={uncounted ? 'Enter the SCU at this stop' : undefined}
             style={{ flex: 1, border: `1px solid ${blockAdvance ? C.lineStrong : C.acc}`, background: blockAdvance ? 'transparent' : C.accFillStrong, color: blockAdvance ? C.ghost : C.text, textShadow: blockAdvance ? 'none' : GLOW, fontFamily: F.display, fontSize: 13, fontWeight: 600, letterSpacing: '0.16em', padding: 11, cursor: blockAdvance ? 'default' : 'pointer' }}
             hoverStyle={blockAdvance ? {} : { background: 'rgba(255,210,30,0.26)' }}
           >
-            {step?.start ? 'HEAD OUT' : blockKind === 'overload' ? "WON'T FIT · DECIDE ABOVE" : blockKind === 'digout' ? 'DIG-OUT · DECIDE ABOVE' : 'LOADED · NEXT'}
+            {step?.start ? 'HEAD OUT' : blockKind === 'overload' ? "WON'T FIT" : blockKind === 'digout' ? 'DIG-OUT' : uncounted ? 'COUNT THE SCU' : 'LOADED'}
           </Btn>
         ) : (
           <>
@@ -3178,7 +3255,7 @@ function LoadingPanel({
               style={{ flex: 1, border: `1px solid ${anyTurnedIn ? C.green : C.acc}`, background: anyTurnedIn ? 'rgba(95,208,137,0.12)' : C.accFillStrong, color: anyTurnedIn ? C.green : C.text, textShadow: GLOW, fontFamily: F.display, fontSize: 13, fontWeight: 600, letterSpacing: '0.14em', padding: 11, cursor: 'pointer' }}
               hoverStyle={{ background: anyTurnedIn ? 'rgba(95,208,137,0.2)' : 'rgba(255,210,30,0.26)' }}
             >
-              {anyTurnedIn ? 'TURNED IN · EDIT' : 'TURN IN'}
+              {anyTurnedIn ? 'TURNED IN - EDIT' : 'TURN IN'}
             </Btn>
             {arrowBtn('›', onLoaded)}
           </>
@@ -3211,30 +3288,35 @@ function LoadingPanel({
 
 function destLabelOf(destination: string): string {
   const d = splitDestination(destination)
-  return d.code ? `${d.code} · ${d.name}` : d.name || destination
+  return d.code ? `${d.code} ${d.name}` : d.name || destination
 }
 
 function LoadLineRow({
   line,
   color,
-  onEdit
+  onEdit,
+  showTell = true
 }: {
   line: LoadingStep['lines'][number]
   color?: string
   onEdit?: () => void
+  // one find per contract, not per commodity
+  showTell?: boolean
 }): React.ReactElement {
   return (
     <div>
-      <div style={{ display: 'flex', alignItems: 'baseline', gap: 8, flexWrap: 'wrap' }}>
-        <span style={{ fontFamily: F.mono, fontSize: 11, color: C.acc }}>{line.ref}</span>
-        {line.tell ? (
-          <span style={{ fontFamily: F.body, fontSize: 13, color: C.textBody }}>
-            Find the contract with <b style={{ color: C.text }}>{line.tell}</b>
-          </span>
-        ) : (
-          <span style={{ fontFamily: F.body, fontSize: 13, color: C.amber }}>⚠ No standout box, match the whole set</span>
-        )}
-      </div>
+      {showTell && (
+        <div style={{ display: 'flex', alignItems: 'baseline', gap: 8, flexWrap: 'wrap' }}>
+          <span style={{ fontFamily: F.mono, fontSize: 11, color: C.acc }}>{line.ref}</span>
+          {line.tell ? (
+            <span style={{ fontFamily: F.body, fontSize: 13, color: C.textBody }}>
+              Find the contract with <b style={{ color: C.text }}>{line.tell}</b>
+            </span>
+          ) : (
+            <span style={{ fontFamily: F.body, fontSize: 13, color: C.amber }}>⚠ No standout box, match the whole set</span>
+          )}
+        </div>
+      )}
       <div style={{ display: 'flex', flexWrap: 'wrap', gap: '2px 10px', paddingLeft: 4, alignItems: 'baseline' }}>
         <span style={{ fontFamily: F.mono, fontSize: 13, color: color ?? C.text, fontWeight: 600 }}>{line.breakdown}</span>
         <span style={{ fontFamily: F.body, fontSize: 13, color: C.dim }}>{line.commodity}</span>
@@ -3250,14 +3332,29 @@ function LoadLineRow({
         )}
         {line.tripTotal > 1 && (
           <span style={{ fontFamily: F.body, fontSize: 11, color: C.amber }}>
-            trip {line.tripPos}/{line.tripTotal} · {line.scu} of {line.totalScu} SCU
+            trip {line.tripPos}/{line.tripTotal}, {line.scu} of {line.totalScu} SCU
           </span>
         )}
-        {line.multiPickup && (
-          <span style={{ fontFamily: F.body, fontSize: 11, color: C.amber }}>(split pickup: load what&apos;s here)</span>
-        )}
+        {line.multiPickup && !line.counted && <WalkScuCount line={line} />}
       </div>
     </div>
+  )
+}
+
+// only the terminal knows this number
+function WalkScuCount({ line }: { line: RouteLoadLine }): React.ReactElement {
+  const setPickupScu = useStore((s) => s.setPickupScu)
+  const canEdit = useCanEdit()
+  return (
+    <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}>
+      <span style={{ fontFamily: F.display, fontSize: 10, letterSpacing: '0.14em', color: C.amber }}>SCU HERE</span>
+      {canEdit ? (
+        <ScuInput onSave={(n) => setPickupScu(line.contractId, line.objectiveId, line.pickupIndex, n)} />
+      ) : (
+        <span style={{ fontFamily: F.mono, fontSize: 13, color: C.amber }}>?</span>
+      )}
+      <span style={{ fontFamily: F.mono, fontSize: 11, color: C.dim }}>of {line.totalScu}</span>
+    </span>
   )
 }
 
@@ -3310,7 +3407,7 @@ function SplitDropRow({ line }: { line: LoadingStep['lines'][number] }): React.R
         <span style={{ fontFamily: F.mono, fontSize: 11, color: C.ghost }}>[{line.ref}]</span>
       </div>
       <div style={{ fontFamily: F.body, fontSize: 11.5, color: C.amber, marginTop: 3 }}>
-        drop this trip&apos;s {line.scu} SCU (trip {line.tripPos}/{line.tripTotal}) · {rest} SCU rides a later trip
+        drop this trip&apos;s {line.scu} SCU (trip {line.tripPos}/{line.tripTotal}), {rest} SCU rides a later trip
       </div>
     </div>
   )
@@ -3352,7 +3449,7 @@ function GrabOffGrid({ loose, dropIds }: { loose: PackBox[]; dropIds: string[] }
         ))}
       </div>
       <div style={{ marginTop: 8, fontFamily: F.mono, fontSize: 12, color: C.amber }}>
-        {summary.groups.length} {summary.groups.length === 1 ? 'bucket' : 'buckets'} · {summary.count}{' '}
+        {summary.groups.length} {summary.groups.length === 1 ? 'bucket' : 'buckets'}, {summary.count}{' '}
         {summary.count === 1 ? 'box' : 'boxes'} / {fmt(summary.scu)} SCU off-grid for this stop
       </div>
     </div>
@@ -3425,7 +3522,7 @@ function PickupDecision({
       <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 5 }}>
         {dig ? <span style={{ color: accent, fontSize: 18, lineHeight: 1, flex: 'none' }}>↺</span> : <OffGridGlyph />}
         <span style={{ fontFamily: F.display, fontSize: 15, fontWeight: 600, letterSpacing: '0.02em', color: C.text }}>
-          {dig ? `Set aside ${digCount} boxes · ${digBreakdown}` : `${offBreakdown} · ${fmt(offScu)} SCU won't fit`}
+          {dig ? `Set aside ${digCount} boxes, ${digBreakdown}` : `${offBreakdown}, ${fmt(offScu)} SCU won't fit`}
         </span>
       </div>
       <div style={{ fontFamily: F.body, fontSize: 12.5, lineHeight: 1.5, color: '#a8b0b3', marginBottom: 13 }}>

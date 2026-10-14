@@ -22,9 +22,13 @@ import type {
   OcrEngineInfo,
   OcrResult,
   OcrEditTally,
+  OcrWaitState,
   ContractDataStatus,
   DataSyncResult,
-  BoxSizeReport
+  BoxSizeReport,
+  CrewSnapshot,
+  CrewMirror,
+  CrewMember
 } from '@shared/types'
 import type { OtherJobsDoc } from '@other/otherJob'
 
@@ -45,6 +49,18 @@ const api = {
   pickLogFile: (): Promise<string | null> => ipcRenderer.invoke(IPC.pickLogFile),
   exportRunFile: (payload: { defaultName: string; json: string }): Promise<string | null> =>
     ipcRenderer.invoke(IPC.exportRunFile, payload),
+
+  startCrew: (name: string): Promise<string | null> => ipcRenderer.invoke(IPC.crewStart, name),
+  joinCrew: (code: string, name: string): Promise<{ ok: boolean; error?: string }> =>
+    ipcRenderer.invoke(IPC.crewJoin, { code, name }),
+  leaveCrew: (): Promise<void> => ipcRenderer.invoke(IPC.crewLeave),
+  endCrew: (): Promise<void> => ipcRenderer.invoke(IPC.crewEnd),
+  publishCrew: (snap: Omit<CrewSnapshot, 'rev'>): Promise<boolean> =>
+    ipcRenderer.invoke(IPC.crewPublish, snap),
+  onCrewSnapshot: (cb: (s: CrewSnapshot) => void): Unsubscribe => on(IPC.evtCrewSnapshot, cb),
+  onCrewStatus: (cb: (s: { up: boolean; error?: string }) => void): Unsubscribe =>
+    on(IPC.evtCrewStatus, cb),
+  onCrewMembers: (cb: (m: CrewMember[]) => void): Unsubscribe => on(IPC.evtCrewMembers, cb),
 
   loadManifest: (): Promise<ManifestDoc> => ipcRenderer.invoke(IPC.manifestLoad),
   saveManifest: (doc: ManifestDoc): Promise<boolean> =>
@@ -98,6 +114,10 @@ const api = {
     ipcRenderer.send(IPC.loadingStateSet, s),
   onLoadingState: (cb: (s: { active: boolean; idx: number }) => void): Unsubscribe =>
     on(IPC.evtLoadingState, cb),
+  mirrorCrew: (m: CrewMirror): void => ipcRenderer.send(IPC.crewMirror, m),
+  onCrewMirror: (cb: (m: CrewMirror) => void): Unsubscribe => on(IPC.evtCrewMirror, cb),
+  askCrewMirror: (): void => ipcRenderer.send(IPC.crewMirrorAsk),
+  onCrewMirrorAsk: (cb: () => void): Unsubscribe => on(IPC.evtCrewMirrorAsk, cb),
   onManifestChanged: (cb: (doc: ManifestDoc) => void): Unsubscribe =>
     on(IPC.evtManifestChanged, cb),
   onSettings: (cb: (s: AppSettings) => void): Unsubscribe => on(IPC.evtSettings, cb),
@@ -120,8 +140,9 @@ const api = {
   }): void => ipcRenderer.send(IPC.ocrReportAccuracy, payload),
   onOcrResult: (cb: (r: OcrResult) => void): Unsubscribe => on(IPC.evtOcrResult, cb),
   onOcrStatus: (cb: (s: string) => void): Unsubscribe => on(IPC.evtOcrStatus, cb),
-  requestOcrCapture: (missionId: string): void =>
-    ipcRenderer.send(IPC.ocrRequestCapture, missionId),
+  onOcrWait: (cb: (w: OcrWaitState) => void): Unsubscribe => on(IPC.evtOcrWait, cb),
+  requestOcrCapture: (missionId: string, wait?: Omit<OcrWaitState, 'active'>): void =>
+    ipcRenderer.send(IPC.ocrRequestCapture, missionId, wait),
 
   getContractDataStatus: (): Promise<ContractDataStatus> =>
     ipcRenderer.invoke(IPC.contractDataStatus),

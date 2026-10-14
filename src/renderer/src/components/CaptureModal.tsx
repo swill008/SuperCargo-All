@@ -3,6 +3,7 @@ import { useStore, type ManualObjectiveInput } from '../state/store'
 import { C, F, GLOW, fmt } from '../theme'
 import { MAX_BOX_OPTIONS, calculateBoxes, boxCount } from '@shared/box'
 import { isBrokenSlotToken, isSystemDestination } from '@shared/contract'
+import { resolvePickups } from '@shared/markerResolve'
 import { rowsOutsideRead } from '@shared/ocrParse'
 import type { DeliveryObjective, MatchResult, OcrObjective, OcrEditTally } from '@shared/types'
 import { Btn } from './ui'
@@ -33,6 +34,11 @@ function seedField(m: MatchResult): { value: string; hint: OcrHintInfo } {
 const pickupValue = (p: MatchResult): string | null =>
   p.match ?? (isBrokenSlotToken(p.input) ? p.input : null)
 
+const looksLikeContract = (text: string): boolean => {
+  const t = text.toLowerCase()
+  return /\bhaul/.test(t) && /\bscu\b/.test(t) && /\b(?:deliver|collect)\b/.test(t)
+}
+
 function rowFromOcr(o: OcrObjective): ObjRow {
   const pickups = o.pickups?.map(pickupValue).filter((x): x is string => !!x)
   const commodity = seedField(o.commodity)
@@ -47,6 +53,12 @@ function rowFromOcr(o: OcrObjective): ObjRow {
     ocrDestination: destination.hint,
     ocrPickup: !!(pickups && pickups.length)
   }
+}
+
+// log names win, OCR fills the gaps
+function mergePickups(marked: (string | null)[], read?: string[]): string[] {
+  const spare = (read ?? []).filter((r) => !marked.some((m) => m?.toLowerCase() === r.trim().toLowerCase()))
+  return marked.map((m) => m ?? spare.shift() ?? '')
 }
 
 function rowFromContract(o: DeliveryObjective): ObjRow {
@@ -95,10 +107,12 @@ export default function CaptureModal(): React.ReactElement | null {
 
   const ocrResult = useStore((s) => s.ocrResult)
   const ocrStatus = useStore((s) => s.ocrStatus)
+  const ocrWait = useStore((s) => s.ocrWait)
   const ocrEngine = useStore((s) => s.ocrEngine)
   const runOcr = useStore((s) => s.runOcr)
   const clearOcr = useStore((s) => s.clearOcr)
   const collecting = useStore((s) => s.settings.contributeTrainingData)
+  const markerPickups = useMemo(() => target?.markerPickups ?? [], [target])
 
   const [tab, setTab] = useState<'manual' | 'ocr'>('manual')
   const [title, setTitle] = useState('')
@@ -111,11 +125,19 @@ export default function CaptureModal(): React.ReactElement | null {
   const [contributed, setContributed] = useState(false)
   const [calibrating, setCalibrating] = useState(false)
 
+  // reset when snapped by hand
+  const autoRetry = useRef(0)
+  const userCapture = (): void => {
+    autoRetry.current = 0
+    void runOcr()
+  }
+
   // seed once, else clobbers reward
   const seededRef = useRef(false)
   useEffect(() => {
     if (!open) {
       seededRef.current = false
+      autoRetry.current = 0
       return
     }
     if (seededRef.current) return
@@ -165,9 +187,24 @@ export default function CaptureModal(): React.ReactElement | null {
     } else {
       setRawEdit(ocrResult.rawText)
     }
+    // markers are per contract, not per row
+    if (markerPickups.length) {
+      const marked = resolvePickups(markerPickups, locations)
+      setRows((rs) => (rs.length === 1 ? [{ ...rs[0], pickups: mergePickups(marked, rs[0].pickups) }] : rs))
+    }
     if (ocrResult.maxBoxSize) setMaxBox(ocrResult.maxBoxSize)
     if (ocrResult.reward) setReward(ocrResult.reward)
   }, [ocrResult])
+
+  // glare can blank a read, try again
+  useEffect(() => {
+    if (!open || !ocrResult?.ok || ocrStatus !== 'idle' || ocrWait?.active) return
+    const blank = ocrResult.objectives.length === 0 && !target?.objectives?.length
+    if (!blank || !looksLikeContract(ocrResult.rawText) || autoRetry.current >= 4) return
+    autoRetry.current += 1
+    const t = setTimeout(() => void runOcr(), 400)
+    return () => clearTimeout(t)
+  }, [ocrResult, ocrStatus, ocrWait, open, target, runOcr])
 
   // ocr-filled fields the user corrected, for the accuracy stat
   const touched = useRef(new Set<string>())
@@ -337,7 +374,7 @@ export default function CaptureModal(): React.ReactElement | null {
               </div>
               <div style={{ fontFamily: F.body, fontSize: 12, color: C.dim }}>
                 {target
-                  ? `${target.ref} · ${target.title || 'contract'}`
+                  ? `${target.ref} ${target.title || 'contract'}`
                   : 'Add delivery objectives'}
               </div>
             </div>
@@ -369,15 +406,33 @@ export default function CaptureModal(): React.ReactElement | null {
             <OcrCalibrator />
           </div>
         ) : tab === 'ocr' && !hasOcr ? (
-          <OcrCapturePane
-            recognizing={recognizing}
-            engineLabel={ocrEngine?.label ?? 'Tesseract'}
-            available={ocrEngine?.available ?? true}
-            detail={ocrEngine?.detail}
-            error={ocrResult && !ocrResult.ok ? ocrResult.error : undefined}
-            onCapture={() => void runOcr()}
-            onAdjustCrop={() => setCalibrating(true)}
-          />
+          <>
+            {ocrWait && ocrWait.missionId === targetId && (
+              <div
+                style={{
+                  margin: '14px 20px 0',
+                  padding: '10px 12px',
+                  border: `1px solid ${C.amber}`,
+                  fontFamily: F.body,
+                  fontSize: 12.5,
+                  color: C.text,
+                  lineHeight: 1.5
+                }}
+              >
+                Shared contract. Open your mobiGlas to its page; it captures on its own once it can
+                read it, or press your capture hotkey to snap right away.
+              </div>
+            )}
+            <OcrCapturePane
+              recognizing={recognizing}
+              engineLabel={ocrEngine?.label ?? 'Tesseract'}
+              available={ocrEngine?.available ?? true}
+              detail={ocrEngine?.detail}
+              error={ocrResult && !ocrResult.ok ? ocrResult.error : undefined}
+              onCapture={() => userCapture()}
+              onAdjustCrop={() => setCalibrating(true)}
+            />
+          </>
         ) : (
           <div style={{ padding: '18px 20px' }}>
             {tab === 'ocr' && hasOcr && ocrResult && !isContributeMode && (
@@ -389,7 +444,7 @@ export default function CaptureModal(): React.ReactElement | null {
                 showRaw={showRaw}
                 rawText={ocrResult.rawText}
                 onToggleRaw={() => setShowRaw((v) => !v)}
-                onRecapture={() => void runOcr()}
+                onRecapture={() => userCapture()}
                 onAdjustCrop={() => setCalibrating(true)}
                 recognizing={recognizing}
               />
@@ -400,7 +455,7 @@ export default function CaptureModal(): React.ReactElement | null {
                 imageDataUrl={ocrResult.imageDataUrl}
                 confidence={ocrResult.confidence}
                 ms={ocrResult.ms}
-                onRecapture={() => void runOcr()}
+                onRecapture={() => userCapture()}
                 onAdjustCrop={() => setCalibrating(true)}
                 recognizing={recognizing}
                 value={rawEdit}
@@ -456,7 +511,7 @@ export default function CaptureModal(): React.ReactElement | null {
                 ) : null}
               </div>
               <div>
-                <div style={labelStyle}>REWARD · aUEC</div>
+                <div style={labelStyle}>REWARD (aUEC)</div>
                 <input
                   style={{ ...inputStyle, fontFamily: F.mono }}
                   inputMode="numeric"
@@ -580,9 +635,9 @@ export default function CaptureModal(): React.ReactElement | null {
                     {pickups.length === 0 && (
                       <span style={{ fontFamily: F.body, fontSize: 11, color: C.faint }}>uses contract pickup</span>
                     )}
-                    {target?.lastPickupOnly && pickups.filter((p) => p.trim()).length < 2 && (
+                    {rows.length === 1 && pickups.filter((p) => p.trim()).length < markerPickups.length && (
                       <span style={{ fontFamily: F.body, fontSize: 11, color: C.amber }}>
-                        bugged multi-pickup contract: add every pickup the game lists before confirming
+                        {markerPickups.length} pickups on this contract
                       </span>
                     )}
                   </div>
@@ -613,7 +668,7 @@ export default function CaptureModal(): React.ReactElement | null {
               title="The objectives panel scrolls, so rows you add by hand may not be in the screenshot. The contract saves normally; only the training contribution is skipped."
               style={{ fontFamily: F.body, fontSize: 12, color: C.dim, marginRight: 'auto' }}
             >
-              {outsideRead} row{outsideRead === 1 ? " isn't" : "s aren't"} in the capture · training sample won't be saved
+              {outsideRead} row{outsideRead === 1 ? " isn't" : "s aren't"} in the capture, training sample won't be saved
             </span>
           )}
           {calibrating ? (
@@ -752,7 +807,7 @@ function OcrCapturePane({
       </div>
       <div style={{ marginTop: 18, fontFamily: F.mono, fontSize: 11, color: C.faint }}>
         Engine: {engineLabel}
-        {detail ? ` · ${detail}` : ''}
+        {detail ? `, ${detail}` : ''}
       </div>
       {!available && (
         <div style={{ marginTop: 10, fontFamily: F.body, fontSize: 12, color: C.amber }}>
@@ -814,7 +869,7 @@ function ContributePane({
     <div>
       <div style={{ display: 'flex', alignItems: 'center', gap: 12, flexWrap: 'wrap', marginBottom: 10 }}>
         <span style={{ fontFamily: F.display, fontSize: 11, letterSpacing: '0.16em', color: C.text }}>
-          NO HAULING OBJECTIVES
+          {looksLikeContract(value) ? 'OBJECTIVES NOT READ' : 'NO HAULING OBJECTIVES'}
         </span>
         <span style={{ fontFamily: F.mono, fontSize: 11, color: confColor }}>{conf}% confidence</span>
         <span style={{ fontFamily: F.mono, fontSize: 11, color: C.faint }}>{ms} ms</span>
@@ -825,7 +880,9 @@ function ContributePane({
         </MiniBtn>
       </div>
       <div style={{ fontFamily: F.body, fontSize: 12, color: C.dim, marginBottom: 12, lineHeight: 1.5 }}>
-        Not a hauling contract, so nothing&apos;s added. You can still help train the OCR by fixing the text below.
+        {looksLikeContract(value)
+          ? "This looks like a hauling contract, but the objectives didn't read (glare or faint text). Recapture or adjust the crop; fixing the text below still helps train the OCR."
+          : "Not a hauling contract, so nothing's added. You can still help train the OCR by fixing the text below."}
       </div>
 
       <div style={labelStyle}>CAPTURED PANEL</div>
@@ -963,8 +1020,8 @@ function OcrHint({ hint }: { hint: OcrHintInfo }): React.ReactElement {
   const color = hint.matched ? (pct >= 85 ? C.green : C.amber) : hint.guess ? C.amber : C.red
   const label = hint.matched ? `~ ${pct}%` : hint.guess ? '≈ best guess' : '⚠ unmatched'
   return (
-    <div style={{ fontFamily: F.mono, fontSize: 10, color, marginTop: 3, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }} title={`read: "${hint.raw}" · ${pct}% match`}>
-      {label} · "{hint.raw}"
+    <div style={{ fontFamily: F.mono, fontSize: 10, color, marginTop: 3, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }} title={`read: "${hint.raw}", ${pct}% match`}>
+      {label} "{hint.raw}"
     </div>
   )
 }

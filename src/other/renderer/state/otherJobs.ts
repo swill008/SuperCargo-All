@@ -318,7 +318,7 @@ export const useOtherJobs = create<OtherJobsState>((set, get) => ({
 
   ingestAccepted: (e) => {
     if (get().jobs.find((j) => j.missionId === e.missionId)) return
-    const kind = kindFromGenerator(e.generator || '', e.title || '')
+    const kind = kindFromGenerator(e.generator || '', e.title || '', e.contractName || '')
     const jobs = get().jobs
     const job: OtherJob = {
       id: e.missionId,

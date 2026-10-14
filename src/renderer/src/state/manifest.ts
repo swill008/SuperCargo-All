@@ -4,6 +4,7 @@ import type { DataSource, HaulingContract, HistoryEntry, HistoryStatus } from '@
 import type { RoutePlan } from './route'
 import { boxBreakdown, boxCount, boxList, listBreakdown } from '@shared/box'
 import { estimatePayout } from '@shared/payout'
+import { pickupAmounts } from '@shared/pickups'
 import { splitDestination } from '../data/stations'
 import { stopColor } from '../theme'
 
@@ -35,6 +36,9 @@ export interface PickupItem {
   destination: string
   /** loads from multiple places */
   split: boolean
+  /** -1 = not a split haul */
+  pickupIndex: number
+  counted: boolean
   /** pickup stop's node key */
   pickupKey?: string
   /** checked off as collected here */
@@ -110,10 +114,8 @@ export interface DerivedContract {
   generator?: string
   /** hand-set display name; wins over the generator-derived party */
   contractor?: string
-  /** pickup-bug collapse active on the contract */
-  lastPickupOnly: boolean
-  /** any objective has (or had) 2+ pickups, so the collapse toggle applies */
-  multiPickup: boolean
+  /** >1 = loads from several places */
+  pickupLocations: string[]
 }
 
 // hidden while capture modal open
@@ -179,7 +181,7 @@ export function deriveStops(contracts: HaulingContract[], order: string[]): Stop
   })
 }
 
-const normLoc = (s: string): string => s.toLowerCase().replace(/[^a-z0-9]+/g, ' ').trim()
+export const normLoc = (s: string): string => s.toLowerCase().replace(/[^a-z0-9]+/g, ' ').trim()
 
 export function deriveStopsWithPickups(
   contracts: HaulingContract[],
@@ -207,6 +209,8 @@ export function deriveStopsWithPickups(
         ref: c.ref,
         commodity: o.commodity,
         scu: o.scuAmount,
+        pickupIndex: -1,
+        counted: true,
         boxStr: boxBreakdown(o.boxes),
         boxCount: boxCount(o.boxes),
         destination: o.destination,
@@ -348,6 +352,7 @@ export function deriveRouteStops(
       const f = byObjective.get(r.objectiveId)
       if (!f) continue
       const boxes = r.boxes ?? boxList(f.o.boxes)
+      const puIndex = (f.o.pickups ?? []).findIndex((n) => normLoc(n) === normLoc(step.label))
       pickups.push({
         objectiveId: r.objectiveId,
         contractId: f.c.id,
@@ -358,6 +363,8 @@ export function deriveRouteStops(
         boxCount: boxes.length,
         destination: f.o.destination,
         split: (f.o.pickups?.length ?? 0) > 1,
+        pickupIndex: puIndex,
+        counted: puIndex < 0 || pickupAmounts(f.o)[puIndex] !== null,
         pickupKey: pickupVisitKey(step.nodeKey, step.trip),
         picked: (f.o.pickedUpAt ?? []).includes(pickupVisitKey(step.nodeKey, step.trip))
       })
@@ -441,6 +448,8 @@ export function deriveRouteStops(
       ref: c.ref,
       commodity: o.commodity,
       scu: o.scuAmount,
+      pickupIndex: -1,
+      counted: true,
       boxStr: listBreakdown(boxes),
       boxCount: boxes.length,
       destination: o.destination,
@@ -500,8 +509,11 @@ export function deriveContracts(contracts: HaulingContract[]): DerivedContract[]
       sharerLeft: !!c.sharerLeft,
       generator: c.generator,
       contractor: c.contractor,
-      lastPickupOnly: !!c.lastPickupOnly,
-      multiPickup: c.objectives.some((o) => (o.pickups?.length ?? 0) > 1 || (o.originalPickups?.length ?? 0) > 1)
+      pickupLocations: [
+        ...new Set(
+          c.objectives.flatMap((o) => (o.pickups?.length ? o.pickups : c.pickup ? [c.pickup] : []))
+        )
+      ]
     }
   })
 }

@@ -1,17 +1,17 @@
 # <img src="assets/logo/SuperCargo-Logo.png" alt="SuperCargo logo" height="48" align="bottom"> SuperCargo
 
-[![Discord](https://img.shields.io/badge/Discord-Join%20the%20community-5865F2?logo=discord&logoColor=white)](https://discord.gg/p9V78wKqq)
+[![Discord](https://img.shields.io/badge/Discord-Join%20the%20community-5865F2?logo=discord&logoColor=white)](https://discord.gg/GyjvYRTJfk)
 
 A desktop app for Star Citizen haulers who stack a pile of contracts into one run.
 It pulls everything into a single manifest: box-size math, a route that orders your
 stops, a 3D loading guide, and per-run earnings, in a holographic mobiGlas-style
 interface.
 
-**New here? Read the [FAQ](FAQ.md). Questions, bugs, or feature ideas? Join the community on [Discord](https://discord.gg/p9V78wKqq).**
+**New here? Read the [FAQ](FAQ.md). Questions, bugs, or feature ideas? Join the community on [Discord](https://discord.gg/GyjvYRTJfk).**
 
 ## Download
 
-Grab the latest build (**v0.8.3**) from the [Releases page](https://github.com/AquatikJustice/SuperCargo/releases).
+Grab the latest build (**v0.9.1**) from the [Releases page](https://github.com/AquatikJustice/SuperCargo/releases).
 
 - **Windows installer** (`SuperCargo-Setup-*.exe`) installs and auto-updates.
 - **Windows portable** (`SuperCargo-Portable-*.exe`) is a single exe with no install.
@@ -42,6 +42,8 @@ If you hit problems, please open an issue with your distro and what happened.
   3D hold, and what to drop along the way. Drag any box anywhere at any step, and undo any move.
 - **3D cargo grid.** A packed view of your hold, color-coded by destination, loaded in delivery
   order so you never dig one stop out from under another.
+- **Current ship list.** New ships and their cargo grids come with the regular data updates, no new
+  version needed.
 - **Personal storage.** Park Stor-All crates in your hold; the planner packs and routes around them.
 - **Off-grid cargo.** Carry loose boxes on a pad beside your bays and drag them on and off any time.
 - **Route optimization.** Orders your stops to cut travel, and shows the run's total distance. Drag
@@ -49,13 +51,16 @@ If you hit problems, please open an issue with your distro and what happened.
 - **OCR capture.** Reads the mobiGlas contract screen to fill in objectives, pickups, max box size,
   and reward for you to confirm. Can also scan the game log to catch contracts you accepted while
   the app was closed.
-- **Game-bug aware.** Knows the current multi-pickup contract bug (all cargo spawns at the final
-  listed pickup, and broken slots really sit at Nyx Gateway) and plans those contracts correctly on
-  its own, with a badge and a toggle.
+- **Multi-pickup contracts.** Every pickup on a split haul shows up as its own stop. The game only
+  gives a total for these, so you enter what's actually waiting when you arrive, and the plan
+  adjusts from there.
 - **Community contract data.** Known contracts arrive with their box sizes already confirmed, no
   scan needed, and the list grows from anonymous community corrections.
 - **Shared contracts.** Shares show up from the log with your split of the reward, and the full
   payout comes back automatically when the sharer leaves the contract.
+- **Crew Mode (beta).** Start a crew and paste the code into chat. Everyone who joins sees your
+  route, manifest, and cargo grid as you work, and can look around on their own. You see who's
+  connected.
 - **Edit anything.** Change a contract after you add it. Pickup, reward, rank, max box size, and
   each objective's commodity, amount, and destination are all editable inline.
 - **Turn-in tracking.** On submit, record a full, partial, or no turn-in per stop, including partial

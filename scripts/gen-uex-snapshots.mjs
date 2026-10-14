@@ -56,6 +56,17 @@ const TRADE_URL = `${RAW}/trade_locations.json`
 const norm = (s) => String(s || '').toLowerCase().replace(/[^a-z0-9]+/g, '')
 const stripCode = (s) => s.replace(/^[A-Z]{2,4}-[A-Z0-9]{1,4}\s+/, '')
 
+// keep hand-added ships until UEX lists them
+function keepHandAdded(fresh) {
+  const prev = path.join(OUT_DIR, 'ships.json')
+  if (!fs.existsSync(prev)) return fresh
+  const bare = (n) => norm(String(n).replace(/ Mk I?V /, ' '))
+  const known = new Set(fresh.map((s) => bare(s.name)))
+  const kept = JSON.parse(fs.readFileSync(prev, 'utf8')).ships.filter((s) => s.uexId === 0 && !known.has(bare(s.name)))
+  for (const s of kept) console.log(`  kept hand-added ship: ${s.name}`)
+  return [...fresh, ...kept].sort((a, b) => a.name.localeCompare(b.name))
+}
+
 async function fetchJson(url, label) {
   const res = await fetch(url, { headers: { Accept: 'application/json' } })
   if (!res.ok) throw new Error(`${label}: HTTP ${res.status}`)
@@ -370,6 +381,7 @@ async function main() {
   for (const s of specs) {
     let data = s.map(await fetchData(s.endpoint, token))
     let source = `${BASE}/${s.endpoint}`
+    if (s.key === 'ships') data = keepHandAdded(data)
     if (s.key === 'locations') {
       const built = buildLocations(data, starmap, trade)
       data = built.list

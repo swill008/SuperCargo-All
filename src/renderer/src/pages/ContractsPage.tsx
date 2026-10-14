@@ -7,7 +7,7 @@ import { sharedCut } from '@shared/payout'
 import { contractParty } from '@shared/contract'
 import { deriveContracts, pickupVisitKey, shareSplit } from '../state/manifest'
 import PageHeader, { PAGE_PADDING } from '../components/PageHeader'
-import { Btn, HoverDiv } from '../components/ui'
+import { Btn, HoverDiv, WriteOnly, useCanEdit } from '../components/ui'
 import TurnInModal from '../components/TurnInModal'
 import BoxEditModal from '../components/BoxEditModal'
 import Typeahead from '../components/Typeahead'
@@ -15,6 +15,8 @@ import Typeahead from '../components/Typeahead'
 const COLS = '1fr 160px 130px 110px 96px 28px'
 // long names ellipsize, not widen
 const OBJ_COLS = '20px 58px minmax(0,1fr) minmax(0,1.4fr) 200px 64px 84px 84px 26px'
+// only when it loads from 2+ places
+const OBJ_COLS_PICKUP = '20px 58px minmax(0,1fr) minmax(0,1fr) minmax(0,1fr) 170px 64px 84px 84px 26px'
 
 const statusColor: Record<string, string> = {
   active: C.green,
@@ -35,7 +37,6 @@ export default function ContractsPage(): React.ReactElement {
   const setObjectiveScu = useStore((s) => s.setObjectiveScu)
   const setObjectiveBoxes = useStore((s) => s.setObjectiveBoxes)
   const editContract = useStore((s) => s.editContract)
-  const setLastPickupOnly = useStore((s) => s.setLastPickupOnly)
   const editObjective = useStore((s) => s.editObjective)
   const deleteObjective = useStore((s) => s.deleteObjective)
   const route = useStore((s) => s.route)
@@ -43,6 +44,7 @@ export default function ContractsPage(): React.ReactElement {
   const setSharerLeft = useStore((s) => s.setSharerLeft)
   const locations = useStore((s) => s.locations)
   const commodities = useStore((s) => s.commodities)
+  const canEdit = useCanEdit()
   // hide until ocr capture resolves
   const history = useStore((s) => s.history)
   const derived = useMemo(() => deriveContracts(contracts.filter((c) => !c.pendingOcr)), [contracts])
@@ -90,25 +92,27 @@ export default function ContractsPage(): React.ReactElement {
     <div style={{ padding: PAGE_PADDING }}>
       <PageHeader
         title="CONTRACTS"
-        subtitle={`${derived.length} tracked · click a contract to expand objectives`}
+        subtitle={`${derived.length} tracked`}
         right={
-          <Btn
-            onClick={() => openCapture()}
-            style={{
-              border: `1px solid rgba(255,255,255,0.18)`,
-              background: 'transparent',
-              color: C.body,
-              fontFamily: F.display,
-              fontSize: 12,
-              fontWeight: 600,
-              letterSpacing: '0.14em',
-              padding: '8px 14px',
-              cursor: 'pointer'
-            }}
-            hoverStyle={{ border: `1px solid ${C.acc}`, color: C.text, textShadow: GLOW }}
-          >
-            + ADD CONTRACT
-          </Btn>
+          <WriteOnly>
+            <Btn
+              onClick={() => openCapture()}
+              style={{
+                border: `1px solid rgba(255,255,255,0.18)`,
+                background: 'transparent',
+                color: C.body,
+                fontFamily: F.display,
+                fontSize: 12,
+                fontWeight: 600,
+                letterSpacing: '0.14em',
+                padding: '8px 14px',
+                cursor: 'pointer'
+              }}
+              hoverStyle={{ border: `1px solid ${C.acc}`, color: C.text, textShadow: GLOW }}
+            >
+              + ADD CONTRACT
+            </Btn>
+          </WriteOnly>
         }
       />
 
@@ -137,6 +141,8 @@ export default function ContractsPage(): React.ReactElement {
 
           {derived.map((c) => {
             const isOpen = expanded === c.id
+            const splitPickup = c.pickupLocations.length > 1
+            const objCols = splitPickup ? OBJ_COLS_PICKUP : OBJ_COLS
             const split = shareSplit(c)
             const shownReward = split > 1 ? sharedCut(c.reward, split) : c.reward
             return (
@@ -169,26 +175,30 @@ export default function ContractsPage(): React.ReactElement {
                           {c.title}
                         </span>
                         {c.blueprint && <BlueprintBadge />}
-                        {c.lastPickupOnly && <PickupBugBadge />}
                         {c.sharedWithMe && !c.sharerLeft ? (
                           // sharer gone = plain contract, the tag goes with them
                           <ShareBadge
                             label="SHARED WITH YOU"
-                            title="Click if the sharer abandoned or left while the app missed it; the tag drops and the reward stops splitting."
-                            onClick={() => setSharerLeft(c.id, true)}
+                            title={canEdit ? 'Click if the sharer abandoned or left while the app missed it; the tag drops and the reward stops splitting.' : undefined}
+                            onClick={canEdit ? () => setSharerLeft(c.id, true) : undefined}
                           />
                         ) : c.sharedWith.length ? (
-                          <ShareBadge label={`SHARED · ${c.sharedWith.length} joined`} />
+                          <ShareBadge label={`SHARED (${c.sharedWith.length})`} />
                         ) : null}
                       </div>
                       <div style={{ fontFamily: F.body, fontSize: 12, color: C.dim, marginTop: 1 }}>
                         {[c.rank, `${c.objCount} objectives`, `${c.totSCU} SCU`, c.reputation ? `${c.reputation} Rep` : '']
                           .filter(Boolean)
-                          .join(' · ')}
+                          .join(', ')}
                       </div>
                     </div>
                   </div>
-                  <span style={{ fontFamily: F.body, fontSize: 13, color: C.body }}>{c.pickup || '-'}</span>
+                  <span
+                    style={{ fontFamily: F.body, fontSize: 13, color: C.body }}
+                    title={splitPickup ? c.pickupLocations.join(', ') : undefined}
+                  >
+                    {splitPickup ? `${c.pickupLocations[0]} +${c.pickupLocations.length - 1}` : c.pickup || '-'}
+                  </span>
                   <span style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-end', gap: 1 }}>
                     <span style={{ fontFamily: F.mono, fontSize: 14, color: C.text, textShadow: GLOW }}>
                       {c.reward ? fmt(shownReward) : '-'}
@@ -236,11 +246,11 @@ export default function ContractsPage(): React.ReactElement {
                       <DetailField label="MAX BOX">
                         <EditableBoxSize value={c.maxBox} onCommit={(n) => editContract(c.id, { maxBoxSize: n })} />
                       </DetailField>
-                      {c.sharedWithMe && c.sharerLeft && (
+                      {canEdit && c.sharedWithMe && c.sharerLeft && (
                         <DetailField label="SHARING">
                           <Btn
                             onClick={() => setSharerLeft(c.id, false)}
-                            title="The sharer left this contract, so the full reward is yours. Click if they're actually still on it."
+                            title="Reward isn't being split. Click if they're still on the contract."
                             style={{
                               alignSelf: 'flex-start',
                               border: `1px solid ${C.lineStrong}`,
@@ -255,43 +265,17 @@ export default function ContractsPage(): React.ReactElement {
                             }}
                             hoverStyle={{ border: `1px solid ${C.amber}`, color: C.amber }}
                           >
-                            SHARER LEFT · YOURS NOW
-                          </Btn>
-                        </DetailField>
-                      )}
-                      {(c.multiPickup || c.lastPickupOnly) && (
-                        <DetailField label="PICKUP BUG">
-                          <Btn
-                            onClick={() => setLastPickupOnly(c.id, !c.lastPickupOnly)}
-                            title={
-                              c.lastPickupOnly
-                                ? 'Game bug workaround active: all boxes planned at the final listed pickup. Click if this contract actually splits cargo across pickups.'
-                                : 'Known game bug: some multi-pickup contracts spawn everything at the final listed pickup. Click if the other pickups turned out empty.'
-                            }
-                            style={{
-                              alignSelf: 'flex-start',
-                              border: `1px solid ${c.lastPickupOnly ? C.amber : C.lineStrong}`,
-                              background: c.lastPickupOnly ? 'rgba(232,177,58,0.10)' : 'transparent',
-                              color: c.lastPickupOnly ? C.amber : C.dim,
-                              fontFamily: F.display,
-                              fontSize: 11,
-                              fontWeight: 600,
-                              letterSpacing: '0.1em',
-                              padding: '4px 9px',
-                              cursor: 'pointer'
-                            }}
-                            hoverStyle={{ border: `1px solid ${C.amber}`, color: C.amber }}
-                          >
-                            {c.lastPickupOnly ? 'ALL AT FINAL PICKUP' : 'NORMAL PICKUPS'}
+                            FULL REWARD
                           </Btn>
                         </DetailField>
                       )}
                     </div>
-                    <div style={{ display: 'grid', gridTemplateColumns: OBJ_COLS, gap: 18, padding: '0 0 8px', borderBottom: `1px solid ${C.lineSoft}`, marginBottom: 4 }}>
+                    <div style={{ display: 'grid', gridTemplateColumns: objCols, gap: 18, padding: '0 0 8px', borderBottom: `1px solid ${C.lineSoft}`, marginBottom: 4 }}>
                       {[
                         { h: '', align: 'left' },
                         { h: 'SCU', align: 'right' },
                         { h: 'COMMODITY', align: 'left' },
+                        ...(splitPickup ? [{ h: 'PICKUP', align: 'left' }] : []),
                         { h: 'DESTINATION', align: 'left' },
                         { h: 'BOX BREAKDOWN', align: 'left' },
                         { h: 'COUNT', align: 'right' },
@@ -315,7 +299,7 @@ export default function ContractsPage(): React.ReactElement {
                       // dim until picked up, lit while aboard, then color tracks turn-in fullness
                       const tiColor = ti === undefined ? (o.pickedUp ? C.amber : C.dim) : ti >= o.scu ? C.green : ti <= 0 ? C.red : C.amber
                       return (
-                        <div key={o.objectiveId} style={{ display: 'grid', gridTemplateColumns: OBJ_COLS, gap: 18, alignItems: 'center', padding: '9px 0', borderBottom: `1px solid ${C.lineSoft}` }}>
+                        <div key={o.objectiveId} style={{ display: 'grid', gridTemplateColumns: objCols, gap: 18, alignItems: 'center', padding: '9px 0', borderBottom: `1px solid ${C.lineSoft}` }}>
                           <span style={{ fontFamily: F.display, fontSize: 15, color: tiColor, textShadow: isTurnedIn ? GLOW : 'none' }}>
                             {isTurnedIn ? '✓' : ''}
                           </span>
@@ -327,6 +311,15 @@ export default function ContractsPage(): React.ReactElement {
                             placeholder="commodity"
                             textStyle={{ fontSize: 14, color: isTurnedIn ? tiColor : C.textBody }}
                           />
+                          {splitPickup && (
+                            <EditableText
+                              value={o.pickups?.length ? o.pickups.join(' + ') : c.pickup}
+                              options={locationNames}
+                              onCommit={(v) => editObjective(c.id, o.objectiveId, { pickups: v ? [v] : [] })}
+                              placeholder="pickup"
+                              textStyle={{ fontSize: 13, color: isTurnedIn ? tiColor : o.pickups?.length ? C.body : C.faint }}
+                            />
+                          )}
                           <EditableText
                             value={o.destination}
                             options={locationNames}
@@ -335,37 +328,44 @@ export default function ContractsPage(): React.ReactElement {
                             textStyle={{ fontSize: 13, color: isTurnedIn ? tiColor : C.dim }}
                           />
                           <span
-                            onClick={() => openBoxEdit(c.id, o.objectiveId)}
-                            title="Click to edit the box sizes"
-                            style={{ fontFamily: F.mono, fontSize: 12, color: isTurnedIn ? tiColor : '#b6bec0', cursor: 'pointer', borderBottom: '1px dashed rgba(255,255,255,0.22)', alignSelf: 'center', width: 'fit-content' }}
+                            onClick={canEdit ? () => openBoxEdit(c.id, o.objectiveId) : undefined}
+                            title={canEdit ? 'Click to edit the box sizes' : undefined}
+                            style={{ fontFamily: F.mono, fontSize: 12, color: isTurnedIn ? tiColor : '#b6bec0', cursor: canEdit ? 'pointer' : 'default', borderBottom: `1px ${canEdit ? 'dashed rgba(255,255,255,0.22)' : 'solid transparent'}`, alignSelf: 'center', width: 'fit-content' }}
                           >
                             {o.boxStr || '-'}
                           </span>
                           <span style={{ fontFamily: F.mono, fontSize: 12, color: isTurnedIn ? tiColor : C.dim, textAlign: 'right' }}>{o.boxCount} box</span>
-                          <Btn
-                            onClick={() => togglePickedUp(c.id, o.objectiveId, !o.pickedUp)}
-                            title={o.pickedUp ? 'Uncheck this pickup' : 'Check off this cargo as collected'}
-                            style={{ border: `1px solid ${o.pickedUp ? C.dim : C.green}`, background: 'transparent', color: o.pickedUp ? C.dim : C.green, fontFamily: F.display, fontSize: 10, fontWeight: 600, letterSpacing: '0.12em', padding: '5px 0', cursor: 'pointer', textAlign: 'center' }}
-                            hoverStyle={{ background: o.pickedUp ? 'rgba(255,255,255,0.06)' : 'rgba(95,208,137,0.10)', textShadow: GLOW }}
-                          >
-                            {o.pickedUp ? '✓ PICKED UP' : 'PICK UP'}
-                          </Btn>
-                          <Btn
-                            onClick={() => setEditTurnIn({ contractId: c.id, objectiveId: o.objectiveId, commodity: o.commodity, destination: o.destination, scu: o.scu, boxStr: o.boxStr, ref: c.ref, turnedInScu: ti })}
-                            title={isTurnedIn ? `Turned in: ${ti >= o.scu ? 'full' : ti <= 0 ? 'none' : `${ti} SCU`}` : 'Record what you handed over'}
-                            style={{ border: `1px solid ${tiColor}`, background: 'transparent', color: tiColor, fontFamily: F.display, fontSize: 10, fontWeight: 600, letterSpacing: '0.12em', padding: '5px 0', cursor: 'pointer', textAlign: 'center' }}
-                            hoverStyle={{ background: 'rgba(255,255,255,0.06)', textShadow: GLOW }}
-                          >
-                            {isTurnedIn ? '✓ EDIT' : 'TURN IN'}
-                          </Btn>
-                          <Btn
-                            onClick={() => deleteObjective(c.id, o.objectiveId)}
-                            title="Remove this objective"
-                            style={{ border: 'none', background: 'transparent', color: C.faint, fontFamily: F.display, fontSize: 15, lineHeight: 1, padding: 0, cursor: 'pointer', textAlign: 'center' }}
-                            hoverStyle={{ color: C.red }}
-                          >
-                            ✕
-                          </Btn>
+                          <WriteOnly>
+                            <Btn
+                              onClick={() => togglePickedUp(c.id, o.objectiveId, !o.pickedUp)}
+                              title={o.pickedUp ? 'Uncheck this pickup' : 'Check off this cargo as collected'}
+                              style={{ border: `1px solid ${o.pickedUp ? C.dim : C.green}`, background: 'transparent', color: o.pickedUp ? C.dim : C.green, fontFamily: F.display, fontSize: 10, fontWeight: 600, letterSpacing: '0.12em', padding: '5px 0', cursor: 'pointer', textAlign: 'center' }}
+                              hoverStyle={{ background: o.pickedUp ? 'rgba(255,255,255,0.06)' : 'rgba(95,208,137,0.10)', textShadow: GLOW }}
+                            >
+                              {o.pickedUp ? '✓ PICKED UP' : 'PICK UP'}
+                            </Btn>
+                            <Btn
+                              onClick={() => setEditTurnIn({ contractId: c.id, objectiveId: o.objectiveId, commodity: o.commodity, destination: o.destination, scu: o.scu, boxStr: o.boxStr, ref: c.ref, turnedInScu: ti })}
+                              title={isTurnedIn ? `Turned in: ${ti >= o.scu ? 'full' : ti <= 0 ? 'none' : `${ti} SCU`}` : 'Record what you handed over'}
+                              style={{ border: `1px solid ${tiColor}`, background: 'transparent', color: tiColor, fontFamily: F.display, fontSize: 10, fontWeight: 600, letterSpacing: '0.12em', padding: '5px 0', cursor: 'pointer', textAlign: 'center' }}
+                              hoverStyle={{ background: 'rgba(255,255,255,0.06)', textShadow: GLOW }}
+                            >
+                              {isTurnedIn ? '✓ EDIT' : 'TURN IN'}
+                            </Btn>
+                            <Btn
+                              onClick={() => deleteObjective(c.id, o.objectiveId)}
+                              title="Remove this objective"
+                              style={{ border: 'none', background: 'transparent', color: C.faint, fontFamily: F.display, fontSize: 15, lineHeight: 1, padding: 0, cursor: 'pointer', textAlign: 'center' }}
+                              hoverStyle={{ color: C.red }}
+                            >
+                              ✕
+                            </Btn>
+                          </WriteOnly>
+                          {!canEdit && (
+                            <span style={{ fontFamily: F.display, fontSize: 10, fontWeight: 600, letterSpacing: '0.12em', color: C.dim, textAlign: 'center', alignSelf: 'center' }}>
+                              {o.pickedUp ? '✓ PICKED UP' : ''}
+                            </span>
+                          )}
                         </div>
                       )
                     })}
@@ -380,7 +380,7 @@ export default function ContractsPage(): React.ReactElement {
                           <span style={{ fontFamily: F.display, fontSize: 11, letterSpacing: '0.16em', color: C.acc }}>
                             POSSIBLE BLUEPRINTS
                           </span>
-                          <span style={{ fontFamily: F.body, fontSize: 11, color: C.dim }}>· via StarStrings</span>
+                          <span style={{ fontFamily: F.body, fontSize: 11, color: C.dim }}>via StarStrings</span>
                         </div>
                         <div style={{ display: 'flex', flexWrap: 'wrap', gap: '6px 10px' }}>
                           {c.blueprints.map((bp, i) => (
@@ -392,59 +392,61 @@ export default function ContractsPage(): React.ReactElement {
                       </div>
                     )}
 
-                    <div style={{ display: 'flex', gap: 10, marginTop: 14, alignItems: 'center' }}>
-                      <ActionBtn label="ADD OBJECTIVES" color={C.acc} onClick={() => openCapture(c.id)} />
-                      {c.dataSource !== 'manual' && (
-                        <ActionBtn label="RESCAN" color={C.acc} onClick={() => rescanContract(c.id)} />
-                      )}
-                      {c.dataSource === 'manual' ? (
-                        // no mission id on a hand-added contract, so it can't auto-file (#21)
-                        <>
-                          <Btn
-                            onClick={() => {
-                              if (confirmFile !== c.id) {
-                                setConfirmFile(c.id)
-                                return
-                              }
-                              fileCompleted(c.id)
-                              setConfirmFile(null)
-                            }}
-                            style={{
-                              border: `1px solid ${confirmFile === c.id ? C.amber : 'rgba(255,255,255,0.16)'}`,
-                              background: confirmFile === c.id ? 'rgba(230,182,94,0.12)' : 'transparent',
-                              color: confirmFile === c.id ? C.amber : C.dim,
-                              fontFamily: F.display,
-                              fontSize: 11,
-                              fontWeight: 600,
-                              letterSpacing: '0.14em',
-                              padding: '7px 13px',
-                              cursor: 'pointer'
-                            }}
-                            hoverStyle={{ border: `1px solid ${C.green}`, color: confirmFile === c.id ? C.amber : C.green }}
-                          >
-                            {confirmFile === c.id ? 'CONFIRM · FILE COMPLETE' : 'MARK COMPLETE'}
-                          </Btn>
-                          <span style={{ fontFamily: F.body, fontSize: 12, color: C.dim }}>
-                            manual contracts don't file from the game log, close it out here when it's done
-                          </span>
-                        </>
-                      ) : c.objectives.length > 0 && c.objectives.every((o) => o.turnedInScu !== undefined) ? (
-                        <>
-                          <ActionBtn label="FILE TO HISTORY" color={C.green} onClick={() => fileCompleted(c.id)} />
-                          <ActionBtn
-                            label="↩ UNDO COMPLETE"
-                            color={C.amber}
-                            onClick={() => unmarkTurnIn(c.objectives.map((o) => o.objectiveId))}
-                          />
-                          <span style={{ fontFamily: F.body, fontSize: 12, color: C.dim }}>
-                            or it files itself once the game finishes the contract
-                          </span>
-                        </>
-                      ) : (
-                        <ActionBtn label="COMPLETE" color={C.green} onClick={() => completeContract(c.id)} />
-                      )}
-                      <ActionBtn label="ABANDON" color={C.red} onClick={() => abandonContract(c.id)} />
-                    </div>
+                    <WriteOnly>
+                      <div style={{ display: 'flex', gap: 10, marginTop: 14, alignItems: 'center' }}>
+                        <ActionBtn label="ADD OBJECTIVES" color={C.acc} onClick={() => openCapture(c.id)} />
+                        {c.dataSource !== 'manual' && (
+                          <ActionBtn label="RESCAN" color={C.acc} onClick={() => rescanContract(c.id)} />
+                        )}
+                        {c.dataSource === 'manual' ? (
+                          // no mission id on a hand-added contract, so it can't auto-file (#21)
+                          <>
+                            <Btn
+                              onClick={() => {
+                                if (confirmFile !== c.id) {
+                                  setConfirmFile(c.id)
+                                  return
+                                }
+                                fileCompleted(c.id)
+                                setConfirmFile(null)
+                              }}
+                              style={{
+                                border: `1px solid ${confirmFile === c.id ? C.amber : 'rgba(255,255,255,0.16)'}`,
+                                background: confirmFile === c.id ? 'rgba(230,182,94,0.12)' : 'transparent',
+                                color: confirmFile === c.id ? C.amber : C.dim,
+                                fontFamily: F.display,
+                                fontSize: 11,
+                                fontWeight: 600,
+                                letterSpacing: '0.14em',
+                                padding: '7px 13px',
+                                cursor: 'pointer'
+                              }}
+                              hoverStyle={{ border: `1px solid ${C.green}`, color: confirmFile === c.id ? C.amber : C.green }}
+                            >
+                              {confirmFile === c.id ? 'CONFIRM FILE COMPLETE' : 'MARK COMPLETE'}
+                            </Btn>
+                            <span style={{ fontFamily: F.body, fontSize: 12, color: C.dim }}>
+                              manual contracts don't file from the game log, close it out here when it's done
+                            </span>
+                          </>
+                        ) : c.objectives.length > 0 && c.objectives.every((o) => o.turnedInScu !== undefined) ? (
+                          <>
+                            <ActionBtn label="FILE TO HISTORY" color={C.green} onClick={() => fileCompleted(c.id)} />
+                            <ActionBtn
+                              label="↩ UNDO COMPLETE"
+                              color={C.amber}
+                              onClick={() => unmarkTurnIn(c.objectives.map((o) => o.objectiveId))}
+                            />
+                            <span style={{ fontFamily: F.body, fontSize: 12, color: C.dim }}>
+                              or it files itself once the game finishes the contract
+                            </span>
+                          </>
+                        ) : (
+                          <ActionBtn label="COMPLETE" color={C.green} onClick={() => completeContract(c.id)} />
+                        )}
+                        <ActionBtn label="ABANDON" color={C.red} onClick={() => abandonContract(c.id)} />
+                      </div>
+                    </WriteOnly>
                   </div>
                 )}
               </div>
@@ -539,6 +541,7 @@ function ActionBtn({ label, color, onClick }: { label: string; color: string; on
 }
 
 function EditableScu({ value, onCommit }: { value: number; onCommit: (n: number) => void }): React.ReactElement {
+  const canEdit = useCanEdit()
   const [editing, setEditing] = useState(false)
   const [draft, setDraft] = useState(String(value))
   useEffect(() => setDraft(String(value)), [value])
@@ -550,7 +553,7 @@ function EditableScu({ value, onCommit }: { value: number; onCommit: (n: number)
     else setDraft(String(value))
   }
 
-  if (editing) {
+  if (editing && canEdit) {
     return (
       <input
         autoFocus
@@ -582,19 +585,23 @@ function EditableScu({ value, onCommit }: { value: number; onCommit: (n: number)
 
   return (
     <span
-      onClick={(e) => {
-        e.stopPropagation()
-        setEditing(true)
-      }}
-      title="Click to edit SCU"
+      onClick={
+        canEdit
+          ? (e) => {
+              e.stopPropagation()
+              setEditing(true)
+            }
+          : undefined
+      }
+      title={canEdit ? 'Click to edit SCU' : undefined}
       style={{
         fontFamily: F.mono,
         fontSize: 15,
         color: C.text,
         textShadow: GLOW,
         textAlign: 'right',
-        cursor: 'text',
-        borderBottom: `1px dashed rgba(255,255,255,0.22)`
+        cursor: canEdit ? 'text' : 'default',
+        borderBottom: canEdit ? `1px dashed rgba(255,255,255,0.22)` : '1px solid transparent'
       }}
     >
       {value}
@@ -635,6 +642,7 @@ function EditableText({
   textStyle?: React.CSSProperties
   options?: string[]
 }): React.ReactElement {
+  const canEdit = useCanEdit()
   const [editing, setEditing] = useState(false)
   const [draft, setDraft] = useState(value)
   useEffect(() => setDraft(value), [value])
@@ -649,7 +657,7 @@ function EditableText({
     setEditing(false)
   }
 
-  if (editing) {
+  if (editing && canEdit) {
     if (options) {
       return (
         <Typeahead
@@ -682,17 +690,21 @@ function EditableText({
 
   return (
     <span
-      onClick={(e) => {
-        e.stopPropagation()
-        setEditing(true)
-      }}
-      title="Click to edit"
+      onClick={
+        canEdit
+          ? (e) => {
+              e.stopPropagation()
+              setEditing(true)
+            }
+          : undefined
+      }
+      title={canEdit ? 'Click to edit' : value || undefined}
       style={{
         fontFamily: F.body,
         fontSize: 14,
         color: C.text,
-        cursor: 'text',
-        borderBottom: `1px dashed rgba(255,255,255,0.22)`,
+        cursor: canEdit ? 'text' : 'default',
+        borderBottom: canEdit ? `1px dashed rgba(255,255,255,0.22)` : '1px solid transparent',
         paddingBottom: 1,
         whiteSpace: 'nowrap',
         overflow: 'hidden',
@@ -700,7 +712,7 @@ function EditableText({
         ...textStyle
       }}
     >
-      {value || <span style={{ color: C.faint }}>{placeholder ?? 'set -'}</span>}
+      {value || <span style={{ color: C.faint }}>{canEdit ? (placeholder ?? 'set -') : '-'}</span>}
     </span>
   )
 }
@@ -714,6 +726,7 @@ function EditableNum({
   onCommit: (n: number) => void
   suffix?: string
 }): React.ReactElement {
+  const canEdit = useCanEdit()
   const [editing, setEditing] = useState(false)
   const [draft, setDraft] = useState(value ? String(value) : '')
   useEffect(() => setDraft(value ? String(value) : ''), [value])
@@ -725,7 +738,7 @@ function EditableNum({
     else setDraft(value ? String(value) : '')
   }
 
-  if (editing) {
+  if (editing && canEdit) {
     return (
       <input
         autoFocus
@@ -748,14 +761,25 @@ function EditableNum({
 
   return (
     <span
-      onClick={(e) => {
-        e.stopPropagation()
-        setEditing(true)
+      onClick={
+        canEdit
+          ? (e) => {
+              e.stopPropagation()
+              setEditing(true)
+            }
+          : undefined
+      }
+      title={canEdit ? 'Click to edit' : undefined}
+      style={{
+        fontFamily: F.mono,
+        fontSize: 14,
+        color: C.text,
+        cursor: canEdit ? 'text' : 'default',
+        borderBottom: canEdit ? `1px dashed rgba(255,255,255,0.22)` : '1px solid transparent',
+        paddingBottom: 1
       }}
-      title="Click to edit"
-      style={{ fontFamily: F.mono, fontSize: 14, color: C.text, cursor: 'text', borderBottom: `1px dashed rgba(255,255,255,0.22)`, paddingBottom: 1 }}
     >
-      {value ? fmt(value) : <span style={{ color: C.faint }}>set -</span>}
+      {value ? fmt(value) : <span style={{ color: C.faint }}>{canEdit ? 'set -' : '-'}</span>}
       {value && suffix ? <span style={{ color: C.dim, fontSize: 11 }}>{suffix}</span> : null}
     </span>
   )
@@ -768,6 +792,17 @@ function EditableBoxSize({
   value: number
   onCommit: (n: number) => void
 }): React.ReactElement {
+  const canEdit = useCanEdit()
+  if (!canEdit) {
+    return (
+      <span
+        title="Max box size"
+        style={{ fontFamily: F.mono, fontSize: 14, color: C.text, borderBottom: '1px solid transparent', paddingBottom: 1 }}
+      >
+        {value} SCU
+      </span>
+    )
+  }
   return (
     <select
       value={value}
@@ -823,30 +858,6 @@ function BlueprintBadge(): React.ReactElement {
         <circle cx="12" cy="12" r="3" />
       </svg>
       BP
-    </span>
-  )
-}
-
-function PickupBugBadge(): React.ReactElement {
-  return (
-    <span
-      title="Game bug workaround: all boxes planned at the final listed pickup"
-      style={{
-        flex: 'none',
-        display: 'inline-flex',
-        alignItems: 'center',
-        gap: 4,
-        border: `1px solid ${C.amber}`,
-        background: 'rgba(232,177,58,0.10)',
-        color: C.amber,
-        fontFamily: F.display,
-        fontSize: 10,
-        fontWeight: 600,
-        letterSpacing: '0.14em',
-        padding: '2px 7px'
-      }}
-    >
-      PICKUP BUG
     </span>
   )
 }

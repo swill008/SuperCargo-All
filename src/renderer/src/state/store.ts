@@ -14,6 +14,7 @@ import type {
   Location,
   Commodity,
   OcrResult,
+  OcrWaitState,
   OcrEngineInfo,
   HistoryEntry,
   HistoryStatus,
@@ -23,12 +24,17 @@ import type {
   ManualPlacement,
   ScannedContract,
   StorAllCrate,
-  BoxSizeReport
+  BoxSizeReport,
+  CrewState,
+  CrewMember,
+  CrewMirror,
+  ManifestDoc,
+  CrewSnapshot
 } from '@shared/types'
 import { fixtureMap } from '@shared/hold'
 import { boxBreakdown, calculateBoxes } from '@shared/box'
-import { contractRef, applyPickupBug, restorePickups } from '@shared/contract'
-import { backfillDestinations } from '@shared/markerResolve'
+import { contractRef, contractParty } from '@shared/contract'
+import { applyMarkerBackfill } from '@shared/markerResolve'
 import { newRunId } from '@shared/run'
 import { estimatePayout } from '@shared/payout'
 import { DEFAULT_SHIP, SHIPS, type Ship } from '@shared/ships'
@@ -82,6 +88,7 @@ const DEFAULT_SETTINGS: AppSettings = {
   contractsDataPath: '',
   contributeTrainingData: false,
   telemetryClientId: '',
+  crewName: '',
   shareUsageStats: true,
   alwaysOnTop: false,
   theme: 'dark',
@@ -156,14 +163,14 @@ function makeLogContract(e: ContractAcceptedEvent, refIndex: number): HaulingCon
     generator: e.generator || undefined,
     contractName: e.contractName || undefined,
     commodityBoxSizes: e.commodityBoxSizes,
-    lastPickupOnly: e.lastPickupOnly || undefined,
-    markerDropoffs: e.markerDropoffs
+    markerDropoffs: e.markerDropoffs,
+    markerPickups: e.markerPickups
   }
 }
 
 // one report per contract, at the end of its life, and only if something was corrected
 function reportBoxOutcome(c: HaulingContract, status: HistoryStatus): void {
-  const edited = c.originalMaxBoxSize != null || c.objectives.some((o) => o.originalBoxes) || c.lastPickupOnlyManual
+  const edited = c.originalMaxBoxSize != null || c.objectives.some((o) => o.originalBoxes)
   if (!edited) return
   const report: BoxSizeReport = {
     missionId: c.id,
@@ -185,25 +192,22 @@ function reportBoxOutcome(c: HaulingContract, status: HistoryStatus): void {
       boxes: o.boxes,
       originalBoxes: o.originalBoxes,
       delivered: o.delivered
-    })),
-    lastPickupOnly: c.lastPickupOnly,
-    lastPickupOnlyManual: c.lastPickupOnlyManual
+    }))
   }
   window.supercargo.reportBoxSizes(report)
 }
 
-// recover destinations the game logged as a bare system (or left blank) from the dropoff marker coords
-function applyMarkerBackfill(contracts: HaulingContract[], locations: Location[]): HaulingContract[] {
-  if (!locations.length) return contracts
-  let changed = false
-  const next = contracts.map((c) => {
-    if (!c.markerDropoffs?.length || !c.objectives.length) return c
-    const fills = backfillDestinations(c.objectives.map((o) => o.destination), c.markerDropoffs, locations)
-    if (fills.every((f) => f === null)) return c
-    changed = true
-    return { ...c, objectives: c.objectives.map((o, i) => (fills[i] ? { ...o, destination: fills[i] as string } : o)) }
-  })
-  return changed ? next : contracts
+// 4.10 fixed the spawn bug, undo the collapse
+function uncollapsePickups(c: HaulingContract): HaulingContract {
+  type Collapsed = DeliveryObjective & { originalPickups?: string[] }
+  if (!c.objectives.some((o) => (o as Collapsed).originalPickups)) return c
+  return {
+    ...c,
+    objectives: c.objectives.map((o) => {
+      const { originalPickups, ...rest } = o as Collapsed
+      return originalPickups ? { ...rest, pickups: originalPickups } : o
+    })
+  }
 }
 
 interface StoreState {
@@ -244,6 +248,11 @@ interface StoreState {
   /** contracts a session scan found but that aren't reviewed into the list yet */
   scanQueue: ScannedContract[]
   scanReviewOpen: boolean
+  crew: CrewState
+  /** leader's boxes as currently placed */
+  crewBoxes: FrozenBox[]
+  /** epoch ms, for the stale warning */
+  crewSeenAt: number
   history: HistoryEntry[]
   appVersion: string
   update: UpdateState | null
@@ -259,6 +268,8 @@ interface StoreState {
 
   ocrStatus: 'idle' | 'capturing' | 'recognizing'
   ocrResult: OcrResult | null
+  /** capture is holding for a shared contract's screen */
+  ocrWait: OcrWaitState | null
   ocrEngine: OcrEngineInfo | null
 
   // overlays
@@ -291,6 +302,11 @@ interface StoreState {
   setGroupBy: (g: 'destination' | 'contract') => void
   toggleBoxMath: () => void
   openCapture: (targetId?: string) => void
+  setCrewBoxes: (boxes: FrozenBox[]) => void
+  startCrew: () => Promise<void>
+  joinCrew: (code: string) => Promise<void>
+  /** leader ends it for everyone, member just walks out */
+  leaveCrew: () => Promise<void>
   rescanContract: (id: string) => void
   closeCapture: () => void
   openCompact: () => void
@@ -335,11 +351,11 @@ interface StoreState {
   editObjective: (
     contractId: string,
     objectiveId: string,
-    patch: { commodity?: string; destination?: string }
+    patch: { commodity?: string; destination?: string; pickups?: string[] }
   ) => void
   deleteObjective: (contractId: string, objectiveId: string) => void
-  /** game bug: all cargo at the last listed pickup; on = collapse multi-pickups, off = restore */
-  setLastPickupOnly: (contractId: string, on: boolean) => void
+  /** null = back to uncounted */
+  setPickupScu: (contractId: string, objectiveId: string, index: number, scu: number | null) => void
   setObjectiveDeliveredScu: (contractId: string, objectiveId: string, deliveredScu: number) => void
   setContractReward: (contractId: string, reward: number) => void
   setObjectivesDelivered: (
@@ -388,6 +404,10 @@ interface StoreState {
   refreshOcrEngine: () => Promise<void>
 }
 
+function leaderShip(own: AppSettings, shown: AppSettings): AppSettings {
+  return { ...own, activeShip: shown.activeShip, installedModules: shown.installedModules }
+}
+
 function nextOrder(contracts: HaulingContract[], prevOrder: string[]): string[] {
   return destinationsInOrder(contracts, prevOrder)
 }
@@ -411,12 +431,144 @@ if (import.meta.hot) {
   })
 }
 
+// member's own run, parked during a crew
+const NO_CREW: CrewState = { role: null, code: '', connected: false, lastAt: 0, members: [] }
+
+// the only actions a crew member keeps
+const MEMBER_OK = new Set([
+  'init',
+  'setView',
+  'setLoadingIdx',
+  'setGroupBy',
+  'toggleBoxMath',
+  'openCompact',
+  'closeCompact',
+  'closeCapture',
+  'dismissNotice',
+  'setCrewBoxes',
+  'startCrew',
+  'joinCrew',
+  'leaveCrew',
+  'updateSettings',
+  'checkForUpdates',
+  'clearOcr',
+  'refreshOcrEngine',
+  // their own history, not the crew's run
+  'updateHistoryReward',
+  'clearHistory',
+  'deleteRun'
+])
+
+function crewLock(actions: StoreState, get: () => StoreState): StoreState {
+  const out: Record<string, unknown> = { ...actions }
+  for (const [k, v] of Object.entries(actions)) {
+    if (typeof v !== 'function' || MEMBER_OK.has(k)) continue
+    const fn = v as (...args: unknown[]) => unknown
+    out[k] = (...args: unknown[]) => (get().crew.role === 'member' ? undefined : fn(...args))
+  }
+  return out as unknown as StoreState
+}
+
+// steps, ticks and turn-ins aren't plan changes
+function planSig(doc: ManifestDoc): string {
+  const objectives = doc.contracts.flatMap((c) =>
+    c.objectives.map((o) => [o.id, o.scuAmount, o.destination, o.boxes, o.pickups, o.pickupScu])
+  )
+  const steps = (doc.loadingSteps ?? []).map((s) => [
+    s.nodeKey,
+    s.trip,
+    s.kind,
+    s.boundFor,
+    s.lines.map((l) => [l.objectiveId, l.scu, l.breakdown])
+  ])
+  const boxes = (doc.loadingBoxes ?? []).map((b) => [b.id, b.size])
+  return JSON.stringify([doc.order, doc.stopOrder, objectives, steps, boxes, doc.loose, doc.looseSpots, doc.deferred, doc.grabbed, doc.storAlls])
+}
+
+// only a sideways shift is a hand move
+function pinsMoved(prev: Record<string, LoadedPin>, next: Record<string, LoadedPin>): boolean {
+  return Object.entries(next).some(([key, p]) => {
+    const q = prev[key]
+    return !!q && (q.gridId !== p.gridId || q.x !== p.x || q.z !== p.z || !!q.rotated !== !!p.rotated)
+  })
+}
+
+let crewPlan = ''
+let crewPins: Record<string, LoadedPin> = {}
+let leaderIdx: number | null = null
+
+let preCrew: { doc: ManifestDoc; loadingActive: boolean; loadingIdx: number; settings: AppSettings } | null = null
+
 export const useStore = create<StoreState>((set, get) => {
   const persist = (): void => {
     // main owns the file
     if (isCompactWindow) return
+    // never save the leader's run as theirs
+    if (get().crew.role === 'member') return
+    const doc = manifestDoc()
+    void window.supercargo.saveManifest(doc)
+    pushCrew(doc)
+  }
+
+  // a step forward writes several times, send once
+  let crewTimer: ReturnType<typeof setTimeout> | null = null
+  const pushCrew = (doc?: ManifestDoc): void => {
+    const st = get()
+    if (st.crew.role !== 'leader') return
+    if (crewTimer) clearTimeout(crewTimer)
+    crewTimer = setTimeout(() => {
+      const cur = get()
+      const ship = cur.settings.activeShip
+      void window.supercargo
+        .publishCrew({
+          leader: cur.settings.crewName || 'Leader',
+          ship,
+          installedModules: cur.settings.installedModules[ship] ?? [],
+          manifest: doc ?? manifestDoc(),
+          boxes: cur.crewBoxes,
+          loadingIdx: cur.loadingActive ? cur.loadingIdx : null,
+          appVersion: cur.appVersion,
+          gridFacesHash: cur.gridFacesSyncedAt
+        })
+        .then((ok) => set((p) => ({ crew: { ...p.crew, connected: ok, lastAt: ok ? Date.now() : p.crew.lastAt } })))
+    }, 400)
+  }
+
+  // overlay has no crew link of its own
+  const mirrorOverlay = (member: boolean): void => {
+    if (isCompactWindow) return
+    const st = get()
+    const ship = st.settings.activeShip
+    window.supercargo.mirrorCrew({ doc: manifestDoc(), ship, installedModules: st.settings.installedModules[ship] ?? [], member })
+    window.supercargo.setLoadingState({ active: st.loadingActive, idx: st.loadingIdx })
+  }
+
+  const applyDoc = (doc: ManifestDoc): void => {
+    set({
+      runId: doc.runId,
+      contracts: doc.contracts,
+      order: doc.order,
+      stopOrder: doc.stopOrder ?? [],
+      startLocation: doc.startLocation ?? '',
+      currentLocation: doc.currentLocation ?? '',
+      isRouteAuto: doc.isRouteAuto ?? true,
+      looseBoxes: doc.loose ?? [],
+      looseSpots: doc.looseSpots ?? {},
+      looseAt: doc.looseAt ?? {},
+      deferredObjectives: doc.deferred ?? [],
+      grabbedObjectives: doc.grabbed ?? [],
+      storAlls: doc.storAlls ?? {},
+      dismissedMissions: doc.dismissed ?? [],
+      loadedPins: doc.loadedPins ?? {},
+      loadingSteps: doc.loadingSteps ?? null,
+      loadingBoxes: doc.loadingBoxes ?? null,
+      layout: doc.layout ?? null
+    })
+  }
+
+  const manifestDoc = (): ManifestDoc => {
     const { runId, contracts, order, stopOrder, layout, startLocation, currentLocation, isRouteAuto, loadedPins, loadingActive, loadingIdx, loadingSteps, loadingBoxes, looseBoxes, looseSpots, looseAt, deferredObjectives, grabbedObjectives, dismissedMissions, storAlls } = get()
-    void window.supercargo.saveManifest({ runId, contracts, order, stopOrder, layout: layout ?? undefined, startLocation, currentLocation, isRouteAuto, loadedPins, loadingActive, loadingIdx, loadingSteps, loadingBoxes, loose: looseBoxes, looseSpots, looseAt, deferred: deferredObjectives, grabbed: grabbedObjectives, dismissed: dismissedMissions, storAlls })
+    return { runId, contracts, order, stopOrder, layout: layout ?? undefined, startLocation, currentLocation, isRouteAuto, loadedPins, loadingActive, loadingIdx, loadingSteps, loadingBoxes, loose: looseBoxes, looseSpots, looseAt, deferred: deferredObjectives, grabbed: grabbedObjectives, dismissed: dismissedMissions, storAlls }
   }
 
   const holdGrids = (): CargoGrid[] => {
@@ -425,6 +577,7 @@ export const useStore = create<StoreState>((set, get) => {
   }
 
   const commit = (contracts: HaulingContract[], order?: string[]): void => {
+    if (get().crew.role === 'member') return
     const nextOrd = nextOrder(contracts, order ?? get().order)
     // sync locked layout, no re-flow
     let layout = get().layout
@@ -685,13 +838,12 @@ export const useStore = create<StoreState>((set, get) => {
     contract.pickup = resolveLogLocation(contract.pickup, get().locations)
     if (opts.maxBoxSize != null) contract.maxBoxSize = opts.maxBoxSize
     if (opts.boxSizeConfirmed != null) contract.boxSizeConfirmed = opts.boxSizeConfirmed
-    contract.objectives = item.objectives.map((o) => {
-      const obj = makeObjective(
+    contract.objectives = item.objectives.map((o) =>
+      makeObjective(
         { commodity: o.commodity, scuAmount: o.scuAmount, destination: resolveLogLocation(o.destination, get().locations) },
         objectiveBoxSize(contract, o.commodity)
       )
-      return contract.lastPickupOnly ? applyPickupBug(obj) : obj
-    })
+    )
     contract.objectives = applyMarkerBackfill([contract], get().locations)[0].objectives
     // non-pending scan = final set; pending settles after OCR
     if (!opts.pendingOcr) contract.objectivesSettled = true
@@ -702,7 +854,7 @@ export const useStore = create<StoreState>((set, get) => {
     drainShare(contract.id)
   }
 
-  return {
+  return crewLock({
     ready: false,
     view: 'manifest',
     groupBy: 'destination',
@@ -727,6 +879,9 @@ export const useStore = create<StoreState>((set, get) => {
     dismissedMissions: [],
     scanQueue: [],
     scanReviewOpen: false,
+    crew: NO_CREW,
+    crewBoxes: [],
+    crewSeenAt: 0,
     history: [],
     appVersion: '',
     update: null,
@@ -738,6 +893,7 @@ export const useStore = create<StoreState>((set, get) => {
     gridFacesSyncedAt: '',
     ocrStatus: 'idle',
     ocrResult: null,
+    ocrWait: null,
     ocrEngine: null,
     captureOpen: false,
     captureTargetId: null,
@@ -779,12 +935,15 @@ export const useStore = create<StoreState>((set, get) => {
       const active = manifest.contracts
         .filter((c) => c.status === 'active')
         .map((c) => (c.pendingOcr ? { ...c, pendingOcr: false } : c))
+        .map(uncollapsePickups)
         // settle already-resolved legacy contracts (no bare "X System" dest left)
         .map((c) =>
           c.objectivesSettled == null && c.objectives.length > 0 && !c.objectives.some((o) => isSystemDestination(o.destination))
             ? { ...c, objectivesSettled: true }
             : c
         )
+      // markers name stops the collapse dropped
+      const restored = applyMarkerBackfill(active, locRoster?.locations ?? [])
       const ended = manifest.contracts.filter((c) => c.status !== 'active')
       // one-time sweep of entries recorded before abandons stopped counting
       let history = historyDoc.entries.filter((h) => h.status !== 'abandoned')
@@ -800,8 +959,8 @@ export const useStore = create<StoreState>((set, get) => {
         // keep the rest; only contracts moved
         void window.supercargo.saveManifest({
           ...manifest,
-          contracts: active,
-          order: nextOrder(active, manifest.order)
+          contracts: restored,
+          order: nextOrder(restored, manifest.order)
         })
       }
 
@@ -812,8 +971,8 @@ export const useStore = create<StoreState>((set, get) => {
       set({
         settings,
         runId: manifest.runId,
-        contracts: active,
-        order: nextOrder(active, manifest.order),
+        contracts: restored,
+        order: nextOrder(restored, manifest.order),
         stopOrder: manifest.stopOrder ?? [],
         startLocation: manifest.startLocation ?? '',
         currentLocation: manifest.currentLocation ?? '',
@@ -865,7 +1024,7 @@ export const useStore = create<StoreState>((set, get) => {
       track(window.supercargo.onCommodities((r) => {
         set({ commodities: r.commodities })
       }))
-      track(window.supercargo.onContractShare((e) => onShare(e)))
+      track(window.supercargo.onContractShare((e) => get().crew.role !== 'member' && onShare(e)))
       track(window.supercargo.onGridFaces((r) => {
         setGridFaces(r.gridFaces)
         set({ gridFacesSyncedAt: r.syncedAt || String(Date.now()) })
@@ -875,6 +1034,8 @@ export const useStore = create<StoreState>((set, get) => {
       track(window.supercargo.onWatcherStatus((s) => set({ watcher: s })))
       track(window.supercargo.onUpdate((u) => set({ update: u })))
       track(window.supercargo.onContractAccepted((e: ContractAcceptedEvent) => {
+        // a member's own log can't touch the leader's run
+        if (get().crew.role === 'member') return
         const { contracts, dismissedMissions } = get()
         // dedup relog re-emits
         if (contracts.some((c) => c.id === e.missionId)) return
@@ -894,16 +1055,29 @@ export const useStore = create<StoreState>((set, get) => {
         // OCR-held contracts announce themselves when they resolve, not now
         if (!willOcr) announce(contract.id)
         scheduleReroute()
+        // share then accept: not on the contract screen yet
+        const sharedAccept = (pendingShare.get(e.missionId) ?? []).some((s) => s.kind === 'shared')
         // a MissionShared/PlayerJoined that beat the accept applies now
         drainShare(contract.id)
         if (willOcr) {
           // open capture so the wait shows
           set({ captureOpen: true, captureTargetId: e.missionId, ocrResult: null, ocrStatus: 'recognizing' })
-          window.supercargo.requestOcrCapture(e.missionId)
+          window.supercargo.requestOcrCapture(
+            e.missionId,
+            sharedAccept
+              ? {
+                  title: contract.title || undefined,
+                  contractor: contractParty(contract.generator) || undefined,
+                  rank: contract.rank || undefined,
+                  pickup: contract.pickup || undefined
+                }
+              : undefined
+          )
           armCaptureNet(e.missionId)
         }
       }))
       track(window.supercargo.onObjective((e: ObjectiveEvent) => {
+        if (get().crew.role === 'member') return
         const { contracts } = get()
         const idx = contracts.findIndex((c) => c.id === e.missionId)
         if (idx < 0) return
@@ -939,6 +1113,7 @@ export const useStore = create<StoreState>((set, get) => {
         }
       }))
       track(window.supercargo.onContractEnded((e: ContractEndedEvent) => {
+        if (get().crew.role === 'member') return
         const { contracts } = get()
         const contract = contracts.find((c) => c.id === e.missionId)
         if (!contract) return
@@ -962,11 +1137,19 @@ export const useStore = create<StoreState>((set, get) => {
         set({ history })
         persistHistory(history)
       }))
-      track(window.supercargo.onOpenCapture(() => set({ captureOpen: true, captureTargetId: null })))
+      track(window.supercargo.onOpenCapture(() => get().crew.role !== 'member' && set({ captureOpen: true, captureTargetId: null })))
 
-      // apply without persisting, avoids ping-pong
-      track(window.supercargo.onManifestChanged((doc) => {
-        set({
+      // never touches disk
+      track(window.supercargo.onCrewSnapshot((snap: CrewSnapshot) => {
+        const doc = snap.manifest
+        const plan = planSig(doc)
+        const pins = doc.loadedPins ?? {}
+        const changed = plan !== crewPlan || pinsMoved(crewPins, pins)
+        const lastLeaderIdx = leaderIdx
+        crewPlan = plan
+        crewPins = pins
+        leaderIdx = snap.loadingIdx
+        set((st) => ({
           runId: doc.runId,
           contracts: doc.contracts,
           order: doc.order,
@@ -980,24 +1163,65 @@ export const useStore = create<StoreState>((set, get) => {
           deferredObjectives: doc.deferred ?? [],
           grabbedObjectives: doc.grabbed ?? [],
           storAlls: doc.storAlls ?? {},
-          dismissedMissions: doc.dismissed ?? [],
           loadedPins: doc.loadedPins ?? {},
-          // overlay renders the main walk verbatim
           loadingSteps: doc.loadingSteps ?? null,
           loadingBoxes: doc.loadingBoxes ?? null,
-          layout: doc.layout ?? null
-        })
+          loadingActive: snap.loadingIdx !== null,
+          // off-step members stay put unless the plan changed
+          loadingIdx:
+            changed || st.loadingIdx === lastLeaderIdx
+              ? snap.loadingIdx ?? 0
+              : Math.min(st.loadingIdx, Math.max(0, (doc.loadingSteps?.length ?? 1) - 1)),
+          // as placed, hand-moves included
+          layout: { locked: true, boxes: snap.boxes },
+          // their ship; nothing persists in a crew
+          settings: {
+            ...st.settings,
+            activeShip: snap.ship,
+            installedModules: { ...st.settings.installedModules, [snap.ship]: snap.installedModules }
+          },
+          crewSeenAt: Date.now(),
+          crew: { ...st.crew, connected: true, lastAt: Date.now() }
+        }))
+        scheduleReroute(doc.stopOrder ?? [])
+        mirrorOverlay(true)
+      }))
+      track(window.supercargo.onCrewStatus((s) => {
+        set((st) => ({ crew: { ...st.crew, connected: s.up, error: s.error } }))
+      }))
+      track(window.supercargo.onCrewMembers((m: CrewMember[]) => {
+        set((st) => ({ crew: { ...st.crew, members: m } }))
+      }))
+
+      // apply without persisting, avoids ping-pong
+      track(window.supercargo.onManifestChanged((doc) => {
+        if (get().crew.role === 'member') return
+        applyDoc(doc)
         // mirror main's order, don't re-optimize
         scheduleReroute(doc.stopOrder ?? [])
       }))
+      track(window.supercargo.onCrewMirror((m: CrewMirror) => {
+        applyDoc(m.doc)
+        set((st) => ({
+          crew: m.member ? { ...NO_CREW, role: 'member' } : NO_CREW,
+          settings: {
+            ...st.settings,
+            activeShip: m.ship,
+            installedModules: { ...st.settings.installedModules, [m.ship]: m.installedModules }
+          }
+        }))
+        scheduleReroute(m.doc.stopOrder ?? [])
+      }))
       track(window.supercargo.onCompactState((s) => set({ compactOpen: s.open })))
       // overlay reflects opacity/scale changes made in the main window's settings
-      track(window.supercargo.onSettings((s) => set({ settings: s })))
+      track(window.supercargo.onSettings((s) => set((st) => ({ settings: st.crew.role === 'member' ? leaderShip(s, st.settings) : s }))))
 
       track(window.supercargo.onOcrStatus((s) =>
         set({ ocrStatus: (s as StoreState['ocrStatus']) ?? 'idle' })
       ))
+      track(window.supercargo.onOcrWait((w) => set({ ocrWait: w.active ? w : null })))
       track(window.supercargo.onOcrResult((r) => {
+        if (get().crew.role === 'member') return
         // capture came back, hold stays until the user acts
         clearCaptureNet()
         const target =
@@ -1006,6 +1230,8 @@ export const useStore = create<StoreState>((set, get) => {
             : null
         set({ ocrResult: r, ocrStatus: 'idle', captureOpen: true, captureTargetId: target })
       }))
+      track(window.supercargo.onCrewMirrorAsk(() => get().crew.role === 'member' && mirrorOverlay(true)))
+      if (isCompactWindow) window.supercargo.askCrewMirror()
       void get().refreshOcrEngine()
       // backfill what the watcher missed
       void get().scanSession()
@@ -1069,6 +1295,14 @@ export const useStore = create<StoreState>((set, get) => {
     },
 
     updateSettings: async (patch) => {
+      if (get().crew.role === 'member') {
+        // view prefs only; the hold stays the leader's
+        if (patch.activeShip !== undefined || patch.installedModules !== undefined) return
+        const own = await window.supercargo.setSettings(patch)
+        if (preCrew) preCrew = { ...preCrew, settings: own }
+        set((st) => ({ settings: leaderShip(own, st.settings) }))
+        return
+      }
       const prev = get().settings
       const settings = await window.supercargo.setSettings(patch)
       set({ settings })
@@ -1087,6 +1321,58 @@ export const useStore = create<StoreState>((set, get) => {
         persist()
         get().clearAllPickedUp()
         scheduleReroute()
+      }
+    },
+
+    setCrewBoxes: (boxes) => {
+      if (get().crew.role !== 'leader') return
+      set({ crewBoxes: boxes })
+      pushCrew()
+    },
+
+    startCrew: async () => {
+      const code = await window.supercargo.startCrew(get().settings.crewName).catch(() => null)
+      if (!code) {
+        set({ crew: { ...NO_CREW, error: "Couldn't reach the crew server" } })
+        return
+      }
+      set({ crew: { role: 'leader', code, connected: true, lastAt: Date.now(), members: [] } })
+      pushCrew()
+    },
+
+    joinCrew: async (code) => {
+      crewPlan = ''
+      crewPins = {}
+      leaderIdx = null
+      // stash before the leader's run lands
+      preCrew = {
+        doc: manifestDoc(),
+        loadingActive: get().loadingActive,
+        loadingIdx: get().loadingIdx,
+        settings: get().settings
+      }
+      const res = await window.supercargo
+        .joinCrew(code, get().settings.crewName)
+        .catch(() => ({ ok: false, error: "Couldn't reach the crew server" }))
+      if (!res.ok) {
+        preCrew = null
+        set({ crew: { ...NO_CREW, error: res.error } })
+        return
+      }
+      set({ crew: { role: 'member', code: code.trim().toUpperCase(), connected: true, lastAt: Date.now(), members: [] } })
+    },
+
+    leaveCrew: async () => {
+      const { role } = get().crew
+      if (role === 'leader') await window.supercargo.endCrew()
+      else await window.supercargo.leaveCrew()
+      set({ crew: NO_CREW, crewSeenAt: 0 })
+      if (preCrew) {
+        applyDoc(preCrew.doc)
+        set({ settings: preCrew.settings, loadingActive: preCrew.loadingActive, loadingIdx: preCrew.loadingIdx, crewBoxes: [] })
+        preCrew = null
+        scheduleReroute(get().stopOrder)
+        mirrorOverlay(false)
       }
     },
 
@@ -1130,8 +1416,7 @@ export const useStore = create<StoreState>((set, get) => {
           .filter((o) => o.commodity.trim() && o.destination.trim() && o.scuAmount > 0)
           .map((o) => {
             const kept = prior.get(sig(o.commodity, o.destination, o.scuAmount))?.shift()
-            const base = makeObjective(o, maxBoxSize)
-            const shaped = c.lastPickupOnly ? applyPickupBug(base) : base
+            const shaped = makeObjective(o, maxBoxSize)
             return kept
               ? {
                   ...shaped,
@@ -1150,7 +1435,7 @@ export const useStore = create<StoreState>((set, get) => {
             ? objPickups[0]
             : undefined
         // box size confirmed now, release hold and freeze against re-emits
-        return {
+        const next = {
           ...c,
           pickup: commonPickup ?? c.pickup,
           maxBoxSize,
@@ -1159,6 +1444,7 @@ export const useStore = create<StoreState>((set, get) => {
           objectivesSettled: true,
           objectives: rebuilt
         }
+        return applyMarkerBackfill([next], get().locations)[0]
       })
       clearCaptureNet()
       commit(contracts)
@@ -1432,22 +1718,11 @@ export const useStore = create<StoreState>((set, get) => {
     },
 
     editContract: (id, patch) => {
-      const repointed: string[] = []
       const contracts = get().contracts.map((c) => {
         if (c.id !== id) return c
         const next = { ...c }
         if (patch.title !== undefined) next.title = patch.title.trim()
-        if (patch.pickup !== undefined) {
-          next.pickup = patch.pickup.trim()
-          // while collapsed the route reads o.pickups, so a hand-set pickup must land there too
-          if (c.lastPickupOnly && next.pickup) {
-            next.objectives = next.objectives.map((o) => {
-              if (!o.pickups?.length || o.pickups[0] === next.pickup) return o
-              repointed.push(o.id)
-              return { ...o, originalPickups: o.originalPickups ?? o.pickups, pickups: [next.pickup] }
-            })
-          }
-        }
+        if (patch.pickup !== undefined) next.pickup = patch.pickup.trim()
         if (patch.rank !== undefined) next.rank = patch.rank.trim()
         if (patch.contractor !== undefined) next.contractor = patch.contractor.trim() || undefined
         if (patch.reward !== undefined) next.reward = Math.max(0, Math.round(patch.reward))
@@ -1463,14 +1738,6 @@ export const useStore = create<StoreState>((set, get) => {
         return next
       })
       commit(contracts)
-      if (repointed.length) {
-        const pins = get().loadedPins
-        const kept = Object.fromEntries(
-          Object.entries(pins).filter(([k]) => !repointed.some((oid) => k.startsWith(oid + '#')))
-        )
-        if (Object.keys(kept).length !== Object.keys(pins).length) set({ loadedPins: kept })
-        set({ isRouteAuto: true })
-      }
       scheduleReroute()
     },
 
@@ -1484,6 +1751,10 @@ export const useStore = create<StoreState>((set, get) => {
             const next = { ...o }
             if (patch.commodity !== undefined) next.commodity = patch.commodity.trim()
             if (patch.destination !== undefined) next.destination = patch.destination.trim()
+            if (patch.pickups !== undefined) {
+              const ps = patch.pickups.map((p) => p.trim()).filter(Boolean)
+              next.pickups = ps.length ? ps : undefined
+            }
             return next
           })
         }
@@ -1546,24 +1817,21 @@ export const useStore = create<StoreState>((set, get) => {
       scheduleReroute()
     },
 
-    setLastPickupOnly: (contractId, on) => {
-      const affected: string[] = []
+    setPickupScu: (contractId, objectiveId, index, scu) => {
       const contracts = get().contracts.map((c) => {
-        if (c.id !== contractId || !!c.lastPickupOnly === on) return c
-        const objectives = c.objectives.map((o) => {
-          const next = on ? applyPickupBug(o) : restorePickups(o)
-          if (next !== o) affected.push(o.id)
-          return next
-        })
-        return { ...c, lastPickupOnly: on || undefined, lastPickupOnlyManual: true, objectives }
+        if (c.id !== contractId) return c
+        return {
+          ...c,
+          objectives: c.objectives.map((o) => {
+            if (o.id !== objectiveId || !o.pickups?.length) return o
+            const next = Array.from({ length: o.pickups.length }, (_, i) => o.pickupScu?.[i] ?? null)
+            next[index] = scu === null ? null : Math.max(0, Math.min(o.scuAmount, Math.round(scu)))
+            return { ...o, pickupScu: next }
+          })
+        }
       })
       commit(contracts)
-      // pins made under the old pickup layout would re-seat cargo at dead stops
-      const pins = get().loadedPins
-      const kept = Object.fromEntries(
-        Object.entries(pins).filter(([k]) => !affected.some((id) => k.startsWith(id + '#')))
-      )
-      if (Object.keys(kept).length !== Object.keys(pins).length) set({ loadedPins: kept })
+      // a real count changes what the tail can carry
       set({ isRouteAuto: true })
       scheduleReroute()
     },
@@ -1839,5 +2107,5 @@ export const useStore = create<StoreState>((set, get) => {
         /* engine info is best-effort */
       }
     }
-  }
+  }, get)
 })

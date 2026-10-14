@@ -515,8 +515,9 @@ function preferContractSystem(objs: OcrObjective[], locations: Location[]): OcrO
   if (!system) return objs
   const fix = (m: MatchResult): MatchResult => {
     if (!m.match || !/\([^)]*\)\s*$/.test(m.match)) return m
-    if (m.input.includes('(') || sysOf(m.match) === system) return m
+    if (sysOf(m.match) === system) return m
     const base = m.match.replace(/\s*\([^)]*\)\s*$/, '').toLowerCase()
+    // paired gateways differ only by tag, trust the contract
     const sibling = locations.find((l) => l.system === system && l.name.toLowerCase().startsWith(base + ' ('))
     return sibling ? { ...m, match: sibling.name } : m
   }

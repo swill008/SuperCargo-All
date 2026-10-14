@@ -39,6 +39,8 @@ export const IPC = {
   compactIsOpen: 'compact:isOpen',
   compactResize: 'compact:resize',
   loadingStateSet: 'loading:set',
+  crewMirror: 'crew:mirror',
+  crewMirrorAsk: 'crew:mirrorAsk',
 
   ocrListDisplays: 'ocr:listDisplays',
   ocrEngineInfo: 'ocr:engineInfo',
@@ -79,8 +81,20 @@ export const IPC = {
   evtWindowState: 'evt:window:state',
   evtOcrResult: 'evt:ocr:result',
   evtOcrStatus: 'evt:ocr:status',
-  evtManifestChanged: 'evt:manifest:changed',
+  evtOcrWait: 'evt:ocr:wait', // shared-accept capture waiting for the contract screen
+  crewStart: 'crew:start',
+  crewJoin: 'crew:join',
+  crewLeave: 'crew:leave',
+  crewEnd: 'crew:end',
+  crewPublish: 'crew:publish',
+
+  evtManifestChanged: 'evt:manifest:changed', // saved by another window
   evtCompactState: 'evt:compact:state',
-  evtLoadingState: 'evt:loading:state',
-  evtSettings: 'evt:settings'
+  evtLoadingState: 'evt:loading:state', // main window's loading-mode step
+  evtCrewMirror: 'evt:crew:mirror', // what a crew member's main window shows
+  evtCrewMirrorAsk: 'evt:crew:mirrorAsk', // overlay just opened
+  evtCrewSnapshot: 'evt:crew:snapshot', // leader's run, for a crew member to render
+  evtCrewStatus: 'evt:crew:status', // crew link up/down
+  evtCrewMembers: 'evt:crew:members', // who's actually on the channel
+  evtSettings: 'evt:settings' // settings changed, keep the overlay in sync
 } as const
