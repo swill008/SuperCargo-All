@@ -643,6 +643,16 @@ export default function SettingsPage(): React.ReactElement {
         </div>
       </div>
 
+      <Section title="DEBUG" />
+      <div style={rowStyle}>
+        <span style={keyStyle}>Debug log</span>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
+          <SmallBtn onClick={() => void window.supercargo.debugOpen()}>OPEN DEBUG WINDOW</SmallBtn>
+          <SmallBtn onClick={() => void window.supercargo.debugOpenFolder()}>OPEN LOG FOLDER</SmallBtn>
+          <span style={{ fontFamily: F.mono, fontSize: 12, color: C.dim }}>Ctrl+Shift+D</span>
+        </div>
+      </div>
+
       <Section title="ABOUT" />
       <AboutBlock />
     </div>

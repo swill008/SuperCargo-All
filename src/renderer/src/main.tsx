@@ -16,6 +16,9 @@ import '@fontsource/jetbrains-mono/600.css'
 
 import './global.css'
 import App from './App'
+import { installErrorForwarding } from './state/log'
+
+installErrorForwarding()
 
 ReactDOM.createRoot(document.getElementById('root') as HTMLElement).render(
   <React.StrictMode>

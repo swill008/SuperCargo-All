@@ -5,6 +5,7 @@ import { useOtherJobs } from '@other/renderer/state/otherJobs'
 import { useOtherHistory } from '@other/renderer/state/otherHistory'
 import { resolveWorkMode } from '@other/workMode'
 import CompactWindowApp from './CompactWindowApp'
+import CrashGuard from './CrashGuard'
 import OtherOverlay from '@other/renderer/components/OtherOverlay'
 import { loadOtherPlacesFromMain } from '@other/renderer/state/otherPlaces'
 
@@ -33,6 +34,5 @@ export default function CompactGate(): React.ReactElement {
     })
   }, [initOther, initHaul])
 
-  if (workMode === 'other') return <OtherOverlay />
-  return <CompactWindowApp />
+  return <CrashGuard compact>{workMode === 'other' ? <OtherOverlay /> : <CompactWindowApp />}</CrashGuard>
 }

@@ -16,12 +16,19 @@ import CompactGate from './components/CompactGate'
 import Onboarding from './components/Onboarding'
 import UpdateBanner from './components/UpdateBanner'
 import Toast from './components/Toast'
+import CrashGuard from './components/CrashGuard'
+import DebugPage from './pages/DebugPage'
 
-const IS_COMPACT = typeof window !== 'undefined' && window.location.hash.replace('#', '') === 'compact'
+const HASH = typeof window !== 'undefined' ? window.location.hash.replace('#', '') : ''
 
 export default function App(): React.ReactElement {
-  if (IS_COMPACT) return <CompactGate />
-  return <MainApp />
+  if (HASH === 'debug') return <DebugPage />
+  if (HASH === 'compact') return <CompactGate />
+  return (
+    <CrashGuard>
+      <MainApp />
+    </CrashGuard>
+  )
 }
 
 function MainApp(): React.ReactElement {
