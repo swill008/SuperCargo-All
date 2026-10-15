@@ -79,3 +79,9 @@ with an Electron version that runs Node 22. The Electron upgrade is NOT DOING fo
   differ from the overlay's order for a while. Sharing one pin through the main process would make them identical.
 - Above 50 stops the improvement step is skipped (nearest-next is used) to keep the windows responsive; the search
   grows with the cube of the stop count (about 0.4 s at 80 stops).
+
+## Locked route plan (planning, 2026-10-15; not approved yet)
+
+Plan the optimised route once (PLAN ROUTE button), keep the order while flying, slot later contracts in; ideas:
+stronger one-time plan, one visit per place, cost of a new contract, next stops on the overlay; later: landing cost,
+planned vs flown. Open questions 1-3 (slot in / button / where) are with the user.
