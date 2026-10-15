@@ -5,7 +5,7 @@
  */
 import type { Location } from '@shared/types'
 import type { ListOrder, OtherHistoryEntry, OtherJob, OtherStep } from '@other/otherJob'
-import { listOpenStops, locationPoint, resolveOrigin, stepActivePlace, stepIsPickup } from '@other/otherNext'
+import { listOpenStopsWithRoute, locationPoint, resolveOrigin, stepActivePlace, stepIsPickup } from '@other/otherNext'
 import { explainTravel, systemKey, type GeoPoint } from '@other/otherGeo'
 import { resolveStartText, type StopPlace } from '@other/otherResolve'
 import { accuracyWord, whereAccuracy, type DisplayInfo, type Where } from '@other/otherWhere'
@@ -16,6 +16,7 @@ import { useOtherJobs, otherMissionMarkers, otherLastWhereRun, otherLiveWhereRea
 import { useOtherHistory } from './otherHistory'
 import { mergeLocations, otherPlacesVersion, sourceCounts, starmapSourceOn } from './otherPlaces'
 import { currentMemoryLookup, memoryCounts } from './otherMemoryStore'
+import { getRoutePin, routePinMode } from './routePin'
 
 const hasCoords = (p?: { x?: number; y?: number; z?: number } | null): boolean => !!p && p.x != null && p.y != null && p.z != null
 const round = (n: number | null | undefined): number | null => (n == null || !Number.isFinite(n) ? null : Math.round(n))
@@ -254,10 +255,16 @@ export function otherDiagSnapshot(): Record<string, unknown> {
 
     const orders: ListOrder[] = ['distance', 'route', 'manual']
     const distanceTable: Record<string, unknown> = {}
+    // batch 18: route optimization switch; the Next page's pin when it applies (on, ROUTE, read start)
+    const routeOptimize = !!otherSetting(settings, 'otherRouteOptimize')
+    const originIsRead = origin.kind != null && origin.kind !== 'typed'
+    let routeInfo: Record<string, unknown> | null = null
     // every open stop whose place isn't an exact name match (## MATCHES in the export)
     const matches: Record<string, unknown>[] = []
     for (const order of orders) {
-      const rows = listOpenStops(live, start, locations, {
+      const usePin = routeOptimize && order === 'route' && originIsRead && s.listOrder === 'route'
+      const pin = usePin ? getRoutePin('next', routePinMode('route', true), live) : undefined
+      const { rows, route } = listOpenStopsWithRoute(live, start, locations, {
         showAll,
         hideCompleted,
         listOrder: order,
@@ -265,9 +272,24 @@ export function otherDiagSnapshot(): Record<string, unknown> {
         markerDistance: useMarker,
         withdrawnSteps: withdrawn,
         origin: origin.point,
-        originIsRead: origin.kind != null && origin.kind !== 'typed',
-        memory
+        originIsRead,
+        memory,
+        ...(routeOptimize ? { routeOptimize: true } : {}),
+        ...(pin ? { routePin: pin } : {})
       })
+      if (order === 'route' && routeOptimize && route) {
+        routeInfo = {
+          optimised: route.optimised,
+          nearestMeters: round(route.nearestMeters),
+          nearestJumps: route.nearestJumps,
+          optimisedMeters: round(route.optimisedMeters),
+          optimisedJumps: route.optimisedJumps,
+          savedMeters: route.nearestMeters != null && route.optimisedMeters != null ? round(route.nearestMeters - route.optimisedMeters) : null,
+          pin: route.pin,
+          pinKey: pin ?? null,
+          stops: route.stops
+        }
+      }
       if (order === 'distance') {
         for (const r of rows) {
           if (r.match.status === 'exact') continue
@@ -392,6 +414,7 @@ export function otherDiagSnapshot(): Record<string, unknown> {
       places: placesSummary(locations, useStore.getState().locations?.length ?? 0),
       locationHistory: whereHistory(),
       distanceTable,
+      ...(routeOptimize ? { routeOptimize: routeInfo } : {}),
       matches,
       memory: memoryCounts()
     }

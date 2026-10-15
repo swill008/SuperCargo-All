@@ -71,3 +71,5 @@ with a push: + CI (~10 min, in the background); a release: + ~4 min.
 | 2026-10-15 | Release run R1 1.0.4 (Windows) | release | ~4 min | 4 min | 11:09-11:13 |
 | 2026-10-15 | Release run R1 1.0.4 (Linux AppImage) | release | rough guess 2 min | 2 min | 11:14-11:16 |
 | 2026-10-15 | CI on the 1.0.4 push (features + main) | ci | ~10 min | passed both | 11:09-11:16 |
+| 2026-10-15 | Batch 18 route optimization: 6 agents (route, settings, ui, bench, e2e, docs) + re-trace + 3 fix-ups | agent | 2-6 min | 1-11 min each | 13:04-13:17 |
+| 2026-10-15 | Full run 1.0.5 (606 pass, 0 fail, 8 real logs) | test | ~7 min | 7 min | 13:17-13:24 |

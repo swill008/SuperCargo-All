@@ -10,7 +10,7 @@ import { otherSetting } from '@other/workMode'
 import { useOtherJobs } from '../state/otherJobs'
 import { useMergedLocations, otherPlacesVersion } from '../state/otherPlaces'
 import {
-  listOpenStops, stepActivePlace, stepActionLabel, formatPlaceNear, formatMapDistance,
+  listOpenStopsWithRoute, stopKey as routeStopKey, stepActivePlace, stepActionLabel, formatPlaceNear, formatMapDistance,
   resolveOrigin, groupByPlace, remainingRoute
 } from '@other/otherNext'
 import type { ListOrder } from '@other/otherNext'
@@ -22,6 +22,7 @@ import { MatchTag, stopPlaceText } from './MatchTag'
 import { stopIssue, issueTextStyle } from '../stopIssue'
 import { useMemoryLookup } from '../state/otherMemoryStore'
 import { setOverlayDiag, overlayDiag } from '../state/otherOverlayDiag'
+import { getRoutePin, noteRouteFirst, routePinMode } from '../state/routePin'
 
 /** a stop's key: its place, lower case, spaces collapsed (same as groupKey in otherNext) */
 const stopKey = (g: { place: string }): string => g.place.toLowerCase().replace(/\s+/g, ' ').trim()
@@ -99,6 +100,7 @@ export default function OtherOverlay(): React.ReactElement {
   const markerDistance = otherSetting(settings, 'otherMarkerDistance')
   const showDistance = otherSetting(settings, 'otherOverlayDistance')
   const startMode = otherSetting(settings, 'otherStartMode')
+  const routeOptimize = !!otherSetting(settings, 'otherRouteOptimize')
   // auto: newer of typed start and latest clue; fixed: typed only
   // re-check once a minute so a clue turns stale without a new log line
   const [tick, setTick] = useState(0)
@@ -119,12 +121,24 @@ export default function OtherOverlay(): React.ReactElement {
   const hasStart = !!(origin.name || origin.point)
   // withdrawn steps never become the current stop
   const liveJobs = useMemo(() => jobs.map(withoutWithdrawn), [jobs])
+  // batch 18: the steady next stop applies only with the switch on, ROUTE order and a read/auto start
+  const pinMode = routePinMode(listOrder, routeOptimize)
+  const usePin = routeOptimize && listOrder === 'route' && originIsRead
   const open = useMemo(
-    () => listOpenStops(liveJobs, startLocation, locations, {
-      showAll, hideCompleted, listOrder, jobOrder, markerDistance, origin: originPoint, originIsRead, memory
-    }),
-    [liveJobs, startLocation, originPoint, originIsRead, locations, showAll, hideCompleted, listOrder, jobOrder, markerDistance, memory]
+    () => listOpenStopsWithRoute(liveJobs, startLocation, locations, {
+      showAll, hideCompleted, listOrder, jobOrder, markerDistance, origin: originPoint, originIsRead, memory,
+      ...(routeOptimize ? { routeOptimize: true } : {}),
+      ...(usePin ? { routePin: getRoutePin('overlay', pinMode, liveJobs) } : {})
+    }).rows,
+    [liveJobs, startLocation, originPoint, originIsRead, locations, showAll, hideCompleted, listOrder, jobOrder, markerDistance, memory,
+      routeOptimize, usePin, pinMode]
   )
+  // remember the plan's first stop for the next compute (per window)
+  const firstKey = open[0] ? routeStopKey(open[0]) : undefined
+  useEffect(() => {
+    // off, another order or a typed start: forget the pin
+    noteRouteFirst(usePin ? firstKey : undefined, 'overlay', pinMode)
+  }, [usePin, firstKey, pinMode])
   // the overlay walks places: several steps at one station are one stop
   const groups = useMemo(() => groupByPlace(open, locations), [open, locations])
 
@@ -280,7 +294,9 @@ export default function OtherOverlay(): React.ReactElement {
   const canPrev = idx > 0
   const canNext = idx < total - 1
   const order: ListOrder = (listOrder as ListOrder) ?? 'distance'
-  const orderHint = order !== 'manual' && !hasStart ? 'LOG ORDER' : ORDER_HINT[order]
+  const orderHint = order !== 'manual' && !hasStart
+    ? 'LOG ORDER'
+    : order === 'route' && routeOptimize ? 'ROUTE (OPT)' : ORDER_HINT[order]
   // stop 1 from the origin, later stops from the previous stop
   const legMeters = group ? (idx === 0 ? group.distance ?? group.leg : group.leg) : null
   const legJumps = group ? (idx === 0 && group.distance != null ? group.jumps : group.legJumps) : undefined

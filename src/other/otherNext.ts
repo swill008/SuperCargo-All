@@ -299,15 +299,21 @@ const groupKey = (p: string): string => p.toLowerCase().replace(/\s+/g, ' ').tri
 
 /**
  * Rows with the same place become one stop at the position of their first row; legs recomputed between stops.
+ * A delivery is never merged into a same-place stop above its own open pickup (it starts / joins a later stop).
  * Pass the roster so cross-system legs (gateways) and surface legs (body centre) can be measured.
  */
 export function groupByPlace(rows: OpenStopRow[], locations: Location[] = []): StopGroup[] {
   const groups: StopGroup[] = []
   const byKey = new Map<string, StopGroup>()
   const groupOfRow: StopGroup[] = []
-  for (const r of rows) {
+  rows.forEach((r, at) => {
     const key = groupKey(r.place)
     let g = key ? byKey.get(key) : undefined
+    // a delivery never joins a same-place group listed above its own open pickup: it starts a group after it
+    if (g) {
+      const gi = groups.indexOf(g)
+      if (pickupIndicesFor(rows, r).some((pi) => pi < at && groups.indexOf(groupOfRow[pi]) > gi)) g = undefined
+    }
     if (!g) {
       g = {
         place: r.place,
@@ -328,7 +334,7 @@ export function groupByPlace(rows: OpenStopRow[], locations: Location[] = []): S
     g.rows.push(r)
     g.pickup = g.pickup || r.pickup
     groupOfRow.push(g)
-  }
+  })
   groups.forEach((g, i) => {
     const first = g.rows[0]
     const setLeg = (leg: number | null, jumps?: number, surface?: boolean): void => {
@@ -414,9 +420,33 @@ export type ListOpenStopsOpts = {
   originIsRead?: boolean
   /** match memory (user-set / learned places) passed to the stop-place resolver */
   memory?: MemoryLookup
+  /** settings.otherRouteOptimize: ROUTE = nearest-next improved by local search. Default false (nearest-next only). */
+  routeOptimize?: boolean
+  /** stopKey of the stop the previous plan put first (route + routeOptimize only); kept first unless 20% shorter without it */
+  routePin?: string
 }
 
-const itemKey = (s: OtherStep): string => (s.item ?? '').trim().toLowerCase()
+/** a stop's identity across runs: `${job.id}:${step.id}` */
+export function stopKey(row: { job: { id: string }; step: { id: string } }): string {
+  return `${row.job.id}:${row.step.id}`
+}
+
+/** what the optimised ROUTE did (listOpenStopsWithRoute; null unless listOrder 'route' with routeOptimize on and a start) */
+export interface RouteInfo {
+  optimised: boolean
+  /** nearest-next trip over the routed stops: metres (null when a leg can't be measured) and jumps */
+  nearestMeters: number | null
+  nearestJumps: number
+  /** the trip shown */
+  optimisedMeters: number | null
+  optimisedJumps: number
+  /** routePin: kept first, dropped (a plan without it is >= 20% shorter or has fewer jumps), or no usable pin */
+  pin: 'kept' | 'dropped' | 'none'
+  /** stops routed (rows with a known point) */
+  stops: number
+}
+
+const itemKey = (s: { item?: string }): string => (s.item ?? '').trim().toLowerCase()
 
 /** an open plain pickup (not a combined "collect from A, deliver to B" step) */
 const isOpenPickup = (s: OtherStep): boolean =>
@@ -501,14 +531,18 @@ type Placed = BaseRow & {
 }
 
 /** a delivery whose same-item pickup (same job) is still to be routed */
-const waitsForPickup = (r: Placed, left: Placed[]): boolean =>
+const waitsForPickup = <T extends { job: { id: string }; step: OtherStep }>(r: T, left: T[]): boolean =>
   isOpenDelivery(r.step) &&
   left.some((o) => o !== r && o.job.id === r.job.id && isOpenPickup(o.step) && itemKey(o.step) === itemKey(r.step))
 
 /** greedy nearest-neighbour (fewest jumps, then shortest) from start over rows with a known point; ties keep input order */
-function routeOrder(rows: Placed[], start: GeoPoint, locations: Location[]): Placed[] {
+function routeOrder<T extends { job: { id: string }; step: OtherStep; point?: GeoPoint }>(
+  rows: T[],
+  start: GeoPoint,
+  locations: Location[]
+): T[] {
   const left = rows.slice()
-  const out: Placed[] = []
+  const out: T[] = []
   let cur = start
   while (left.length) {
     // default: first row not waiting on its pickup
@@ -529,6 +563,250 @@ function routeOrder(rows: Placed[], start: GeoPoint, locations: Location[]): Pla
   return out
 }
 
+type Keyed = { job: { id: string }; step: OtherStep }
+
+/** every open same-job same-item pickup a row's delivery needs, among rows (indices, list order); [] when none */
+function pickupIndicesFor<T extends Keyed>(rows: T[], r: T): number[] {
+  if (!isOpenDelivery(r.step)) return []
+  const key = itemKey(r.step)
+  const out: number[] = []
+  rows.forEach((o, i) => {
+    if (o !== r && o.job.id === r.job.id && isOpenPickup(o.step) && itemKey(o.step) === key) out.push(i)
+  })
+  return out
+}
+
+/**
+ * FROM START: an open delivery whose same-job, same-item pickups are still open (and listed) goes directly after the
+ * last of them (several such deliveries keep their order); every other row keeps its place.
+ */
+export function pickupsBeforeDeliveries<T extends Keyed>(rows: T[]): T[] {
+  return placeAfterPickups(rows, () => true)
+}
+
+/** pickupsBeforeDeliveries for the rows `movable` accepts only */
+function placeAfterPickups<T extends Keyed>(rows: T[], movable: (r: T) => boolean): T[] {
+  const after = new Map<T, T[]>()
+  const moved = new Set<T>()
+  for (const r of rows) {
+    const at = pickupIndicesFor(rows, r)
+    if (!at.length || !movable(r)) continue
+    const p = rows[at[at.length - 1]]
+    if (!after.has(p)) after.set(p, [])
+    after.get(p)!.push(r)
+    moved.add(r)
+  }
+  if (!moved.size) return rows
+  const out: T[] = []
+  for (const r of rows) {
+    if (moved.has(r)) continue
+    out.push(r)
+    for (const d of after.get(r) ?? []) out.push(d)
+  }
+  return out
+}
+
+/** a trip's cost: unmeasurable legs, then jumps, then metres (compareTravel's order) */
+type Cost = { bad: number; jumps: number; meters: number }
+
+const costLess = (a: Cost, b: Cost): boolean =>
+  a.bad !== b.bad ? a.bad < b.bad : a.jumps !== b.jumps ? a.jumps < b.jumps : a.meters < b.meters - 1e-6
+
+const samePoint = (a?: GeoPoint, b?: GeoPoint): boolean =>
+  !!a && !!b && a.x === b.x && a.y === b.y && a.z === b.z && (a.system ?? null) === (b.system ?? null) &&
+  (a.body ?? null) === (b.body ?? null)
+
+/** total travel of start -> rows in order (rows need a point): metres null when any leg can't be measured */
+export function routeTravel(
+  rows: { point?: GeoPoint }[],
+  start: GeoPoint,
+  locations: Location[]
+): { meters: number | null; jumps: number; bad: number } {
+  let meters: number | null = 0
+  let jumps = 0
+  let bad = 0
+  let cur: GeoPoint | undefined = start
+  for (const r of rows) {
+    const t = travel(cur, r.point, locations)
+    if (!t) {
+      meters = null
+      bad++
+    } else {
+      if (meters != null) meters += t.meters
+      jumps += t.jumps
+    }
+    cur = r.point
+  }
+  return { meters, jumps, bad }
+}
+
+const MAX_PASSES = 60
+
+/**
+ * Local search on a route (rows with points, e.g. the nearest-next order): move one stop elsewhere (or-opt) or
+ * reverse a stretch (2-opt), keeping a change only when the whole trip gets strictly better (fewer jumps, then fewer
+ * metres). A delivery never goes before its same-job same-item open pickup. Consecutive rows at the same point move
+ * as one block. Deterministic; at most MAX_PASSES improving moves. fixedFirst keeps the first block first (a pin).
+ */
+export function improveRoute<T extends Keyed & { point?: GeoPoint }>(
+  rows: T[],
+  start: GeoPoint,
+  locations: Location[],
+  opts?: { fixedFirst?: boolean; maxPasses?: number }
+): T[] {
+  // blocks: runs of the same point
+  const blocks: T[][] = []
+  for (const r of rows) {
+    const last = blocks[blocks.length - 1]
+    if (last && samePoint(last[0].point, r.point)) last.push(r)
+    else blocks.push([r])
+  }
+  const n = blocks.length
+  if (n < 2) return rows.slice()
+  // precedence: block b needs every block in needs[b] earlier
+  const blockOf = new Map<T, number>()
+  blocks.forEach((b, i) => b.forEach((r) => blockOf.set(r, i)))
+  const needs: number[][] = blocks.map(() => [])
+  for (const r of rows) {
+    const db = blockOf.get(r)!
+    for (const at of pickupIndicesFor(rows, r)) {
+      const pb = blockOf.get(rows[at])!
+      if (pb !== db && !needs[db].includes(pb)) needs[db].push(pb)
+    }
+  }
+  // leg matrix: index n = start
+  const pts = blocks.map((b) => b[0].point)
+  const legs: (Travel | null)[][] = []
+  for (let a = 0; a <= n; a++) {
+    legs.push([])
+    const from = a === n ? start : pts[a]
+    for (let b = 0; b < n; b++) legs[a].push(a === b ? null : travel(from, pts[b], locations))
+  }
+  const cost = (order: number[]): Cost => {
+    const c: Cost = { bad: 0, jumps: 0, meters: 0 }
+    let prev = n
+    for (const b of order) {
+      const t = legs[prev][b]
+      if (!t) c.bad++
+      else {
+        c.jumps += t.jumps
+        c.meters += t.meters
+      }
+      prev = b
+    }
+    return c
+  }
+  const pos = new Array<number>(n)
+  const valid = (order: number[]): boolean => {
+    order.forEach((b, i) => (pos[b] = i))
+    for (let b = 0; b < n; b++) for (const p of needs[b]) if (pos[p] > pos[b]) return false
+    return true
+  }
+  let order = blocks.map((_, i) => i)
+  let best = cost(order)
+  const lo = opts?.fixedFirst ? 1 : 0
+  const maxPasses = opts?.maxPasses ?? MAX_PASSES
+  for (let pass = 0; pass < maxPasses; pass++) {
+    let found: number[] | null = null
+    let foundCost = best
+    const consider = (cand: number[]): void => {
+      const c = cost(cand)
+      if (costLess(c, foundCost) && valid(cand)) {
+        found = cand
+        foundCost = c
+      }
+    }
+    // or-opt: move block at i to slot j
+    for (let i = lo; i < n; i++) {
+      for (let j = lo; j < n; j++) {
+        if (j === i) continue
+        const cand = order.slice()
+        const [b] = cand.splice(i, 1)
+        cand.splice(j, 0, b)
+        consider(cand)
+      }
+    }
+    // 2-opt: reverse order[i..j]
+    for (let i = lo; i < n - 1; i++) {
+      for (let j = i + 1; j < n; j++) {
+        const cand = [...order.slice(0, i), ...order.slice(i, j + 1).reverse(), ...order.slice(j + 1)]
+        consider(cand)
+      }
+    }
+    if (!found) break
+    order = found
+    best = foundCost
+  }
+  return order.flatMap((b) => blocks[b])
+}
+
+/**
+ * Above this many routed stops the improvement step is skipped (nearest-next only, RouteInfo.optimised false): the
+ * search is O(n^3) per pass and ~40 stops is the size it is tuned for (well under 100 ms).
+ */
+export const ROUTE_OPT_MAX_STOPS = 50
+
+/** best plan = nearest-next then improveRoute; the pin (stopKey) first when it is open, placeable, and worth keeping */
+export function optimiseRoute<T extends Keyed & { point?: GeoPoint }>(
+  rows: T[],
+  start: GeoPoint,
+  locations: Location[],
+  pin?: string
+): { rows: T[]; info: RouteInfo } {
+  const greedy = routeOrder(rows, start, locations)
+  const nearest = routeTravel(greedy, start, locations)
+  if (rows.length > ROUTE_OPT_MAX_STOPS) {
+    return {
+      rows: greedy,
+      info: {
+        optimised: false,
+        nearestMeters: nearest.meters,
+        nearestJumps: nearest.jumps,
+        optimisedMeters: nearest.meters,
+        optimisedJumps: nearest.jumps,
+        pin: 'none',
+        stops: rows.length
+      }
+    }
+  }
+  const free = improveRoute(greedy, start, locations)
+  let chosen = free
+  let pinState: RouteInfo['pin'] = 'none'
+  const pinned = pin ? rows.find((r) => stopKey(r) === pin && r.point) : undefined
+  if (pinned && !pickupIndicesFor(rows, pinned).length) {
+    if (stopKey(free[0]) === pin) pinState = 'kept'
+    else {
+      const rest = rows.filter((r) => r !== pinned)
+      const tail = routeOrder(rest, pinned.point!, locations)
+      const withPin = improveRoute([pinned, ...tail], start, locations, { fixedFirst: true })
+      const a = routeTravel(withPin, start, locations)
+      const b = routeTravel(free, start, locations)
+      // metres unknown on either side: fewer unmeasurable legs wins, then fewer jumps; else jumps, then the 20% rule
+      const drop =
+        a.meters == null || b.meters == null
+          ? b.bad !== a.bad
+            ? b.bad < a.bad
+            : b.jumps < a.jumps
+          : b.jumps < a.jumps || (b.jumps === a.jumps && b.meters <= 0.8 * a.meters)
+      pinState = drop ? 'dropped' : 'kept'
+      chosen = drop ? free : withPin
+    }
+  }
+  const opt = routeTravel(chosen, start, locations)
+  return {
+    rows: chosen,
+    info: {
+      optimised: true,
+      nearestMeters: nearest.meters,
+      nearestJumps: nearest.jumps,
+      optimisedMeters: opt.meters,
+      optimisedJumps: opt.jumps,
+      pin: pinState,
+      stops: rows.length
+    }
+  }
+}
+
 /** Same list Next and overlay walk. */
 export function listOpenStops(
   jobs: OtherJob[],
@@ -536,6 +814,16 @@ export function listOpenStops(
   locations: Location[],
   opts?: ListOpenStopsOpts
 ): OpenStopRow[] {
+  return listOpenStopsWithRoute(jobs, startLocation, locations, opts).rows
+}
+
+/** listOpenStops plus what the optimised ROUTE did (route null unless listOrder 'route', routeOptimize on, and a start) */
+export function listOpenStopsWithRoute(
+  jobs: OtherJob[],
+  startLocation: string,
+  locations: Location[],
+  opts?: ListOpenStopsOpts
+): { rows: OpenStopRow[]; route: RouteInfo | null } {
   const listOrder: ListOrder = opts?.listOrder ?? 'distance'
   const useMarker = opts?.markerDistance !== false
   const origin = opts?.origin && hasCoords(opts.origin) ? opts.origin : undefined
@@ -568,15 +856,30 @@ export function listOpenStops(
   })
 
   let ordered: Placed[] = placed
+  let route: RouteInfo | null = null
   if (hasStart && listOrder !== 'manual') {
     const known = placed.filter((r) => r.travel != null)
     const unknown = placed.filter((r) => r.travel == null)
     // distance: baseOpenStops already sorted by compareTravel (jumps, then metres)
-    ordered = [...(listOrder === 'route' && start ? routeOrder(known, start, locations) : known), ...unknown]
+    let routed: Placed[] = known
+    let bottom: Placed[] = unknown
+    if (listOrder === 'route' && start) {
+      if (opts?.routeOptimize) {
+        // a delivery whose open pickup has no point is not routed: it goes right after that pickup at the bottom
+        const held = new Set(known.filter((r) => pickupIndicesFor(placed, r).some((i) => placed[i].travel == null)))
+        if (held.size) bottom = placeAfterPickups([...unknown, ...held], (r) => held.has(r))
+        const plan = optimiseRoute(known.filter((r) => !held.has(r)), start, locations, opts.routePin)
+        routed = plan.rows
+        route = plan.info
+      } else routed = routeOrder(known, start, locations)
+    }
+    ordered = [...routed, ...bottom]
   }
+  // FROM START (with a start; no start = log order as before): a delivery never above its own open pickup
+  if (listOrder === 'distance' && hasStart) ordered = pickupsBeforeDeliveries(ordered)
 
   let prev: GeoPoint | undefined = start
-  return ordered.map((r) => {
+  const rows = ordered.map((r): OpenStopRow => {
     const legT = prev && r.point ? travel(prev, r.point, locations) : null
     const hadPrev = !!prev
     prev = r.point
@@ -609,6 +912,7 @@ export function listOpenStops(
       match: r.match
     }
   })
+  return { rows, route }
 }
 
 /** Sum of legs over the rows that have a distance; null when any of those legs is unknown or none have one. */

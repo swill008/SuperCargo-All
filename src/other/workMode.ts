@@ -94,6 +94,8 @@ declare module '@shared/types' {
     otherAfkMaxMin?: number
     /** distances on the overlay card */
     otherOverlayDistance?: boolean
+    /** ROUTE order: nearest-next then improved by local search (pickups still before deliveries); off = nearest-next */
+    otherRouteOptimize?: boolean
     /** data source: the bundled starmap positions (places UEX lacks + coords UEX lacks); UEX is always on */
     otherSourceStarmap?: boolean
     /** Settings page tab last shown */
@@ -125,6 +127,7 @@ export const OTHER_SETTING_DEFAULTS = {
   otherAfkCycleKey: 'F1',
   otherAfkMaxMin: 120,
   otherOverlayDistance: true,
+  otherRouteOptimize: false,
   otherSourceStarmap: true,
   otherSettingsTab: 'general' as 'general' | 'other'
 }

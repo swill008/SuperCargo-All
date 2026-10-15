@@ -73,7 +73,7 @@ These are the intended behaviour of Other mode. Change them only with the user.
 21. **Body-frame markers.** A mission marker (`CLocalMissionPhaseMarker::CreateMarker`) gives a position in its zone's frame. A zone is calibrated as before (root zone, small zone, or a z-match with a UEX place). When it isn't, and the marker is not root or small, the zone may be a planet or moon's own frame: each body's radius is estimated as the median distance of its roster places (`Location.body`) from its centre (the roster entry named after the body); the candidates are bodies whose radius is within ±3% of |position|; for each, centre + position must land within 10 km of one of that body's places. Exactly one body passing → the zone is calibrated with that body's centre (method `body`, the near place recorded). None, or more than one (Hurston and microTech are both ~1000 km), → the zone stays uncalibrated and the decide trace says why. Calibration uses the merged roster (Haul + Other places, `mergeLocations`).
 22. **Generic place names say where they are.** A step whose place isn't in UEX ("Security Compound") but whose point came from a marker carries `near` = the nearest roster place within 25 km. The overlay start/stop line and the Next tab show "Security Compound · near HDPC-Cassillo (4 km)" with the distance, instead of "Not found in UEX". A step whose pickup is still open is measured from its pickup place, never from its marker (rule 30).
 23. **Zone tables are per server.** Zone ids change with every server (the same SolarSystem has a different id the next session), so the marker zone table for the current build is cleared on a new session line ("Log started") and on a disconnect or quit. Markers after that are calibrated fresh. Positions already placed on steps (system frame) stay. The decide trace records `marker zones reset: session` / `disconnect` / `quit` with the number of zones dropped.
-24. **Pickup before delivery.** The next open step, and the step order the Next tab uses (show-all and route), put an open pickup before the open turn-in / delivery steps of the same job that carry the same item (case-insensitive), even when the game lists the delivery first. If either side has no item, game order is kept. The saved steps keep game order. **OCR fills split too (batch 17, user 2026-10-15: "do as recommeded").** A contract filled by OCR (auto-OCR and the SCAN CONTRACT window) gives separate steps exactly like the log: a `pickup` step ("Collect X from A") and a `turnin` step ("Deliver X to B"), pickup first (`pickupsFirst` in `otherOcrParse.ts`: a pickup row moves before the first earlier turn-in with the same item), so the game's pickup marker links to the pickup step; the OCR path no longer merges them (`mergeCollectIntoDeliver` removed). "New Objective" log lines arriving after an OCR fill adopt the matching step (same kind, item and `placeKey` place, step without `logText`) instead of adding a duplicate (`findUnloggedStep` in `otherLog.ts`). Markers linked by order pair by kind first: a `pickup_` marker goes to the pickup step and a `dropoff_` marker to the drop-off step (the game writes the drop-off marker first), then plain log order where the kind doesn't tell; a pickup step never takes a drop-off marker or the reverse (`pairMarkersToSteps`). Combined "collect from A, deliver to B" steps (`pickupLocation`) remain only on jobs saved before 1.0.4; they are left as they are (no migration), still display and complete, and are unaffected by this rule.
+24. **Pickup before delivery.** The next open step, and the step order the Next tab uses (show-all and route), put an open pickup before the open turn-in / delivery steps of the same job that carry the same item (case-insensitive), even when the game lists the delivery first. If either side has no item, game order is kept. The saved steps keep game order. FROM START order keeps such a delivery directly after its open pickup too (rule 104, batch 18). **OCR fills split too (batch 17, user 2026-10-15: "do as recommeded").** A contract filled by OCR (auto-OCR and the SCAN CONTRACT window) gives separate steps exactly like the log: a `pickup` step ("Collect X from A") and a `turnin` step ("Deliver X to B"), pickup first (`pickupsFirst` in `otherOcrParse.ts`: a pickup row moves before the first earlier turn-in with the same item), so the game's pickup marker links to the pickup step; the OCR path no longer merges them (`mergeCollectIntoDeliver` removed). "New Objective" log lines arriving after an OCR fill adopt the matching step (same kind, item and `placeKey` place, step without `logText`) instead of adding a duplicate (`findUnloggedStep` in `otherLog.ts`). Markers linked by order pair by kind first: a `pickup_` marker goes to the pickup step and a `dropoff_` marker to the drop-off step (the game writes the drop-off marker first), then plain log order where the kind doesn't tell; a pickup step never takes a drop-off marker or the reverse (`pairMarkersToSteps`). Combined "collect from A, deliver to B" steps (`pickupLocation`) remain only on jobs saved before 1.0.4; they are left as they are (no migration), still display and complete, and are unaffected by this rule.
 25. **Export diagnostics copies to the clipboard.** After a successful save from the Settings or Debug button, the main process puts the whole saved text on the clipboard. The result line reads "Saved and copied · 1.4 MB · <path>", adding " (large: attaching the file may work better)" above 1 MB, or "Saved (copy to clipboard failed)". The `--export-diagnostics` command line never touches the clipboard.
 
 ## REFRESH (user, 2026-10-14)
@@ -183,7 +183,7 @@ be enlarged so they are prominent... make the new settings user friendly and eas
     section title) and a one-line plain description: **Jobs & Objectives** (Include aUEC (scan), auto-tick objectives,
     withdrawn steps, crash notice, contract-limit toast, show reputation, shared badge, session summary, short-loop
     hiding, Haul-switch prompt and its minimum SCU); **Distances & Route** (start mode, distance from mission markers,
-    distances on the overlay); **Where Am I (position reading)** (hotkey, zones / SET UP ZONES, use zone 2, live position
+    distances on the overlay; Route optimization, added in batch 18, rule 105); **Where Am I (position reading)** (hotkey, zones / SET UP ZONES, use zone 2, live position
     and its interval); **Places & Matching** (Data Sources, then the line "Learned places are on the LEARNED DATA tab." with an OPEN LEARNED DATA button; the Learned Places list moved to that tab in batch 11, rule 74); **AFK** (the RSI-terms note,
     interval, first key, cycle key, time limit; the "Read position while AFK" row was removed in batch 13).
 72. **Jump list.** Under the tab bar: "Jobs · Distances · Where Am I · Places · AFK"; each button scrolls its section into
@@ -267,6 +267,46 @@ Tests: `test/replay/blocked_checks.mjs` (pure helpers, delete of entries and the
 scenario in `test/replay/replay.mjs` (delete a place: gone from the file and RECENT CHANGES; delete and block: the game
 sees the text again and does not learn it; BLOCKED list; UNBLOCK; state kept over a restart; site and planet delete;
 DELETE SHOWN).
+
+## Stop order: FROM START pickups and Route optimization (batch 18, user 2026-10-15)
+
+User: "yeah, lets change this: … FROM START … can put a delivery above its own pickup"; "only in other modes. I dont
+care about haul mode … in other modes we handle small items, so i mosty care about route order"; "that sounds like a
+mode switch we need to put into options. Say Route Optimization Mode? That way we can test it out first? So default is
+what exists, and the switch is what we are planning." Haul mode is not touched. Contract
+[batch-18-route-optimization.md](../../docs/contracts/batch-18-route-optimization.md).
+
+104. **FROM START keeps a delivery after its pickup (always).** In FROM START order an open delivery whose same-job,
+     same-item pickup is still open is listed directly after that pickup; every other stop keeps its distance order.
+     The overlay and the Next tab use the same list (`listOpenStops` in `src/other/otherNext.ts`,
+     `pickupsBeforeDeliveries(rows)`). Not behind the switch. A delivery waits for every open same-job, same-item pickup (it goes right after the last one). The rule applies only when there is a start; with no start (LOG ORDER) the order is unchanged. On the Next tab a delivery whose pickup has no distance moves into the NO DISTANCE section right after that pickup, and grouping by place never puts a delivery in a stop above its own pickup (the delivery starts a new stop at that place after the pickup instead; review fixes, 2026-10-15).
+105. **The switch.** Setting `otherRouteOptimize` (boolean, default **off**) in Settings → OTHER MODE → Distances &
+     Route, label "Route optimization", hint "Shortens the ROUTE order. Off = nearest stop next, as before." Off: ROUTE
+     is exactly as before (nearest stop next, pickups before deliveries). FROM START and MANUAL are not changed by it.
+106. **How the route is improved (switch on).** ROUTE starts from the nearest-next trip and improves it by local
+     search: move one stop elsewhere, or reverse a stretch, keeping a change only when the whole trip gets better
+     (`improveRoute`). A delivery never goes before its open pickup. Trips compare by fewer total jumps first, then
+     fewer total metres (the same `compareTravel` order). Stops at the same place stay together. Same input, same
+     order. Stops without a point stay at the bottom as before. `listOpenStopsWithRoute(...)` returns the rows and a
+     `RouteInfo`; `listOpenStops` returns the rows only. With the switch on, a delivery whose open pickup has no point is not routed; it is listed right after that pickup with the stops without a point. Above 50 routed stops the improvement step is skipped (nearest-next; `ROUTE_OPT_MAX_STOPS`) so the windows stay responsive.
+107. **Precedence.** MANUAL order wins over everything; FROM START uses rule 104 only; ROUTE uses rule 105 (off) or
+     rules 106 and 108 (on). Pickup before delivery (rule 24) holds in every order.
+108. **Steady next stop (switch on, start from a live read or auto start).** The stop that was first in the previous
+     plan stays first while it is still open, unless the best plan without that pin is at least **20% shorter** in
+     metres (or has fewer jumps). The pin is kept per window in the renderer (`src/other/renderer/state/routePin.ts`:
+     `getRoutePin(windowScope)`, `noteRouteFirst(key)`, `clearRoutePin()`, keys from `stopKey(row)` =
+     `<job id>:<step id>`) and cleared when that stop is done or withdrawn, or the order mode changes.
+109. **What it shows (switch on).** The Next tab order line reads "Route (optimised) from <start>" (plus " (auto)"
+     for an auto start) and " · saves N km vs nearest-next" (N from the usual distance formatter; left out when 0 or
+     unknown). The overlay order hint reads "ROUTE (OPT)". The ROUTE total and legs show the optimised trip.
+110. **Diagnostics.** With the switch on, the Other route/order section records both totals (nearest-next and
+     optimised, metres and jumps), whether the pin was kept or dropped, and the stop count (`RouteInfo` from
+     `otherDiag.ts`).
+
+Tests: `test/replay/next_order.mjs` (FROM START pickup order, the improvement, pickup before delivery, the 20% pin
+rule, determinism); `test/replay/route_bench_checks.mjs` (real job sets: optimised never longer than nearest-next,
+never a delivery before its pickup, savings reported); the batch 18 scenario in `test/replay/replay.mjs` (the switch
+in Settings → OTHER MODE, order line and overlay hint).
 
 ## Data folder and releases (batch 12, user 2026-10-14)
 

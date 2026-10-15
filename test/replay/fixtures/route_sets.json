@@ -1,0 +1,971 @@
+{
+ "about": "Route bench job sets (batch 18). export-*: place and item text from the user's diagnostics exports, job ids anonymised J1..Jn, nothing else kept. synth-*: 10 pickup+drop-off contracts over Stanton places (data/uex/other-positions.json), seeded.",
+ "startPoints": [
+  "Seraphim Station",
+  "Everus Harbor",
+  "Port Tressler",
+  "ARC-L1 Wide Forest Station"
+ ],
+ "sets": [
+  {
+   "name": "export-20261014-0819",
+   "start": "Seraphim Station",
+   "jobs": [
+    {
+     "id": "J1",
+     "steps": [
+      {
+       "kind": "turnin",
+       "item": "Chlorine",
+       "location": "Rayari",
+       "need": 1
+      },
+      {
+       "kind": "pickup",
+       "item": "Chlorine",
+       "location": "CRU-L5 Beautiful Glen Station",
+       "need": 1
+      }
+     ]
+    },
+    {
+     "id": "J2",
+     "steps": [
+      {
+       "kind": "turnin",
+       "item": "Ammunition Crate",
+       "location": "ArcCorp Mining Area 141",
+       "pickupLocation": "CRU-L1 Ambitious Dream Station",
+       "pickedUp": false,
+       "need": 1
+      }
+     ]
+    },
+    {
+     "id": "J3",
+     "steps": [
+      {
+       "kind": "turnin",
+       "item": "Copper",
+       "location": "Tram & Myers Mining",
+       "pickupLocation": "Benson Mining Outpost",
+       "pickedUp": false,
+       "need": 1
+      }
+     ]
+    },
+    {
+     "id": "J4",
+     "steps": [
+      {
+       "kind": "turnin",
+       "item": "Prescription Medications",
+       "location": "Julep Ravine Aid Shelter",
+       "pickupLocation": "Dunlow Ridge Aid Shelter on Daymar",
+       "pickedUp": false,
+       "need": 1
+      }
+     ]
+    },
+    {
+     "id": "J5",
+     "steps": [
+      {
+       "kind": "turnin",
+       "item": "Iron",
+       "location": "ArcCorp Mining Area 141",
+       "pickupLocation": "Benson Mining Outpost",
+       "pickedUp": false,
+       "need": 1
+      }
+     ]
+    },
+    {
+     "id": "J6",
+     "steps": [
+      {
+       "kind": "turnin",
+       "item": "Tissue Samples",
+       "location": "Eager Flats Aid Shelter",
+       "pickupLocation": "Julep Ravine Aid Shelter on Cellin",
+       "pickedUp": false,
+       "need": 1
+      }
+     ]
+    },
+    {
+     "id": "J7",
+     "steps": [
+      {
+       "kind": "turnin",
+       "item": "Medical Supplies",
+       "location": "Hickes Research Outpost",
+       "pickupLocation": "Aston Ridge Aid Shelter on Yela",
+       "pickedUp": false,
+       "need": 1
+      }
+     ]
+    },
+    {
+     "id": "J8",
+     "steps": [
+      {
+       "kind": "turnin",
+       "item": "Argon",
+       "location": "Terra Mills HydroFarm",
+       "pickupLocation": "August Dunlow Sg Orison. Quy port in",
+       "pickedUp": false,
+       "need": 1
+      }
+     ]
+    },
+    {
+     "id": "J9",
+     "steps": [
+      {
+       "kind": "turnin",
+       "item": "Scrap",
+       "location": "Terra Mills HydroFarm",
+       "pickupLocation": "Deakins Research",
+       "pickedUp": false,
+       "need": 1
+      },
+      {
+       "kind": "turnin",
+       "item": "Waste Materials",
+       "location": "Terra Mills HydroFarm",
+       "pickupLocation": "Deak Outpost on Yela",
+       "pickedUp": false,
+       "need": 1
+      }
+     ]
+    },
+    {
+     "id": "J10",
+     "steps": [
+      {
+       "kind": "turnin",
+       "item": "Molina Mold Sample",
+       "location": "ARC-L4 Faint Glen Station",
+       "pickupLocation": "CRU-L1 Ambitious Dream Station",
+       "pickedUp": false,
+       "need": 1
+      },
+      {
+       "kind": "turnin",
+       "item": "Medical Supplies",
+       "location": "CRU-LS5 Beautiful Glen Station",
+       "pickupLocation": "Ambitious, Dream Station at Crusader's L1 0",
+       "pickedUp": false,
+       "need": 1
+      },
+      {
+       "kind": "turnin",
+       "item": "Molina Mold Treatment",
+       "location": "ARC-L dern Express Station",
+       "pickupLocation": "CRU-L1 Ambitious Dream Station",
+       "pickedUp": false,
+       "need": 1
+      }
+     ]
+    }
+   ]
+  },
+  {
+   "name": "export-20261014-1443",
+   "start": "",
+   "jobs": [
+    {
+     "id": "J1",
+     "steps": [
+      {
+       "kind": "turnin",
+       "item": "Food Supplies",
+       "location": "Security Compound",
+       "need": 1
+      },
+      {
+       "kind": "pickup",
+       "item": "Food Supplies",
+       "location": "Covalex Distribution Centre S1DC06",
+       "need": 1
+      }
+     ]
+    },
+    {
+     "id": "J2",
+     "steps": [
+      {
+       "kind": "turnin",
+       "item": "Scan Probe",
+       "location": "Security Compound",
+       "pickupLocation": "HDPC-Cassillo",
+       "pickedUp": false,
+       "need": 1
+      }
+     ]
+    },
+    {
+     "id": "J3",
+     "steps": [
+      {
+       "kind": "turnin",
+       "item": "Ammunition Crate",
+       "location": "Teasa Spaceport",
+       "pickupLocation": "Covalex Distribution Centre S1DC06",
+       "pickedUp": false,
+       "need": 1
+      }
+     ]
+    },
+    {
+     "id": "J4",
+     "steps": [
+      {
+       "kind": "turnin",
+       "item": "Molina Mold Sample",
+       "location": "HUR-L5 High Course Station",
+       "pickupLocation": "Covalex Distribution Centre S1DC06",
+       "pickedUp": false,
+       "need": 1
+      },
+      {
+       "kind": "turnin",
+       "item": "Medical Supplies",
+       "location": "Exterior Zone 2",
+       "pickupLocation": "Covalex Distribution Centre S1DC06",
+       "pickedUp": false,
+       "need": 1
+      },
+      {
+       "kind": "turnin",
+       "item": "Molina Mold Treatment",
+       "location": "Security Compound",
+       "pickupLocation": "Covalex Distribution Centre S1DC06",
+       "pickedUp": false,
+       "need": 1
+      }
+     ]
+    }
+   ]
+  },
+  {
+   "name": "export-20261015-0544",
+   "start": "",
+   "jobs": [
+    {
+     "id": "J1",
+     "steps": [
+      {
+       "kind": "turnin",
+       "item": "Chlorine",
+       "location": "Bountiful Harvest",
+       "need": 1
+      },
+      {
+       "kind": "pickup",
+       "item": "Chlorine",
+       "location": "Seraphim Station above Crusader",
+       "need": 1
+      }
+     ]
+    },
+    {
+     "id": "J2",
+     "steps": [
+      {
+       "kind": "turnin",
+       "item": "Copper",
+       "location": "ArcCorp Mining Area 141",
+       "pickupLocation": "CRU-L1 Ambitious Dream Station",
+       "pickedUp": false,
+       "need": 1
+      }
+     ]
+    },
+    {
+     "id": "J3",
+     "steps": [
+      {
+       "kind": "turnin",
+       "item": "Ammunition Crate",
+       "location": "Mogote Aid Shelter",
+       "pickupLocation": "August Dunlow Spaceport in Orison",
+       "pickedUp": false,
+       "need": 1
+      }
+     ]
+    }
+   ]
+  },
+  {
+   "name": "export-20261014-1202",
+   "start": "",
+   "jobs": [
+    {
+     "id": "J1",
+     "steps": [
+      {
+       "kind": "turnin",
+       "item": "Iron",
+       "location": "Security Compound",
+       "pickupLocation": "HDMS-Hadley",
+       "pickedUp": false,
+       "need": 1
+      }
+     ]
+    },
+    {
+     "id": "J2",
+     "steps": [
+      {
+       "kind": "turnin",
+       "item": "Tissue Samples",
+       "location": "Storehouse",
+       "pickupLocation": "HDPC-Cassillo",
+       "pickedUp": false,
+       "need": 1
+      }
+     ]
+    },
+    {
+     "id": "J3",
+     "steps": [
+      {
+       "kind": "turnin",
+       "item": "Ammunition Crate",
+       "location": "Security Compound",
+       "pickupLocation": "Sakura Sun Magnolia Workcenter",
+       "pickedUp": false,
+       "need": 1
+      }
+     ]
+    },
+    {
+     "id": "J4",
+     "steps": [
+      {
+       "kind": "turnin",
+       "item": "Copper",
+       "location": "Security Compound",
+       "pickupLocation": "HDMS-Hadley",
+       "pickedUp": false,
+       "need": 1
+      }
+     ]
+    },
+    {
+     "id": "J5",
+     "steps": [
+      {
+       "kind": "turnin",
+       "item": "Scrap",
+       "location": "Security Compound",
+       "pickupLocation": "Covalex Distribution Center S1DCO06 on Hurston",
+       "pickedUp": false,
+       "need": 1
+      },
+      {
+       "kind": "turnin",
+       "item": "Waste Materials",
+       "location": "Security Compound",
+       "pickupLocation": "Covalex Distribution Center S1DCO6 on Hurston",
+       "pickedUp": false,
+       "need": 1
+      }
+     ]
+    },
+    {
+     "id": "J6",
+     "steps": [
+      {
+       "kind": "turnin",
+       "item": "Argon",
+       "location": "Security Compound",
+       "pickupLocation": "HDPC-Cassillo",
+       "pickedUp": false,
+       "need": 1
+      }
+     ]
+    }
+   ]
+  },
+  {
+   "name": "export-20261014-1015",
+   "start": "",
+   "jobs": [
+    {
+     "id": "J1",
+     "steps": [
+      {
+       "kind": "turnin",
+       "item": "Iron",
+       "location": "Security Compound",
+       "need": 1
+      },
+      {
+       "kind": "pickup",
+       "item": "Iron",
+       "location": "HDPC-Farnesway",
+       "need": 1
+      }
+     ]
+    },
+    {
+     "id": "J2",
+     "steps": [
+      {
+       "kind": "turnin",
+       "item": "Tissue Samples",
+       "location": "Security Compound",
+       "pickupLocation": "HUR-L1 Green Glade Station",
+       "pickedUp": false,
+       "need": 1
+      }
+     ]
+    },
+    {
+     "id": "J3",
+     "steps": [
+      {
+       "kind": "turnin",
+       "item": "Ammunition Crate",
+       "location": "Security Compound",
+       "pickupLocation": "Covalex Distribution Center S1DCO6 on Hurston",
+       "pickedUp": false,
+       "need": 1
+      }
+     ]
+    }
+   ]
+  },
+  {
+   "name": "synth-hurston",
+   "start": null,
+   "jobs": [
+    {
+     "id": "J1",
+     "steps": [
+      {
+       "kind": "pickup",
+       "item": "Copper",
+       "location": "Rappel",
+       "need": 4
+      },
+      {
+       "kind": "turnin",
+       "item": "Copper",
+       "location": "HDMS-Hadley",
+       "need": 1
+      }
+     ]
+    },
+    {
+     "id": "J2",
+     "steps": [
+      {
+       "kind": "pickup",
+       "item": "Iron",
+       "location": "HDMS-Pinewood",
+       "need": 3
+      },
+      {
+       "kind": "turnin",
+       "item": "Iron",
+       "location": "Maker's Point",
+       "need": 1
+      }
+     ]
+    },
+    {
+     "id": "J3",
+     "steps": [
+      {
+       "kind": "pickup",
+       "item": "Chlorine",
+       "location": "Everus Harbor",
+       "need": 2
+      },
+      {
+       "kind": "turnin",
+       "item": "Chlorine",
+       "location": "HDMS-Stanhope",
+       "need": 1
+      }
+     ]
+    },
+    {
+     "id": "J4",
+     "steps": [
+      {
+       "kind": "pickup",
+       "item": "Argon",
+       "location": "HDMS-Hahn",
+       "need": 2
+      },
+      {
+       "kind": "turnin",
+       "item": "Argon",
+       "location": "HDMS-Stanhope",
+       "need": 1
+      }
+     ]
+    },
+    {
+     "id": "J5",
+     "steps": [
+      {
+       "kind": "pickup",
+       "item": "Scrap",
+       "location": "HDMS-Thedus",
+       "need": 1
+      },
+      {
+       "kind": "turnin",
+       "item": "Scrap",
+       "location": "HUR-L4 Melodic Fields Station",
+       "need": 1
+      }
+     ]
+    },
+    {
+     "id": "J6",
+     "steps": [
+      {
+       "kind": "pickup",
+       "item": "Medical Supplies",
+       "location": "HDMS-Stanhope",
+       "need": 2
+      },
+      {
+       "kind": "turnin",
+       "item": "Medical Supplies",
+       "location": "Reclamation & Disposal Orinth",
+       "need": 1
+      }
+     ]
+    },
+    {
+     "id": "J7",
+     "steps": [
+      {
+       "kind": "pickup",
+       "item": "Food Supplies",
+       "location": "Maker's Point",
+       "need": 4
+      },
+      {
+       "kind": "turnin",
+       "item": "Food Supplies",
+       "location": "HDMS-Norgaard",
+       "need": 1
+      }
+     ]
+    },
+    {
+     "id": "J8",
+     "steps": [
+      {
+       "kind": "pickup",
+       "item": "Tissue Samples",
+       "location": "HDMS-Lathan",
+       "need": 4
+      },
+      {
+       "kind": "turnin",
+       "item": "Tissue Samples",
+       "location": "HUR-L5 High Course Station",
+       "need": 1
+      }
+     ]
+    },
+    {
+     "id": "J9",
+     "steps": [
+      {
+       "kind": "pickup",
+       "item": "Ammunition Crate",
+       "location": "HDMS-Anderson",
+       "need": 1
+      },
+      {
+       "kind": "turnin",
+       "item": "Ammunition Crate",
+       "location": "HDMS-Pinewood",
+       "need": 1
+      }
+     ]
+    },
+    {
+     "id": "J10",
+     "steps": [
+      {
+       "kind": "pickup",
+       "item": "Waste Materials",
+       "location": "HDMS-Edmond",
+       "need": 3
+      },
+      {
+       "kind": "turnin",
+       "item": "Waste Materials",
+       "location": "HDMS-Oparei",
+       "need": 1
+      }
+     ]
+    }
+   ]
+  },
+  {
+   "name": "synth-crusader-arccorp",
+   "start": null,
+   "jobs": [
+    {
+     "id": "J1",
+     "steps": [
+      {
+       "kind": "pickup",
+       "item": "Copper",
+       "location": "CRU-L1 Ambitious Dream Station",
+       "need": 2
+      },
+      {
+       "kind": "turnin",
+       "item": "Copper",
+       "location": "Samson & Son's Salvage Center",
+       "need": 1
+      }
+     ]
+    },
+    {
+     "id": "J2",
+     "steps": [
+      {
+       "kind": "pickup",
+       "item": "Iron",
+       "location": "ARC-L1 Wide Forest Station",
+       "need": 1
+      },
+      {
+       "kind": "turnin",
+       "item": "Iron",
+       "location": "Seraphim Station",
+       "need": 1
+      }
+     ]
+    },
+    {
+     "id": "J3",
+     "steps": [
+      {
+       "kind": "pickup",
+       "item": "Chlorine",
+       "location": "ArcCorp Mining Area 048",
+       "need": 3
+      },
+      {
+       "kind": "turnin",
+       "item": "Chlorine",
+       "location": "Loveridge Mineral Reserve",
+       "need": 1
+      }
+     ]
+    },
+    {
+     "id": "J4",
+     "steps": [
+      {
+       "kind": "pickup",
+       "item": "Argon",
+       "location": "ArcCorp Mining Area 157",
+       "need": 3
+      },
+      {
+       "kind": "turnin",
+       "item": "Argon",
+       "location": "ArcCorp Mining Area 061",
+       "need": 1
+      }
+     ]
+    },
+    {
+     "id": "J5",
+     "steps": [
+      {
+       "kind": "pickup",
+       "item": "Scrap",
+       "location": "Kudre Ore",
+       "need": 3
+      },
+      {
+       "kind": "turnin",
+       "item": "Scrap",
+       "location": "Shubin Mining Facility SAL-2",
+       "need": 1
+      }
+     ]
+    },
+    {
+     "id": "J6",
+     "steps": [
+      {
+       "kind": "pickup",
+       "item": "Medical Supplies",
+       "location": "ARC-L4 Faint Glen Station",
+       "need": 3
+      },
+      {
+       "kind": "turnin",
+       "item": "Medical Supplies",
+       "location": "ArcCorp Mining Area 157",
+       "need": 1
+      }
+     ]
+    },
+    {
+     "id": "J7",
+     "steps": [
+      {
+       "kind": "pickup",
+       "item": "Food Supplies",
+       "location": "Shubin Mining Facility SAL-5",
+       "need": 1
+      },
+      {
+       "kind": "turnin",
+       "item": "Food Supplies",
+       "location": "Loveridge Mineral Reserve",
+       "need": 1
+      }
+     ]
+    },
+    {
+     "id": "J8",
+     "steps": [
+      {
+       "kind": "pickup",
+       "item": "Tissue Samples",
+       "location": "Rayari Cantwell Research Outpost",
+       "need": 1
+      },
+      {
+       "kind": "turnin",
+       "item": "Tissue Samples",
+       "location": "ARC-L2 Lively Pathway Station",
+       "need": 1
+      }
+     ]
+    },
+    {
+     "id": "J9",
+     "steps": [
+      {
+       "kind": "pickup",
+       "item": "Ammunition Crate",
+       "location": "CRU-L5 Beautiful Glen Station",
+       "need": 4
+      },
+      {
+       "kind": "turnin",
+       "item": "Ammunition Crate",
+       "location": "Loveridge Mineral Reserve",
+       "need": 1
+      }
+     ]
+    },
+    {
+     "id": "J10",
+     "steps": [
+      {
+       "kind": "pickup",
+       "item": "Waste Materials",
+       "location": "Shady Glen Farms",
+       "need": 3
+      },
+      {
+       "kind": "turnin",
+       "item": "Waste Materials",
+       "location": "Paradise Cove",
+       "need": 1
+      }
+     ]
+    }
+   ]
+  },
+  {
+   "name": "synth-stanton-wide",
+   "start": null,
+   "jobs": [
+    {
+     "id": "J1",
+     "steps": [
+      {
+       "kind": "pickup",
+       "item": "Copper",
+       "location": "Shubin Mining Facility SCD-1",
+       "need": 2
+      },
+      {
+       "kind": "turnin",
+       "item": "Copper",
+       "location": "Greycat Stanton I Production Complex-B",
+       "need": 1
+      }
+     ]
+    },
+    {
+     "id": "J2",
+     "steps": [
+      {
+       "kind": "pickup",
+       "item": "Iron",
+       "location": "Cry-Astro Processing Plant 34-12",
+       "need": 3
+      },
+      {
+       "kind": "turnin",
+       "item": "Iron",
+       "location": "Cutter's Rig",
+       "need": 1
+      }
+     ]
+    },
+    {
+     "id": "J3",
+     "steps": [
+      {
+       "kind": "pickup",
+       "item": "Chlorine",
+       "location": "Maker's Point",
+       "need": 1
+      },
+      {
+       "kind": "turnin",
+       "item": "Chlorine",
+       "location": "Shubin Mining Facility SAL-2",
+       "need": 1
+      }
+     ]
+    },
+    {
+     "id": "J4",
+     "steps": [
+      {
+       "kind": "pickup",
+       "item": "Argon",
+       "location": "Shubin Mining Facility SM0-22",
+       "need": 4
+      },
+      {
+       "kind": "turnin",
+       "item": "Argon",
+       "location": "ARC-L1 Wide Forest Station",
+       "need": 1
+      }
+     ]
+    },
+    {
+     "id": "J5",
+     "steps": [
+      {
+       "kind": "pickup",
+       "item": "Scrap",
+       "location": "HDMS-Norgaard",
+       "need": 4
+      },
+      {
+       "kind": "turnin",
+       "item": "Scrap",
+       "location": "ARC-L2 Lively Pathway Station",
+       "need": 1
+      }
+     ]
+    },
+    {
+     "id": "J6",
+     "steps": [
+      {
+       "kind": "pickup",
+       "item": "Medical Supplies",
+       "location": "Hickes Research Outpost",
+       "need": 4
+      },
+      {
+       "kind": "turnin",
+       "item": "Medical Supplies",
+       "location": "Ludlow",
+       "need": 1
+      }
+     ]
+    },
+    {
+     "id": "J7",
+     "steps": [
+      {
+       "kind": "pickup",
+       "item": "Food Supplies",
+       "location": "Shubin Mining Facility SAL-2",
+       "need": 1
+      },
+      {
+       "kind": "turnin",
+       "item": "Food Supplies",
+       "location": "Ludlow",
+       "need": 1
+      }
+     ]
+    },
+    {
+     "id": "J8",
+     "steps": [
+      {
+       "kind": "pickup",
+       "item": "Tissue Samples",
+       "location": "HDMS-Thedus",
+       "need": 4
+      },
+      {
+       "kind": "turnin",
+       "item": "Tissue Samples",
+       "location": "HDPC-Farnesway",
+       "need": 1
+      }
+     ]
+    },
+    {
+     "id": "J9",
+     "steps": [
+      {
+       "kind": "pickup",
+       "item": "Ammunition Crate",
+       "location": "ArcCorp Mining Area 061",
+       "need": 1
+      },
+      {
+       "kind": "turnin",
+       "item": "Ammunition Crate",
+       "location": "Ludlow",
+       "need": 1
+      }
+     ]
+    },
+    {
+     "id": "J10",
+     "steps": [
+      {
+       "kind": "pickup",
+       "item": "Waste Materials",
+       "location": "ARC-L3 Modern Express Station",
+       "need": 1
+      },
+      {
+       "kind": "turnin",
+       "item": "Waste Materials",
+       "location": "MIC-L2 Long Forest Station",
+       "need": 1
+      }
+     ]
+    }
+   ]
+  }
+ ]
+}

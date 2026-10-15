@@ -186,7 +186,7 @@ facts are in [OTHER-MODE-AUDIT.md](OTHER-MODE-AUDIT.md#where-am-i-and-start-mode
 Settings (`src/other/workMode.ts`, defaults in `OTHER_SETTING_DEFAULTS`): `otherStartMode` ('auto' | 'fixed',
 replaces `otherAutoStart`), `otherWhereHotkey` (CommandOrControl+Shift+L), `otherWhereZone1`, `otherWhereZone2`,
 `otherWhereUseZone2`, `otherWhereLive` (false), `otherWhereLiveSec` (45, 30-120), `otherAfkIntervalSec` (15),
-`otherAfkFirstKey` (F2), `otherAfkCycleKey` (F1), `otherAfkMaxMin` (120, 0 = no limit). (`otherAfkWhereRead` was removed in batch 13: AFK takes no position reads; an old saved value is ignored.) Shared OCR setting (upstream `AppSettings`, GENERAL tab, batch 15): `ocrTimeLimitSec` (10, 5-30).
+`otherAfkFirstKey` (F2), `otherAfkCycleKey` (F1), `otherAfkMaxMin` (120, 0 = no limit), `otherRouteOptimize` (false; batch 18, Distances & Route). (`otherAfkWhereRead` was removed in batch 13: AFK takes no position reads; an old saved value is ignored.) Shared OCR setting (upstream `AppSettings`, GENERAL tab, batch 15): `ocrTimeLimitSec` (10, 5-30).
 Doc fields: `where` (replaces `currentLocation` / `currentLocationAt`; carries `accuracy` 0-10), `startTypedAt`,
 `trackedMissionId` (+ `trackedAt`).
 
@@ -713,6 +713,36 @@ LEARNED DATA row DELETE / DELETE SELECTED / DELETE SHOWN / MatchFix Delete and b
         block? ─► add BlockedItems ─► other-blocked.json ─► evt:other:blocked ─► BLOCKED list, blocked tags
 game sees text again ─► recordSeen / recordProof / recordLearnedPlace / panel radius ─► isBlocked? ─► skipped
 UNBLOCK ─► otherBlocked:unblock ─► removed from other-blocked.json (data not restored; can be learned again)
+```
+
+## Other mode: FROM START pickups and Route optimization (batch 18, 2026-10-15)
+
+Rules 104-110 in [STANDALONE.md](../src/other/STANDALONE.md#stop-order-from-start-pickups-and-route-optimization-batch-18-user-2026-10-15);
+decisions in [DECISIONS.md](DECISIONS.md) sections 3 and 6; contract
+[batch-18-route-optimization.md](contracts/batch-18-route-optimization.md). FROM START keeps a delivery after its
+open pickup; a Route optimization switch (off by default) improves the ROUTE order. Other mode only. Release R1 1.0.5.
+
+| File | Owns (batch 18) | Entry points |
+|---|---|---|
+| `src/other/otherNext.ts` | FROM START pickup order (always); ROUTE improvement by local search when `routeOptimize` is on (trips compared by `compareTravel`: jumps, then metres; same-place stops together; deterministic); the pin and its 20% rule; `RouteInfo` for display and diagnostics | `listOpenStopsWithRoute(jobs, start, locations, opts)` → `{ rows, route: RouteInfo \| null }`, `listOpenStops()` (returns `.rows`), `stopKey(row)` (`<job id>:<step id>`), `pickupsBeforeDeliveries(rows)`, `improveRoute(...)`; `ListOpenStopsOpts.routeOptimize?`, `.routePin?`; type `RouteInfo { optimised, nearestMeters, nearestJumps, optimisedMeters, optimisedJumps, pin: 'kept' \| 'dropped' \| 'none', stops }` |
+| `src/other/workMode.ts` | Setting `otherRouteOptimize` (boolean, default `false`) in `OTHER_SETTING_DEFAULTS` | `otherSetting()` |
+| `src/other/renderer/OtherSettingsPage.tsx` | OTHER MODE → Distances & Route row "Route optimization", hint "Shortens the ROUTE order. Off = nearest stop next, as before." | settings row |
+| `src/other/renderer/state/routePin.ts` (new) | Per-window memory of the stop first in the last plan; cleared when that stop is done / withdrawn or the order mode changes | `getRoutePin(windowScope)`, `noteRouteFirst(key)`, `clearRoutePin()` |
+| `src/other/renderer/pages/NextPage.tsx` | Order line "Route (optimised) from <start>[ (auto)] · saves N km vs nearest-next" (no "saves" when 0 or unknown); ROUTE total and legs from the optimised trip | |
+| `src/other/renderer/components/OtherOverlay.tsx` | Order hint "ROUTE (OPT)"; passes the pin | |
+| `src/other/renderer/state/otherDiag.ts` | Route/order section: both totals (metres, jumps), pin kept / dropped, stop count | |
+| `test/replay/next_order.mjs` | FROM START pickup order, improvement never worse, pickups before deliveries, 20% pin rule, determinism | `node test/replay/next_order.mjs` |
+| `test/replay/route_bench_checks.mjs` (new) | Real job sets (place names only): optimised never longer than nearest-next, never a delivery before its pickup; reports savings | `node test/replay/route_bench_checks.mjs` |
+| `test/replay/replay.mjs` | Batch 18 scenario: the switch in Settings → OTHER MODE, order line and overlay hint | `node test/replay/replay.mjs <names>` |
+
+Settings: `otherRouteOptimize` (OTHER MODE → Distances & Route; default off).
+
+```
+listOrder 'distance' (FROM START) ─► distance order ─► pickupsBeforeDeliveries ─► rows
+listOrder 'route', otherRouteOptimize off ─► nearest-next (pickups first) ─► rows (route: null)
+listOrder 'route', on ─► nearest-next ─► improveRoute (move / reverse, pickups first) ─► pin from routePin.ts
+     kept unless the unpinned plan is ≥20% shorter (or fewer jumps) ─► { rows, RouteInfo }
+     ─► Next order line + "saves N km", overlay "ROUTE (OPT)", otherDiag route section
 ```
 
 ## Other mode: problem stops highlighted (2026-10-14)

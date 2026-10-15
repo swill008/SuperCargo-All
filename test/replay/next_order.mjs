@@ -699,6 +699,228 @@ safe('resolver wiring', () => {
   check('resolver wiring', 'show-all sort: one resolve per step', c.reads() === perCall, `reads ${c.reads()} per call ${perCall}`)
 })
 
+// ---- batch 18: FROM START pickup order, route optimization switch, steady next stop ----
+// HEAD's otherNext (git) bundled from the same folder, to prove "fails on old" and "switch off = today"
+let H = null
+try {
+  const { execSync } = await import('node:child_process')
+  const headSrc = execSync('git show HEAD:src/other/otherNext.ts', { cwd: root, encoding: 'utf8', stdio: ['ignore', 'pipe', 'ignore'] })
+  const headOut = path.join(tmp, 'otherNextHead.mjs')
+  esbuild.buildSync({
+    stdin: { contents: headSrc, resolveDir: path.join(root, 'src/other'), loader: 'ts', sourcefile: 'otherNext.head.ts' },
+    bundle: true, platform: 'node', format: 'esm', outfile: headOut, logLevel: 'error',
+    tsconfig: path.join(root, 'tsconfig.node.json'),
+    alias: { '@shared': path.join(root, 'src/shared'), '@other': path.join(root, 'src/other') }
+  })
+  H = await import(pathToFileURL(headOut).href)
+} catch {
+  H = null // no git here: the old-vs-new checks are skipped (reported below)
+}
+const keysOf = (rows) => rows.map((r) => `${r.job.id}:${r.step.id}`).join(' > ')
+const itemJob = (id, pickAt, dropAt, item = 'Iron') => ({
+  id, ref: id, title: id, kind: 'delivery', reward: 1, status: 'active', createdAt: 1,
+  steps: [
+    { id: `${id}d`, kind: 'turnin', label: `Deliver ${item} to ${dropAt}`, location: dropAt, item, have: 0, need: 1, done: false },
+    { id: `${id}p`, kind: 'pickup', label: `Collect ${item} from ${pickAt}`, location: pickAt, item, have: 0, need: 1, done: false }
+  ]
+})
+/** every delivery is after ALL its same-job same-item open pickups that are listed */
+const precedenceOk = (rows) => rows.every((r, i) => {
+  if (r.step.kind === 'pickup' || r.step.done || r.step.withdrawn || !r.step.item) return true
+  const k = r.step.item.trim().toLowerCase()
+  const p = rows.findLastIndex((o) => o.job.id === r.job.id && o.step.kind === 'pickup' && !o.step.pickupLocation && !o.step.done && !o.step.withdrawn && (o.step.item ?? '').trim().toLowerCase() === k)
+  return p < 0 || p < i
+})
+
+safe('from start pickups', () => {
+  // the pickup has no UEX point (bottom of the list), the delivery has one: today the delivery is listed above it
+  const js = [itemJob('fs1', OFF_MAP, 'Everus Harbor'), job(2, 'Port Tressler')]
+  const rows = N.listOpenStops(js, START, locations, { listOrder: 'distance', showAll: true })
+  const pi = rows.findIndex((r) => r.step.id === 'fs1p')
+  const di = rows.findIndex((r) => r.step.id === 'fs1d')
+  check('from start pickups', 'delivery listed directly after its own pickup', pi >= 0 && di === pi + 1, keysOf(rows))
+  if (H) {
+    const old = H.listOpenStops(js, START, locations, { listOrder: 'distance', showAll: true })
+    const opi = old.findIndex((r) => r.step.id === 'fs1p')
+    const odi = old.findIndex((r) => r.step.id === 'fs1d')
+    check('from start pickups', 'fails on HEAD: HEAD lists the delivery above its pickup', odi < opi, keysOf(old))
+  }
+  // pure helper: other rows keep their order; several deliveries keep theirs
+  const R = (job, id, kind, item) => ({ job: { id: job }, step: { id, kind, item, label: id, location: id, have: 0, need: 1, done: false } })
+  const in1 = [R('a', 'd1', 'turnin', 'X'), R('b', 'g', 'go'), R('a', 'd2', 'turnin', 'x'), R('a', 'p', 'pickup', 'X'), R('c', 'q', 'go')]
+  const out1 = N.pickupsBeforeDeliveries(in1).map((r) => r.step.id).join(',')
+  check('from start pickups', 'helper: deliveries follow their pickup, others keep order', out1 === 'g,p,d1,d2,q', out1)
+  const two = (ids) => N.pickupsBeforeDeliveries(ids.map((id) => R('a', id, id.startsWith('p') ? 'pickup' : 'turnin', 'X'))).map((r) => r.step.id).join(',')
+  check('from start pickups', 'helper: two pickups: p1,p2,d1,d2 stays', two(['p1', 'p2', 'd1', 'd2']) === 'p1,p2,d1,d2', two(['p1', 'p2', 'd1', 'd2']))
+  check('from start pickups', 'helper: deliveries go after the LAST pickup (d1,p1,d2,p2 -> p1,p2,d1,d2)', two(['d1', 'p1', 'd2', 'p2']) === 'p1,p2,d1,d2', two(['d1', 'p1', 'd2', 'p2']))
+  // no start (overlay LOG ORDER): exactly today's order
+  if (H) {
+    const sets = [[itemJob('ns1', OFF_MAP, 'Everus Harbor'), job(2, 'Port Tressler')], [itemJob('ns2', 'Port Tressler', 'Everus Harbor'), ...jobs]]
+    let diff = 0, moved = 0
+    for (const js of sets) for (const showAll of [false, true]) {
+      const a = N.listOpenStops(js, '', locations, { listOrder: 'distance', showAll })
+      if (JSON.stringify(a) !== JSON.stringify(H.listOpenStops(js, '', locations, { listOrder: 'distance', showAll }))) diff++
+      if (!precedenceOk(a)) moved++
+    }
+    check('from start pickups', 'no start: order identical to HEAD (4 cases)', diff === 0, `differs ${diff}; cases with a delivery above its pickup ${moved}`)
+  }
+  const in2 = [R('a', 'd1', 'turnin', 'X'), R('b', 'p', 'pickup', 'X'), R('a', 'p2', 'pickup', 'Y')]
+  check('from start pickups', 'helper: other job / other item untouched', N.pickupsBeforeDeliveries(in2).map((r) => r.step.id).join(',') === 'd1,p,p2')
+})
+
+safe('group precedence', () => {
+  // e2e repro: FROM START from Everus Harbor, show-all; the list is right, grouping merged a's delivery into b's HUR-L1 stop
+  const HUR = 'HUR-L1 Green Glade Station', MIC = 'MIC-L1 Shallow Frontier Station'
+  const ja = itemJob('ga', MIC, HUR, 'Scrap')
+  const js = [ja, job(31, HUR), job(32, 'Baijini Point')]
+  const rows = N.listOpenStops(js, 'Everus Harbor', locations, { listOrder: 'distance', showAll: true })
+  const listed = rows.map((r) => `${r.job.id}:${r.step.id}@${r.place.split(' ')[0]}`).join(' > ')
+  check('group precedence', 'fixture: list is b HUR-L1 > c Baijini > a pickup MIC-L1 > a delivery HUR-L1',
+    listed === 'job-31:s31@HUR-L1 > job-32:s32@Baijini > ga:gap@MIC-L1 > ga:gad@HUR-L1', listed)
+  const groups = N.groupByPlace(rows, locations)
+  const gOf = (id) => groups.findIndex((g) => g.rows.some((r) => r.step.id === id))
+  const shown = groups.map((g) => `${g.place.split(' ')[0]}[${g.rows.map((r) => r.step.id).join(',')}]`).join(' > ')
+  check('group precedence', 'grouped: delivery stop after its pickup stop', gOf('gad') > gOf('gap'), shown)
+  check('group precedence', 'grouped: every row kept once', groups.reduce((n, g) => n + g.rows.length, 0) === rows.length, shown)
+  // same place without a pickup constraint still merges
+  const plain = N.groupByPlace(N.listOpenStops([job(33, HUR), job(34, 'Baijini Point'), job(35, HUR)], 'Everus Harbor', locations, { listOrder: 'distance', showAll: true }), locations)
+  check('group precedence', 'same place with no pickup involved still one stop', plain.length === 2, plain.map((g) => g.rows.length).join(','))
+})
+
+// synthetic points on one line in one system (metres = x * 1e6)
+const P = (x, y = 0) => ({ x: x * 1e6, y: y * 1e6, z: 0, system: 'stanton', body: null })
+const S0 = P(0)
+const stop = (id, x, y = 0, kind = 'go', item, job = id) => ({ job: { id: job }, step: { id, kind, ...(item ? { item } : {}), label: id, location: id, have: 0, need: 1, done: false }, point: P(x, y) })
+const tot = (rows) => N.routeTravel(rows, S0, [])
+let seed = 12345
+const rnd = () => ((seed = (seed * 1103515245 + 12345) % 2147483648) / 2147483648)
+
+safe('route optimise', () => {
+  if (!has('route optimise', 'improveRoute') || !has('route optimise', 'optimiseRoute')) return
+  // crossing: nearest-next goes right first, then all the way back left
+  const cross = [stop('a', 1), stop('b', 2), stop('c', 3), stop('d', 4), stop('e', 5), stop('w', -1.1)]
+  const plan = N.optimiseRoute(cross, S0, [])
+  check('route optimise', 'crossing: nearest-next is clearly worse (>= 20% longer)', plan.info.nearestMeters >= 1.2 * plan.info.optimisedMeters,
+    `nearest ${plan.info.nearestMeters / 1e6} opt ${plan.info.optimisedMeters / 1e6}`)
+  check('route optimise', 'crossing: optimised goes left first', plan.rows[0].step.id === 'w', plan.rows.map((r) => r.step.id).join(','))
+  // random sets: never longer, precedence kept, deterministic, fast
+  let worse = 0, better = 0, broke = 0, nondet = 0, slow = 0
+  for (let k = 0; k < 25; k++) {
+    const n = 8 + (k % 5) * 8 // 8..40 stops
+    const rows = []
+    for (let i = 0; i < n; i++) {
+      const j = `j${Math.floor(i / 3)}`
+      const kind = i % 3 === 0 ? 'pickup' : i % 3 === 1 ? 'turnin' : 'go'
+      rows.push(stop(`s${i}`, rnd() * 100 - 50, rnd() * 100 - 50, kind, kind === 'go' ? undefined : 'Box', j))
+    }
+    if (k % 4 === 0) rows.push({ ...stop('dup', 0, 0), point: rows[1].point }) // a second stop at the same place
+    const t0 = performance.now()
+    const p1 = N.optimiseRoute(rows, S0, [])
+    const ms = performance.now() - t0
+    if (n >= 40 && ms > 100) slow++
+    const p2 = N.optimiseRoute(rows.slice(), S0, [])
+    if (p1.info.optimisedMeters > p1.info.nearestMeters + 1e-3) worse++
+    if (p1.info.optimisedMeters < p1.info.nearestMeters - 1e-3) better++
+    if (!precedenceOk(p1.rows)) broke++
+    if (keysOf(p1.rows) !== keysOf(p2.rows)) nondet++
+    if (p1.rows.length !== rows.length) broke++
+  }
+  check('route optimise', '25 random sets: optimised never longer than nearest-next', worse === 0, `worse ${worse}, better ${better}`)
+  check('route optimise', 'random sets: optimised shorter on some', better > 0, `better ${better}/25`)
+  check('route optimise', 'random sets: no delivery before its pickup, no stop lost', broke === 0, `broken ${broke}`)
+  check('route optimise', 'random sets: deterministic', nondet === 0, `differs ${nondet}`)
+  check('route optimise', '40+ stops under 100 ms', slow === 0, `slow ${slow}`)
+  // precedence where the shorter trip would break it: the pickup is far, the delivery near
+  const prec = [stop('pp', 10, 0, 'pickup', 'Box', 'J'), stop('x', 2), stop('dp', 1, 0, 'turnin', 'Box', 'J')]
+  const free = N.improveRoute(prec.map((r) => ({ ...r, step: { ...r.step, item: undefined } })), S0, []).map((r) => r.step.id).join(',')
+  const pr = N.improveRoute(prec, S0, [])
+  check('route optimise', 'never moves a delivery before its pickup (unconstrained best would)', precedenceOk(pr) && free.indexOf('dp') < free.indexOf('pp'),
+    `with items ${pr.map((r) => r.step.id).join(',')}; without ${free}`)
+  // two pickups of the same item: the delivery waits for both (re-trace repro; first-pickup-only gave p1,d,x,p2,y)
+  const two = [stop('p1', 1, 0, 'pickup', 'Box', 'J'), stop('p2', 10, 0, 'pickup', 'Box', 'J'), stop('d', 2, 0, 'turnin', 'Box', 'J'), stop('x', 9), stop('y', 11)]
+  const tp = N.optimiseRoute(two, S0, [])
+  const tid = tp.rows.map((r) => r.step.id)
+  check('route optimise', 'two same-item pickups: delivery after both', tid.indexOf('d') > tid.indexOf('p1') && tid.indexOf('d') > tid.indexOf('p2'), tid.join(','))
+  // above ROUTE_OPT_MAX_STOPS: nearest-next only, optimised false
+  const big = (n) => Array.from({ length: n }, (_, i) => stop(`b${i}`, rnd() * 100 - 50, rnd() * 100 - 50))
+  const b55 = N.optimiseRoute(big(55), S0, [])
+  check('route optimise', '55 stops: improvement skipped (optimised false, totals equal, pin none)',
+    N.ROUTE_OPT_MAX_STOPS === 50 && b55.info.optimised === false && b55.info.optimisedMeters === b55.info.nearestMeters && b55.info.pin === 'none' && b55.rows.length === 55, JSON.stringify(b55.info))
+  const b50 = N.optimiseRoute(big(50), S0, [])
+  check('route optimise', '50 stops: still optimised', b50.info.optimised === true && b50.info.optimisedMeters <= b50.info.nearestMeters + 1e-3, JSON.stringify(b50.info))
+  // same place stays together
+  const same = [stop('m1', 3), { ...stop('m2', 3) }, stop('n', 1), stop('o', -2)]
+  same[1].point = same[0].point
+  const sr = N.improveRoute(same, S0, []).map((r) => r.step.id)
+  check('route optimise', 'stops at the same place stay together', Math.abs(sr.indexOf('m1') - sr.indexOf('m2')) === 1, sr.join(','))
+})
+
+safe('route pin', () => {
+  if (!has('route pin', 'optimiseRoute') || !has('route pin', 'stopKey')) return
+  // dropped: without the pin the trip is >= 20% shorter (5 vs 7)
+  const d = [stop('a', -1), stop('b', 1.05), stop('c', 2), stop('d', 3)]
+  const pd = N.optimiseRoute(d, S0, [], 'b:b')
+  check('route pin', 'dropped when the plan without it is >= 20% shorter', pd.info.pin === 'dropped' && pd.rows[0].step.id === 'a',
+    `${pd.info.pin} first ${pd.rows[0].step.id} ${pd.info.optimisedMeters / 1e6}`)
+  // kept: without the pin only 22 vs 24 (< 20%)
+  const k = [stop('a', -1), stop('b', 1), stop('c', 20)]
+  const pk = N.optimiseRoute(k, S0, [], N.stopKey(k[1]))
+  check('route pin', 'kept when the saving is under 20%', pk.info.pin === 'kept' && pk.rows[0].step.id === 'b', `${pk.info.pin} ${pk.rows.map((r) => r.step.id).join(',')}`)
+  check('route pin', 'kept plan is the best one with the pin first', Math.abs(pk.info.optimisedMeters - 24e6) < 1, `${pk.info.optimisedMeters / 1e6}`)
+  const pn = N.optimiseRoute(k, S0, [], 'gone:x')
+  check('route pin', 'pin not open -> none', pn.info.pin === 'none', pn.info.pin)
+  const pf = N.optimiseRoute(k, S0, [], 'a:a')
+  check('route pin', 'pin already first -> kept', pf.info.pin === 'kept' && pf.rows[0].step.id === 'a', pf.info.pin)
+  const pw = N.optimiseRoute([stop('dp', 1, 0, 'turnin', 'Box', 'J'), stop('pp', 10, 0, 'pickup', 'Box', 'J')], S0, [], 'J:dp')
+  check('route pin', 'a delivery waiting on its pickup is never pinned first', pw.info.pin === 'none' && pw.rows[0].step.id === 'pp', `${pw.info.pin} ${pw.rows[0].step.id}`)
+  check('route pin', 'stopKey = job:step', N.stopKey({ job: { id: 'J' }, step: { id: 's' } }) === 'J:s')
+})
+
+safe('route switch', () => {
+  if (!has('route switch', 'listOpenStopsWithRoute')) return
+  const sets = [
+    jobs,
+    [...jobs, itemJob('sw1', 'Baijini Point', 'Port Tressler'), itemJob('sw2', 'Seraphim Station', 'Everus Harbor', 'Gold')],
+    [itemJob('sw3', 'Everus Harbor', 'Baijini Point'), job(9, 'Port Tressler'), job(10, OFF_MAP)]
+  ]
+  let off = 0, offTotal = 0
+  for (const js of sets) {
+    for (const showAll of [false, true]) {
+      const a = N.listOpenStopsWithRoute(js, START, locations, { listOrder: 'route', showAll })
+      const b = N.listOpenStops(js, START, locations, { listOrder: 'route', showAll })
+      if (a.route !== null || keysOf(a.rows) !== keysOf(b)) off++
+      if (H) {
+        const h = H.listOpenStops(js, START, locations, { listOrder: 'route', showAll })
+        if (JSON.stringify(h) !== JSON.stringify(b)) offTotal++
+      }
+      const on = N.listOpenStopsWithRoute(js, START, locations, { listOrder: 'route', showAll, routeOptimize: true })
+      check('route switch', `on: route info set, total <= nearest-next (${js.length} jobs, showAll ${showAll})`,
+        on.route?.optimised === true && on.route.optimisedMeters <= on.route.nearestMeters + 1e-3 && on.route.stops > 0 && near(N.routeTotal(on.rows), on.route.optimisedMeters),
+        JSON.stringify(on.route))
+      check('route switch', `on: no delivery before its pickup (showAll ${showAll})`, precedenceOk(on.rows), keysOf(on.rows))
+      check('route switch', `on: unplaced stop stays at the bottom (showAll ${showAll})`,
+        on.rows.findIndex((r) => r.distance == null) < 0 || on.rows.slice(on.rows.findIndex((r) => r.distance == null)).every((r) => r.distance == null), keysOf(on.rows))
+    }
+  }
+  check('route switch', 'off: route null and rows = listOpenStops', off === 0, `differs ${off}`)
+  if (H) check('route switch', 'off: ROUTE rows identical to HEAD (6 cases)', offTotal === 0, `differs ${offTotal}`)
+  else check('route switch', 'HEAD bundle available for old-vs-new', false, 'git show failed')
+  // switch on, the pickup has no point: its delivery is not routed above it, it follows it at the bottom
+  const np = [itemJob('np1', OFF_MAP, 'Everus Harbor'), job(2, 'Port Tressler'), job(3, 'Baijini Point')]
+  const onp = N.listOpenStopsWithRoute(np, START, locations, { listOrder: 'route', showAll: true, routeOptimize: true })
+  const ip = onp.rows.findIndex((r) => r.step.id === 'np1p')
+  const id = onp.rows.findIndex((r) => r.step.id === 'np1d')
+  check('route switch', 'on: delivery of a no-point pickup is listed right after it at the bottom', ip >= 0 && id === ip + 1 && onp.route?.stops === 2, `${keysOf(onp.rows)} stops ${onp.route?.stops}`)
+  const dist = N.listOpenStopsWithRoute(jobs, START, locations, { listOrder: 'distance', routeOptimize: true })
+  check('route switch', 'route info null outside ROUTE', dist.route === null)
+  // pin through the real path: pin the nearest-next first stop, which stays unless 20% shorter without it
+  const s2 = sets[1]
+  const first = N.listOpenStopsWithRoute(s2, START, locations, { listOrder: 'route', showAll: true, routeOptimize: true })
+  const pinKey = N.stopKey(first.rows[0])
+  const again = N.listOpenStopsWithRoute(s2, START, locations, { listOrder: 'route', showAll: true, routeOptimize: true, routePin: pinKey })
+  check('route switch', 'pin through listOpenStopsWithRoute: same first stop, pin kept', again.route?.pin === 'kept' && N.stopKey(again.rows[0]) === pinKey, `${again.route?.pin} ${pinKey}`)
+})
+
 fs.rmSync(tmp, { recursive: true, force: true })
 let failed = 0
 for (const { name, what, ok, detail } of results) {

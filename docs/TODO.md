@@ -72,3 +72,10 @@ with an Electron version that runs Node 22. The Electron upgrade is NOT DOING fo
   (harmless). A pickup row whose label the user cleared gets the fallback label "Deliver 0/N …" (older behaviour).
 - Jobs saved with a combined step still get extra steps if late "New Objective" lines arrive (unchanged behaviour,
   user's choice 2A: leave saved jobs as they are). (batch 17 review, 2026-10-15)
+
+## Route optimization follow-ups (batch 18 review, 2026-10-15; ask the user first)
+
+- The steady next stop is kept per window (Next and the overlay each remember their own), so Next's top row can
+  differ from the overlay's order for a while. Sharing one pin through the main process would make them identical.
+- Above 50 stops the improvement step is skipped (nearest-next is used) to keep the windows responsive; the search
+  grows with the cube of the stop count (about 0.4 s at 80 stops).

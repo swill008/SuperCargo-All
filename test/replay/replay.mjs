@@ -1380,6 +1380,87 @@ const overlayFromRow = (port) =>
     })()`
   )
 
+// batch 18 (docs/contracts/batch-18-route-optimization.md): Other-mode ROUTE optimisation switch + FROM START pickup order.
+// Stations with UEX coordinates, all in Stanton (no jumps); jobs seeded with a same-item pickup/delivery pair.
+const B18_ROUTE = {
+  start: 'Orison',
+  // from Orison greedy nearest-next goes Seraphim > Everus > ARC-L1 > MIC-L1 > Port Tressler (~110 Gm); swapping
+  // Everus and ARC-L1 saves ~11 Gm (checked with otherNext's own travel())
+  greedy: ['Seraphim Station', 'Everus Harbor', 'ARC-L1 Wide Forest Station', 'MIC-L1 Shallow Frontier Station', 'Port Tressler'],
+  pickup: 'Seraphim Station',
+  delivery: 'MIC-L1 Shallow Frontier Station'
+}
+const b18Go = (id, place, item) => ({ id, kind: 'go', label: `Deliver ${item ?? 'Scrap'} to ${place}`, location: place, have: 0, need: 1, done: false, ...(item ? { item } : {}) })
+const b18Pickup = (id, place, item) => ({ id, kind: 'pickup', label: `Collect ${item} from ${place}`, location: place, item, have: 0, need: 1, done: false })
+// a job whose delivery comes first in game order, then its pickup (the app must still route the pickup first)
+const b18PairJob = (ref, title, pickup, delivery, item = 'Scrap') => ({ ref, title, steps: [b18Go('s1', delivery, item), b18Pickup('s2', pickup, item)] })
+async function b18Launch(name, { jobs, start, listOrder, settings = {}, reuse = null }) {
+  const e =
+    reuse ??
+    setup(name, { otherStartMode: 'fixed', overlayShowAllObjectives: true, ...settings }, {
+      jobs: jobs.map((j) => logJob(mission(), j)),
+      history: [],
+      listOrder,
+      startLocation: start,
+      startTypedAt: iso(ago(60))
+    })
+  const port = await freePort()
+  const stop = await launch(e, cdpArgs(port))
+  return { e, port, stop }
+}
+// the Next tab's stop order: the first place (of `names`) each group shows, below the STARTING AT row
+const b18NextOrder = async (port, names) => {
+  const t = await windowText(port, 'main')
+  const at = t.indexOf('Open list is only the first matches')
+  if (at < 0) return null
+  const list = t.slice(at)
+  return names.map((n) => ({ n, i: list.indexOf(n) })).filter((x) => x.i >= 0).sort((a, b) => a.i - b.i).map((x) => x.n)
+}
+// Next tab once all `names` are listed (clicks NEXT first)
+async function b18Next(port, names, extra = () => true, ms = 15000) {
+  await clickButton(port, 'main', /^NEXT$/)
+  const ok = await until(async () => {
+    const o = await b18NextOrder(port, names)
+    return o && o.length === names.length && (await extra()) ? o : null
+  }, ms)
+  return ok ?? (await b18NextOrder(port, names))
+}
+const b18OrderLine = (port) =>
+  windowText(port, 'main').then((t) => t.split(/\n/).find((l) => /^(Route|Sorted by distance|Manual order)/.test(l.trim()))?.trim() ?? null)
+// "98 Gm 577 Mm" / "12.3 Mm" / "450 km" -> metres (the ROUTE stat's title, formatMapDistance)
+const b18Meters = (s) => {
+  if (!s) return null
+  const unit = { Gm: 1e9, Mm: 1e6, km: 1e3, m: 1 }
+  let m = 0
+  let hit = false
+  for (const [, v, u] of s.matchAll(/([\d.]+)\s*(Gm|Mm|km|m)\b/g)) {
+    m += Number(v) * unit[u]
+    hit = true
+  }
+  return hit ? m : null
+}
+const b18RouteStat = (port) =>
+  cdpEval(port, 'main', `(() => { const d = [...document.querySelectorAll('div[title]')].find((x) => x.firstElementChild?.textContent.trim() === 'ROUTE'); return d ? d.getAttribute('title') : null })()`)
+// the overlay's stops in order: back to STOP 1, then the stop name of each stop via ›
+const b18OverlayOrder = (port) =>
+  cdpEval(
+    port,
+    'overlay',
+    `(async () => {
+      const btn = (t) => [...document.querySelectorAll('button')].find((x) => x.textContent.trim() === t)
+      const wait = () => new Promise((r) => setTimeout(r, 300))
+      for (let i = 0; i < 12; i++) { const b = btn('\\u2039'); if (!b || b.disabled) break; b.click(); await wait() }
+      const out = []
+      for (let i = 0; i < 12; i++) {
+        const n = document.querySelector('[data-testid="overlay-stop-name"]')
+        out.push((n?.getAttribute('title') || n?.textContent || '').trim())
+        const b = btn('\\u203a'); if (!b || b.disabled) break; b.click(); await wait()
+      }
+      return { stops: out, hint: document.body.innerText }
+    })()`
+  )
+const b18Pos = (order, name) => (order ?? []).findIndex((x) => x.toLowerCase().includes(name.toLowerCase()))
+
 const scenarios = {
   // #1 both windows ingest the same accept
   'single-ingest': async () => {
@@ -4926,6 +5007,128 @@ const scenarios = {
   // the overlay's current stop stays put (user 2026-10-14): a WHERE AM I read at the same place or a job-file save
   // used to send it back to STOP 1 (setIdx(0) on every new origin point). It only goes back to 1 by the
   // return-to-first timer (overlayReturnToFirst + overlayReturnSeconds) or a real start change (another place).
+  // batch 18 (contract §2, §4): Settings -> OTHER MODE -> Distances & Route has "Route optimization", off by default; off
+  // = today's nearest-next ROUTE; on = a shorter order, "Route (optimised) … saves … vs nearest-next", overlay
+  // "ROUTE (OPT)", no delivery before its pickup; the setting survives a restart
+  'route-optimize-switch': async () => {
+    const R = B18_ROUTE
+    const names = R.greedy
+    const jobs = [
+      b18PairJob('J01', 'Opt Pair Run', R.pickup, R.delivery),
+      { ref: 'J02', title: 'Opt Run Everus', steps: [b18Go('s1', 'Everus Harbor')] },
+      { ref: 'J03', title: 'Opt Run Arc', steps: [b18Go('s1', 'ARC-L1 Wide Forest Station')] },
+      { ref: 'J04', title: 'Opt Run Tressler', steps: [b18Go('s1', 'Port Tressler')] }
+    ]
+    const r = { err: '' }
+    let run = await b18Launch('route-optimize-switch', { jobs, start: R.start, listOrder: 'route' })
+    const { e } = run
+    try {
+      let port = run.port
+      // settings row
+      r.tab = await openSettingsTab(port, 'OTHER MODE')
+      r.row = await until(() =>
+        cdpEval(
+          port,
+          'main',
+          `(() => {
+            const s = [...document.querySelectorAll('span')].find((x) => /^Route optimization/.test(x.textContent.trim()))
+            if (!s) return null
+            const h = document.querySelector('[data-other-section="distances"]')
+            const heads = [...document.querySelectorAll('[data-other-section]')]
+            const nextHead = heads[heads.indexOf(h) + 1]
+            const after = !!h && !!(h.compareDocumentPosition(s) & Node.DOCUMENT_POSITION_FOLLOWING)
+            const before = !nextHead || !!(nextHead.compareDocumentPosition(s) & Node.DOCUMENT_POSITION_PRECEDING)
+            return { text: s.textContent.trim(), inDistances: after && before }
+          })()`
+        ), 10000)
+      r.defaultSetting = (await settingsGet(port))?.otherRouteOptimize
+      // switch off: today's nearest-next
+      r.offOrder = await b18Next(port, names, () => b18OrderLine(port).then((l) => /^Route from /.test(l ?? '')))
+      r.offLine = await b18OrderLine(port)
+      r.offTotal = await until(() => b18RouteStat(port), 8000)
+      r.offOverlay = await until(() => b18OverlayOrder(port).then((v) => (v?.stops?.length >= names.length ? v : null)), 15000)
+      // switch on through the Settings row
+      await openSettingsTab(port, 'OTHER MODE')
+      r.click = await until(() =>
+        cdpEval(
+          port,
+          'main',
+          `(() => { const s = [...document.querySelectorAll('span')].find((x) => /^Route optimization/.test(x.textContent.trim())); const t = s?.parentElement?.lastElementChild; if (!t || t === s) return null; t.click(); return true })()`
+        ), 8000)
+      r.onSetting = await until(() => settingsGet(port).then((s) => (s?.otherRouteOptimize === true ? true : null)), 8000)
+      r.onOrder = await b18Next(port, names, () => b18OrderLine(port).then((l) => /^Route \(optimised\)/.test(l ?? '')))
+      r.onLine = await b18OrderLine(port)
+      r.onTotal = await until(() => b18RouteStat(port), 8000)
+      r.onOverlay = await until(() => b18OverlayOrder(port).then((v) => (/ROUTE \(OPT\)/.test(v?.hint ?? '') && v.stops.length >= names.length ? v : null)), 15000)
+      r.onOverlay ??= await b18OverlayOrder(port).catch(() => null)
+      await run.stop()
+      r.file = e.settings()?.otherRouteOptimize
+      // restart on the same data folder
+      run = await b18Launch('route-optimize-switch', { reuse: e })
+      port = run.port
+      r.restartSetting = await until(() => settingsGet(port).then((s) => (s?.otherRouteOptimize === true ? true : null)), 10000)
+      r.restartOrder = await b18Next(port, names, () => b18OrderLine(port).then((l) => /^Route \(optimised\)/.test(l ?? '')))
+      r.restartLine = await b18OrderLine(port)
+    } catch (x) {
+      r.err = String(x?.message ?? x)
+    }
+    await run.stop()
+    const pickupFirst = (o) => b18Pos(o, R.pickup) >= 0 && b18Pos(o, R.pickup) < b18Pos(o, R.delivery)
+    const offM = b18Meters(r.offTotal)
+    const onM = b18Meters(r.onTotal)
+    return [
+      ['Settings -> OTHER MODE: "Route optimization" row with its hint, in Distances & Route', !!r.row?.inDistances && /Shortens the ROUTE order/.test(r.row?.text ?? ''), `row=${short(r.row)} tab=${short(r.tab)} ${r.err}`],
+      ['switch off by default', r.defaultSetting !== true, `otherRouteOptimize=${r.defaultSetting}`],
+      ['off: order line "Route from Orison · nearest next stop each time"', /^Route from Orison .*nearest next stop each time/.test(r.offLine ?? ''), `line=${r.offLine}`],
+      ['off: ROUTE order = nearest-next (as before)', (r.offOrder ?? []).join('|') === names.join('|'), `got ${short(r.offOrder)} want ${short(names)}`],
+      ['off: overlay hint is ROUTE, not ROUTE (OPT)', /\bROUTE\b/.test(r.offOverlay?.hint ?? '') && !/ROUTE \(OPT\)/.test(r.offOverlay?.hint ?? ''), `overlay=${short(r.offOverlay?.stops)}`],
+      ['clicking the row turns the setting on', r.click === true && r.onSetting === true, `click=${r.click} setting=${r.onSetting}`],
+      ['on: order line "Route (optimised) from Orison · saves … vs nearest-next"', /^Route \(optimised\) from Orison.*saves \S.* vs nearest-next/.test(r.onLine ?? ''), `line=${r.onLine}`],
+      ['on: ROUTE order changes', !!r.onOrder && r.onOrder.length === names.length && r.onOrder.join('|') !== names.join('|'), `on=${short(r.onOrder)} off=${short(r.offOrder)}`],
+      ['on: ROUTE total <= off total', offM != null && onM != null && onM <= offM, `on=${r.onTotal} off=${r.offTotal}`],
+      ['on: pickup (Seraphim) before its delivery (MIC-L1) on Next', pickupFirst(r.onOrder) && pickupFirst(r.offOrder), `on=${short(r.onOrder)}`],
+      ['on: overlay hint ROUTE (OPT), pickup before delivery, same order as Next', /ROUTE \(OPT\)/.test(r.onOverlay?.hint ?? '') && pickupFirst(r.onOverlay?.stops) && (r.onOrder ?? []).every((n, i) => (r.onOverlay?.stops?.[i] ?? '').toLowerCase().includes(n.toLowerCase())), `overlay=${short(r.onOverlay?.stops)} next=${short(r.onOrder)}`],
+      ['setting saved in settings.json', r.file === true, `file=${r.file}`],
+      ['after restart: still on, optimised order line and same order', r.restartSetting === true && /^Route \(optimised\)/.test(r.restartLine ?? '') && (r.restartOrder ?? []).join('|') === (r.onOrder ?? []).join('|'), `setting=${r.restartSetting} line=${r.restartLine} order=${short(r.restartOrder)}`]
+    ]
+  },
+
+  // batch 18 (contract §1): FROM START lists an open delivery directly after its same-job, same-item pickup when that
+  // pickup is still open, even when the delivery is nearer the start (1.0.4 listed the delivery first); Next and overlay
+  'from-start-pickup-first': async () => {
+    // A: both places known; B: the pickup's place is not found (no distance) -- 1.0.4 listed the delivery (with a
+    // distance) above it and the pickup at the bottom
+    const A = { start: 'Everus Harbor', pickup: 'MIC-L1 Shallow Frontier Station', delivery: 'HUR-L1 Green Glade Station', other: 'Baijini Point' }
+    const B = { ...A, pickup: 'Qzxv Brellin Outpost CR-9' }
+    const run = async (tag, P) => {
+      const names = [P.other, P.pickup, P.delivery]
+      const jobs = [b18PairJob('J01', 'Pickup First Run', P.pickup, P.delivery), { ref: 'J02', title: 'Pickup First Other', steps: [b18Go('s1', P.other)] }]
+      const r = { err: '', P }
+      const app = await b18Launch(`from-start-pickup-first-${tag}`, { jobs, start: P.start, listOrder: 'distance' })
+      try {
+        r.order = await b18Next(app.port, names, () => b18OrderLine(app.port).then((l) => /^Sorted by distance from Everus Harbor/.test(l ?? '')))
+        r.line = await b18OrderLine(app.port)
+        r.overlay = await until(() => b18OverlayOrder(app.port).then((v) => (v?.stops?.length >= names.length ? v : null)), 15000)
+        r.overlay ??= await b18OverlayOrder(app.port).catch(() => null)
+      } catch (x) {
+        r.err = String(x?.message ?? x)
+      }
+      await app.stop()
+      return r
+    }
+    const [a, b] = await Promise.all([run('known', A), run('nopoint', B)])
+    const direct = (o, P) => b18Pos(o, P.pickup) >= 0 && b18Pos(o, P.delivery) === b18Pos(o, P.pickup) + 1
+    const same = (r) => (r.order ?? []).length > 0 && (r.order ?? []).every((n, i) => (r.overlay?.stops?.[i] ?? '').toLowerCase().includes(n.toLowerCase()))
+    return [
+      ['A: Next FROM START order line', /^Sorted by distance from Everus Harbor/.test(a.line ?? ''), `line=${a.line} ${a.err}`],
+      ['A: Next: pickup (MIC-L1, far) directly before its delivery (HUR-L1, near the start)', direct(a.order, A), `order=${short(a.order)}`],
+      ['A: Next: the other stop keeps its distance place (Baijini first)', b18Pos(a.order, A.other) === 0, `order=${short(a.order)}`],
+      ['A: overlay: same order as Next', direct(a.overlay?.stops, A) && same(a), `overlay=${short(a.overlay?.stops)} next=${short(a.order)}`],
+      ['B (pickup place not found): Next lists the pickup directly before its delivery', direct(b.order, B), `order=${short(b.order)} line=${b.line} ${b.err}`],
+      ['B: overlay: pickup directly before its delivery, same order as Next', direct(b.overlay?.stops, B) && same(b), `overlay=${short(b.overlay?.stops)} next=${short(b.order)}`]
+    ]
+  },
+
   'overlay-stays-on-stop': async () => {
     const jobs = ['Port Tressler', 'Lorville', 'Everus Harbor', 'Seraphim Station', 'Area18'].map((p, i) => ({ title: `Stay Run ${i + 1}`, steps: [goStep(`s${i + 1}`, p)] }))
     const go = (port, n) =>

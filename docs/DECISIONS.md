@@ -93,6 +93,17 @@ Marked **NOT DOING**: decided against, or left out on purpose.
   or the first stop in the order). Live WHERE AM I reads and job-file saves never move it. From the user's report:
   "if i went to contract 4, it keept going back to the beginnig, to 1. even with the setting turned off."
   (STANDALONE rule 93.)
+- **FROM START keeps a delivery after its own pickup (batch 18, 2026-10-15).** "yeah, lets change this: … FROM
+  START … can put a delivery above its own pickup". An open delivery whose same-job, same-item pickup is still open is
+  listed right after that pickup; the rest keeps distance order. Always on (not behind the switch). STANDALONE rule 104.
+- **Route optimization switch, Other mode only (batch 18, 2026-10-15).** "only in other modes. I dont care about haul
+  mode … in other modes we handle small items, so i mosty care about route order"; "that sounds like a mode switch we
+  need to put into options. Say Route Optimization Mode? That way we can test it out first? So default is what exists,
+  and the switch is what we are planning."; "ok, code it, then release it based on your recommendatations". Off by
+  default (ROUTE = nearest stop next, as before); on, ROUTE is the nearest-next trip improved by local search, never a
+  delivery before its pickup. Recommendations taken: the next stop changes mid-flight only when the new plan is at least
+  20% shorter; "saves N km" is shown whenever the switch is on. Haul mode is not touched. STANDALONE rules 105-110;
+  contract [batch-18-route-optimization.md](contracts/batch-18-route-optimization.md).
 
 ## 4. WHERE AM I (position reading) and OCR
 
@@ -225,6 +236,9 @@ Marked **NOT DOING**: decided against, or left out on purpose.
   then make it default" (20:24).
 - OCR time limit: Settings → GENERAL → OCR, "OCR time limit (seconds)", 5-30, default 10 (batch 15, 2026-10-15,
   answers 5 and 8 in section 4).
+- Route optimization: Settings → OTHER MODE → Distances & Route, "Route optimization", off by default (batch 18,
+  2026-10-15). "make sure the option switch is put into the other modes, option section". Setting
+  `otherRouteOptimize`; STANDALONE rule 105, decision in section 3.
 
 ## 7. Data folder
 

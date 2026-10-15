@@ -119,6 +119,11 @@ const DISTANCE_TOGGLES: ToggleDef[] = [
     key: 'otherOverlayDistance',
     label: 'Distances on the overlay',
     hint: 'Show how far the current and next stop are on the in-game overlay card.'
+  },
+  {
+    key: 'otherRouteOptimize',
+    label: 'Route optimization',
+    hint: 'Shortens the ROUTE order. Off = nearest stop next, as before.'
   }
 ]
 

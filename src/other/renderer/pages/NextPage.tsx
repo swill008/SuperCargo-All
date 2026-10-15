@@ -8,8 +8,8 @@ import { useStore } from '@renderer/state/store'
 import { otherSetting } from '@other/workMode'
 import { useOtherJobs } from '../state/otherJobs'
 import {
-  listOpenStops, formatMapDistance, stepActionLabel, stepActivePlace, formatPlaceWithBodySystem, formatPlaceNear, routeTotal,
-  resolveOrigin, groupByPlace, type OpenStopRow, type ListOrder
+  listOpenStopsWithRoute, stopKey, formatMapDistance, stepActionLabel, stepActivePlace, formatPlaceWithBodySystem, formatPlaceNear, routeTotal,
+  resolveOrigin, groupByPlace, type OpenStopRow, type ListOrder, type RouteInfo
 } from '@other/otherNext'
 import { formatTravel } from '@other/otherGeo'
 import type { WhereSource } from '@other/otherWhere'
@@ -21,6 +21,7 @@ import type { StopPlace } from '@other/otherResolve'
 import { memoryKey } from '@other/otherMemory'
 import { useMemoryLookup } from '../state/otherMemoryStore'
 import { stopIssue, worstIssue, issueRowStyle } from '../stopIssue'
+import { getRoutePin, noteRouteFirst, routePinMode } from '../state/routePin'
 
 type OpenStop = OpenStopRow
 
@@ -66,6 +67,67 @@ function ago(iso: string | undefined, now: number): string {
 /** tooltip: exact distance, plus the marker note */
 function distTip(m: number | null, source: OpenStopRow['distanceSource']): string {
   return `${formatMapDistance(m)}${source === 'marker' ? ` \u00b7 ${MARKER_TIP}` : ''}`
+}
+
+/** " · saves N vs nearest-next" when the optimised route is shorter; '' when 0 or unknown */
+function routeSavingText(route: RouteInfo | null): string {
+  if (!route || route.nearestMeters == null || route.optimisedMeters == null) return ''
+  const saved = route.nearestMeters - route.optimisedMeters
+  return saved > 0 ? ` \u00b7 saves ${formatMapDistance(saved)} vs nearest-next` : ''
+}
+
+// same pairing rule as otherNext (same job, same item, plain open pickup -> open delivery)
+const itemOf = (s: OpenStopRow['step']): string => (s.item ?? '').trim().toLowerCase()
+const isOpenPickupStep = (s: OpenStopRow['step']): boolean =>
+  s.kind === 'pickup' && !s.pickupLocation && !s.done && !s.withdrawn && !!itemOf(s)
+const isOpenDeliveryStep = (s: OpenStopRow['step']): boolean =>
+  s.kind !== 'pickup' && !s.pickupLocation && !s.done && !s.withdrawn && !!itemOf(s)
+
+/**
+ * Contract 18 §1: a delivery is never listed above its own pickup. A delivery whose open pickup sits in the
+ * NO DISTANCE section moves there, directly after that pickup's group (the list's order, as on the overlay).
+ */
+function keepPickupFirst(placed: Group[], unplaced: Group[]): { placed: Group[]; unplaced: Group[] } {
+  const unplacedRows = unplaced.flatMap((g) => g.rows.map((r) => ({ r, g })))
+  const pickupGroup = (d: OpenStopRow): Group | undefined => {
+    if (!isOpenDeliveryStep(d.step)) return undefined
+    const key = itemOf(d.step)
+    let found: Group | undefined
+    for (const { r, g } of unplacedRows) {
+      if (r.job.id === d.job.id && isOpenPickupStep(r.step) && itemOf(r.step) === key) found = g
+    }
+    return found
+  }
+  const after = new Map<Group, Group[]>()
+  const outPlaced: Group[] = []
+  for (const g of placed) {
+    const targets = new Map<OpenStopRow, Group>()
+    for (const r of g.rows) {
+      const t = pickupGroup(r)
+      if (t) targets.set(r, t)
+    }
+    if (!targets.size) {
+      outPlaced.push(g)
+      continue
+    }
+    const staying = g.rows.filter((r) => !targets.has(r))
+    if (staying.length) outPlaced.push({ ...g, rows: staying })
+    let withdrawn = staying.length ? [] : g.withdrawn
+    for (const [r, t] of targets) {
+      const list = after.get(t) ?? []
+      after.set(t, list)
+      const cloneKey = `${g.key}\u2192${t.key}`
+      let clone = list.find((c) => c.key === cloneKey)
+      if (!clone) {
+        clone = { ...g, key: cloneKey, rows: [], withdrawn }
+        withdrawn = []
+        list.push(clone)
+      }
+      clone.rows.push(r)
+    }
+  }
+  if (!after.size) return { placed, unplaced }
+  return { placed: outPlaced, unplaced: unplaced.flatMap((u) => [u, ...(after.get(u) ?? [])]) }
 }
 
 const placeKey = (p: string): string => p.toLowerCase().replace(/\s+/g, ' ').trim()
@@ -131,6 +193,7 @@ export default function NextPage(): React.ReactElement {
   const settings = useStore((s) => s.settings)
   const markerDistance = otherSetting(settings, 'otherMarkerDistance')
   const startMode = otherSetting(settings, 'otherStartMode')
+  const routeOptimize = !!otherSetting(settings, 'otherRouteOptimize')
   const updateSettings = useStore((s) => s.updateSettings)
   // re-check once a minute so "N min ago" and stale move without a new clue
   const [now, setNow] = useState(() => Date.now())
@@ -159,12 +222,24 @@ export default function NextPage(): React.ReactElement {
   const view = otherView(settings)
   // withdrawn steps are never next; 'grey' lists them dimmed under their group when showing all
   const liveJobs = useMemo(() => jobs.map(withoutWithdrawn), [jobs])
-  const open = useMemo(
-    () => listOpenStops(liveJobs, startLocation, locations, {
-      showAll, hideCompleted, listOrder, jobOrder, markerDistance, origin: originPoint, originIsRead, memory
+  // batch 18: the steady next stop applies only with the switch on, ROUTE order and a read/auto start
+  const pinMode = routePinMode(listOrder, routeOptimize)
+  const usePin = routeOptimize && listOrder === 'route' && originIsRead
+  const { rows: open, route } = useMemo(
+    () => listOpenStopsWithRoute(liveJobs, startLocation, locations, {
+      showAll, hideCompleted, listOrder, jobOrder, markerDistance, origin: originPoint, originIsRead, memory,
+      ...(routeOptimize ? { routeOptimize: true } : {}),
+      ...(usePin ? { routePin: getRoutePin('next', pinMode, liveJobs) } : {})
     }),
-    [liveJobs, startLocation, originPoint, originIsRead, locations, showAll, hideCompleted, listOrder, jobOrder, markerDistance, memory]
+    [liveJobs, startLocation, originPoint, originIsRead, locations, showAll, hideCompleted, listOrder, jobOrder, markerDistance, memory,
+      routeOptimize, usePin, pinMode]
   )
+  // remember the plan's first stop for the next compute (per window)
+  const firstKey = open[0] ? stopKey(open[0]) : undefined
+  useEffect(() => {
+    // off, another order or a typed start: forget the pin
+    noteRouteFirst(usePin ? firstKey : undefined, 'next', pinMode)
+  }, [usePin, firstKey, pinMode])
 
   const groups = useMemo(() => {
     let all: Group[]
@@ -214,7 +289,7 @@ export default function NextPage(): React.ReactElement {
     // groups whose stops all lack a distance go last, under their own divider
     const placed = all.filter((g) => !g.rows.every((r) => r.noDistance))
     const unplaced = all.filter((g) => g.rows.every((r) => r.noDistance))
-    return { placed, unplaced }
+    return keepPickupFirst(placed, unplaced)
   }, [open, groupBy, jobs, showAll, view.withdrawn])
 
   const hasStart = !!(startLocation.trim() || originPoint)
@@ -224,7 +299,9 @@ export default function NextPage(): React.ReactElement {
     ? 'Manual order'
     : !hasStart
       ? null
-      : listOrder === 'route'
+      : listOrder === 'route' && routeOptimize
+        ? `Route (optimised) from ${originName}${fromClue ? ' (auto)' : ''}${routeSavingText(route)}`
+        : listOrder === 'route'
         ? `Route from ${originName}${fromClue ? ' (auto)' : ''} \u00b7 nearest next stop each time`
         : `Sorted by distance from ${originName}${fromClue ? ' (auto)' : ''} \u00b7 nearest first`
   const activeCount = jobs.filter((j) => j.status === 'active').length
