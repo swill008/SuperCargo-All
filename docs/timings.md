@@ -61,3 +61,4 @@ with a push: + CI (~10 min, in the background); a release: + ~4 min.
 | 2026-10-15 | Full run on aaf01ca before push (530 pass, 1 fail update-window "check by hand" button wait; passed alone on re-run) | test | ~7 min | 8 min | 09:22-09:30 |
 | 2026-10-15 | Batch 14 zones share reader: 2 agents (where2, docs) | agent | 2-6 min | 1-2 min each | 09:23-09:24 |
 | 2026-10-15 | Batch 14 quick tests + 13 WHERE/AFK scenarios (lead) | test | ~1 + 1-3 min | 2 min | 09:31-09:33 |
+| 2026-10-15 | Full run on b15bf55 (release 1.0.2) before push: 531 pass, 0 fail, 8 real logs | test | ~7 min | 7 min | 09:50-09:57 |
