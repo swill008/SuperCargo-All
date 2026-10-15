@@ -42,6 +42,7 @@ import type { WhereRunResult } from '@other/otherWhere'
 import type { AfkState } from '@other/otherAfk'
 import type { BodiesDoc, LearnedPlaceReport } from '@other/otherBodies'
 import type { MemoryDoc, ProofInput, SeenInput, SetInput } from '@other/otherMemory'
+import type { BlockedDoc, DeleteReply, DeleteRequest, LearnedKind } from '@other/otherBlocked'
 import type { GameDataReply } from '@other/otherSiteCodes'
 
 type Unsubscribe = () => void
@@ -213,6 +214,11 @@ const api = {
   otherMemoryForget: (key: string): Promise<MemoryDoc> => ipcRenderer.invoke(IPC.otherMemoryForget, key),
   otherMemoryUndo: (index: number): Promise<MemoryDoc> => ipcRenderer.invoke(IPC.otherMemoryUndo, index),
   onOtherMemory: (cb: (d: MemoryDoc) => void): Unsubscribe => on(IPC.evtOtherMemory, cb),
+  otherDataDelete: (r: DeleteRequest): Promise<DeleteReply> => ipcRenderer.invoke(IPC.otherDataDelete, r),
+  otherBlockedGet: (): Promise<BlockedDoc> => ipcRenderer.invoke(IPC.otherBlockedGet),
+  otherBlockedUnblock: (items: { kind: LearnedKind; key: string }[]): Promise<BlockedDoc> =>
+    ipcRenderer.invoke(IPC.otherBlockedUnblock, items),
+  onOtherBlocked: (cb: (d: BlockedDoc) => void): Unsubscribe => on(IPC.evtOtherBlocked, cb),
   otherGameDataGet: (): Promise<GameDataReply> => ipcRenderer.invoke(IPC.otherGameDataGet),
   otherGameDataUpdate: (): Promise<GameDataReply> => ipcRenderer.invoke(IPC.otherGameDataUpdate),
   onOtherGameData: (cb: (d: GameDataReply) => void): Unsubscribe => on(IPC.evtOtherGameData, cb),

@@ -16,7 +16,7 @@ const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'sc-import-'))
 const outfile = path.join(tmp, 'otherImport.mjs')
 esbuild.buildSync({
   stdin: {
-    contents: "export * from './otherLog'\nexport { importPlace, placeKey } from './otherResolve'\nexport { memoryKey } from './otherMemory'\n",
+    contents: "export * from './otherLog'\nexport * from './otherOcrParse'\nexport { importPlace, placeKey } from './otherResolve'\nexport { memoryKey } from './otherMemory'\n",
     resolveDir: path.join(root, 'src/other'),
     loader: 'ts'
   },
@@ -100,11 +100,9 @@ safe('exact', () => {
 })
 
 safe('pickup', () => {
-  const rows = L.mergeCollectIntoDeliver([
-    parse('Collect Waste From Port Tressler'),
-    parse('Deliver 0/2 SCU of Waste to Everus Harbor')
-  ])
-  const s = L.stepFromParse('s1', rows[0], roster)
+  // a combined step as saved by older OCR fills (batch 17: kept as is, no migration)
+  const combined = { ...parse('Deliver 0/2 SCU of Waste to Everus Harbor'), pickupLocation: 'Port Tressler' }
+  const s = L.stepFromParse('s1', combined, roster)
   check('pickup', 'pickup place resolved and kept as read', s.pickupLocationRaw === 'Port Tressler' && s.pickupLocation === 'Port Tressler' && s.pickedUp === false, JSON.stringify(s))
 })
 
@@ -116,6 +114,63 @@ safe('ocr', () => {
   const imp = L.importPlace(raw, { locations: roster, useMarker: false }, { ocr: true, label: `Go to ${raw}` })
   check('ocr', `scan "${raw}" -> matched CRU-L5 Beautiful Glen Station (${imp.match.status} c${imp.match.confidence})`, imp.match.match?.name === 'CRU-L5 Beautiful Glen Station' && imp.match.status !== 'exact', JSON.stringify(imp.match.evidence))
   check('ocr', 'scan step keeps the text as read unless sure', s.locationRaw === raw && s.location === imp.location, JSON.stringify(s))
+})
+
+// batch 17: OCR fills give separate pickup and turn-in rows, pickup first, never one combined row
+const OCR_CONTRACT = [
+  'Reward 25,000 aUEC',
+  'Primary Objectives',
+  'Deliver Ammunition Crate to Mogote Aid Shelter.',
+  '    Collect Ammunition Crate from August Dunlow',
+  '    Spaceport in Orison.'
+].join('\n')
+safe('ocr split', () => {
+  const got = L.parseOtherOcrText(OCR_CONTRACT)
+  const desc = JSON.stringify(got.rows.map((r) => [r.kind, r.item, r.location, r.pickupLocation]))
+  check('ocr split', 'contract text -> 2 rows', got.rows.length === 2, desc)
+  check('ocr split', 'kinds pickup then turnin (pickup first)', got.rows[0]?.kind === 'pickup' && got.rows[1]?.kind === 'turnin', desc)
+  check('ocr split', 'pickup row: Ammunition Crate from August Dunlow Spaceport in Orison', got.rows[0]?.item === 'Ammunition Crate' && got.rows[0]?.location === 'August Dunlow Spaceport in Orison', desc)
+  check('ocr split', 'turnin row: Ammunition Crate to Mogote Aid Shelter, no pickupLocation', got.rows[1]?.item === 'Ammunition Crate' && got.rows[1]?.location === 'Mogote Aid Shelter' && !got.rows[1]?.pickupLocation, desc)
+  check('ocr split', 'mergeCollectIntoDeliver is gone', L.mergeCollectIntoDeliver === undefined)
+  // manual scan window rows go through the same order (applyOcrRows -> pickupsFirst)
+  const manual = L.pickupsFirst([
+    { kind: 'turnin', item: 'Ammunition Crate' },
+    { kind: 'go', item: undefined },
+    { kind: 'pickup', item: 'ammunition crate' },
+    { kind: 'pickup', item: 'Fresh Food' }
+  ])
+  check('ocr split', 'pickupsFirst: same-item pickup moves before its turnin; others keep order',
+    JSON.stringify(manual.map((r) => r.kind + ':' + (r.item || ''))) === JSON.stringify(['pickup:ammunition crate', 'turnin:Ammunition Crate', 'go:', 'pickup:Fresh Food']),
+    JSON.stringify(manual))
+  const steps = got.rows.map((r, i) => L.stepFromParse(`o${i}`, r, roster, { ocr: true }))
+  check('ocr split', 'steps from OCR rows: pickup then turnin, no combined step', steps.length === 2 && steps[0].kind === 'pickup' && steps[1].kind === 'turnin' && !steps.some((x) => x.pickupLocation), JSON.stringify(steps.map((x) => [x.kind, x.location, x.locationRaw])))
+})
+
+// batch 17: a late "New Objective" log line after an OCR fill adopts the OCR step instead of adding one
+safe('late objective', () => {
+  const steps = L.parseOtherOcrText(OCR_CONTRACT).rows.map((r, i) => L.stepFromParse(`o${i}`, r, roster, { ocr: true }))
+  const del = L.stepFromObjectiveText('Deliver Ammunition Crate to Mogote Aid Shelter', roster)
+  const col = L.stepFromObjectiveText('Collect Ammunition Crate From August Dunlow Spaceport in Orison', roster)
+  check('late objective', 'Deliver log line matches the OCR turnin step', L.findUnloggedStep(steps, del) === 1, JSON.stringify([del.kind, del.item, del.location]))
+  check('late objective', 'Collect log line matches the OCR pickup step', L.findUnloggedStep(steps, col) === 0, JSON.stringify([col.kind, col.item, col.location]))
+  const logged = steps.map((x, i) => (i === 1 ? { ...x, logText: 'Deliver Ammunition Crate to Mogote Aid Shelter' } : x))
+  check('late objective', 'a step that already has logText is not matched again', L.findUnloggedStep(logged, del) === -1)
+  const other = L.stepFromObjectiveText('Deliver Ammunition Crate to Everus Harbor', roster)
+  check('late objective', 'another place does not match', L.findUnloggedStep(steps, other) === -1)
+  const combined = [L.stepFromParse('c1', { ...L.parseOtherObjectiveText('Deliver Ammunition Crate to Mogote Aid Shelter'), pickupLocation: 'August Dunlow Spaceport in Orison' }, roster)]
+  check('late objective', 'a saved combined step is left alone (not matched)', L.findUnloggedStep(combined, del) === -1)
+})
+
+// batch 17: the game writes the dropoff marker before the pickup marker; split OCR steps (pickup first) must each
+// get their own marker when linked by order (placeSteps -> pairMarkersToSteps)
+safe('marker pairing', () => {
+  const pr = (kinds, ids) => JSON.stringify(L.pairMarkersToSteps(kinds, ids))
+  check('marker pairing', 'dropoff marker first, pickup marker second -> pickup step gets pickup_, turnin step gets dropoff_',
+    pr(['pickup', 'turnin'], ['dropoff_a_0', 'pickup_a_0']) === '[1,0]', pr(['pickup', 'turnin'], ['dropoff_a_0', 'pickup_a_0']))
+  check('marker pairing', 'kind-less markers keep plain log order', pr(['go', 'go'], ['m1', 'm2']) === '[0,1]', pr(['go', 'go'], ['m1', 'm2']))
+  check('marker pairing', 'go step takes a leftover marker in log order after kinds pair', pr(['go', 'turnin'], ['dropoff_a_0', 'm1']) === '[1,0]', pr(['go', 'turnin'], ['dropoff_a_0', 'm1']))
+  check('marker pairing', 'a pickup step never takes a dropoff_ marker', pr(['pickup'], ['dropoff_a_0']) === '[-1]', pr(['pickup'], ['dropoff_a_0']))
+  check('marker pairing', 'more steps than markers -> -1 for the rest', pr(['pickup', 'turnin', 'go'], ['pickup_a_0']) === '[0,-1,-1]', pr(['pickup', 'turnin', 'go'], ['pickup_a_0']))
 })
 
 // match memory: a user fix keyed by the text as read applies to a log import and a scan import alike

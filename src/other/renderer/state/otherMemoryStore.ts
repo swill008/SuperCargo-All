@@ -5,6 +5,7 @@ import { listOpenStops, resolveOrigin, type MemoryLookup } from '@other/otherNex
 import { otherSetting } from '@other/workMode'
 import { useStore } from '@renderer/state/store'
 import { dlog } from '@renderer/state/log'
+import type { BlockedDoc } from '@other/otherBlocked'
 import { mergeLocations, otherPlacesVersion } from './otherPlaces'
 import { useOtherJobs } from './otherJobs'
 
@@ -21,6 +22,10 @@ function set(next: MemoryDoc | null | undefined): void {
   doc = { entries: next.entries, changes: Array.isArray(next.changes) ? next.changes : [] }
   const map = new Map<string, MemoryEntry>()
   for (const e of doc.entries) if (e && typeof e.key === 'string') map.set(e.key, e)
+  // a key that left the doc (FORGET, DELETE) may be learned again: let the seen reporter send it again
+  const gone = new Set<string>()
+  for (const k of byKey.keys()) if (!map.has(k)) gone.add(k)
+  dropSeen(gone)
   byKey = map
   // new identity per doc: memoised stop lists re-resolve
   lookup = (key) => map.get(key)
@@ -92,6 +97,26 @@ export function memoryCounts(): { entries: number; user: number; learned: number
 const SEEN_DEBOUNCE_MS = 5_000
 /** key|status|place already sent this run (main bumps seen/lastAt; once per app run is enough) */
 const seenSent = new Set<string>()
+/** place keys on the BLOCKED list at the last evt:other:blocked */
+let blockedPlaces = new Set<string>()
+
+/** forget the sent tuples of these keys so their stops are reported again */
+function dropSeen(keys: Set<string>): void {
+  if (!keys.size) return
+  for (const t of seenSent) if (keys.has(t.slice(0, t.indexOf('|')))) seenSent.delete(t)
+}
+
+/** UNBLOCK: keys that left the BLOCKED list can be learned again (contract batch 16, item 4) */
+function onBlocked(d: BlockedDoc | null | undefined): void {
+  if (!d || !Array.isArray(d.items)) return
+  const now = new Set(d.items.filter((b) => b.kind === 'place').map((b) => b.key))
+  const gone = new Set([...blockedPlaces].filter((k) => !now.has(k)))
+  blockedPlaces = now
+  if (gone.size) {
+    dropSeen(gone)
+    scheduleSeen()
+  }
+}
 let reporterStarted = false
 let seenTimer: ReturnType<typeof setTimeout> | null = null
 
@@ -175,6 +200,8 @@ export function startMemorySeenReporter(): void {
     }
   })
   listeners.add(scheduleSeen)
+  window.supercargo.onOtherBlocked?.(onBlocked)
+  window.supercargo.otherBlockedGet?.().then(onBlocked).catch(() => undefined)
   scheduleSeen()
 }
 

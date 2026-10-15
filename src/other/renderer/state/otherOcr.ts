@@ -4,8 +4,8 @@
  * Places keep the text as read; a roster name replaces it only when the one resolver is sure
  * (importPlace with OCR rules and match memory, so a fix made on the confirm screen applies here).
  */
-import { mergeCollectIntoDeliver, stepFromParse, stepKey } from '@other/otherLog'
-import type { OtherOcrRow } from '@other/otherOcrParse'
+import { stepFromParse, stepKey } from '@other/otherLog'
+import { pickupsFirst, type OtherOcrRow } from '@other/otherOcrParse'
 import type { OtherStep } from '@other/otherJob'
 import { useOtherJobs } from './otherJobs'
 import { useStore } from '@renderer/state/store'
@@ -71,7 +71,8 @@ export function applyOcrRows(
   const locations = ocrImportLocations()
   const memory = currentMemoryLookup()
 
-  const incoming = mergeCollectIntoDeliver(payload.rows)
+  // separate pickup and turn-in steps, pickup first (batch 17); never folded into one combined step
+  const incoming = pickupsFirst(payload.rows)
   const steps: OtherStep[] = []
   // places go in as read; stepFromParse resolves them with the OCR rules and match memory
   for (const row of incoming) {

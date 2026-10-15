@@ -842,6 +842,94 @@ const learnedRowView = (port, key) =>
       return { inView: b.top >= 0 && b.bottom <= window.innerHeight, top: Math.round(b.top), height: window.innerHeight, bg, marked: bg !== getComputedStyle(r.parentElement).backgroundColor && bg !== 'rgba(0, 0, 0, 0)' }
     })()`
   )
+// Batch 16 (docs/contracts/batch-16-delete-block.md): delete and block learned data. IPC: otherDataDelete
+// ({kind, keys, block}) -> {ok, deleted, blocked}; otherBlockedGet / otherBlockedUnblock -> {items}; the BLOCKED list
+// is saved in <data folder>/other-blocked.json. Keys: place = memoryKey, site = `${name}|${near}` and planet = name,
+// both lower-cased (otherBodies bodyKey).
+const dataDelete = (port, req) => cdpEval(port, 'main', `window.supercargo.otherDataDelete(${JSON.stringify(req)})`)
+const blockedGet = (port) => cdpEval(port, 'main', 'window.supercargo.otherBlockedGet()')
+const blockedUnblock = (port, items) => cdpEval(port, 'main', `window.supercargo.otherBlockedUnblock(${JSON.stringify(items)})`)
+const blockedFile = (e) => readJsonIn(e.data, 'other-blocked.json')
+const bodiesFile = (e) => readJsonIn(e.data, 'other-bodies.json')
+const memKeys = (doc) => (doc?.entries ?? []).map((x) => x.key)
+const hasBlocked = (doc, kind, key) => (doc?.items ?? []).some((x) => x.kind === kind && x.key === key)
+// the BLOCKED section's text on LEARNED DATA (null when the section isn't there)
+const blockedUi = (port) => cdpEval(port, 'main', `document.querySelector('[data-testid="learned-section-blocked"]')?.innerText ?? null`)
+// an open delete confirm (a dialog naming "Delete permanently?" or "Delete N entries permanently?"): its text, else ''
+const confirmText = (port) =>
+  cdpEval(
+    port,
+    'main',
+    `(() => {
+      const vis = (el) => !!(el.offsetWidth || el.offsetHeight || el.getClientRects().length)
+      const d = [...document.querySelectorAll('[role=dialog], [aria-modal="true"], dialog, [data-testid*="confirm"]')].filter(vis).map((x) => x.innerText).join('\\n')
+      const t = d || document.body.innerText
+      return /Delete\\b.*permanently\\?/i.test(t) ? t : ''
+    })()`
+  )
+// a button in the open confirm whose text matches re (prefers one inside a dialog, else the last on the page)
+const confirmClick = (port, re) =>
+  cdpEval(
+    port,
+    'main',
+    `(() => {
+      const vis = (el) => !!(el.offsetWidth || el.offsetHeight || el.getClientRects().length)
+      const els = [...document.querySelectorAll('button')].filter((b) => vis(b) && !b.disabled && ${re}.test(b.textContent.trim()))
+      const b = els.find((x) => x.closest('[role=dialog], [aria-modal="true"], dialog, [data-testid*="confirm"]')) ?? els[els.length - 1]
+      b?.click()
+      return !!b
+    })()`
+  )
+// Esc in the window (the confirm's Cancel)
+const pressEsc = (port) =>
+  cdpEval(port, 'main', `(() => { const t = document.activeElement ?? document.body; t.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', code: 'Escape', bubbles: true })); window.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', code: 'Escape', bubbles: true })); return true })()`)
+// type into the Places search box
+const learnedSearch = (port, q) =>
+  cdpEval(
+    port,
+    'main',
+    `(() => {
+      const box = document.querySelector('[data-testid="learned-section-places"]') ?? document
+      const inp = [...box.querySelectorAll('input')].find((x) => /search/i.test(x.placeholder ?? ''))
+      if (!inp) return false
+      Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value').set.call(inp, ${JSON.stringify(q)})
+      inp.dispatchEvent(new Event('input', { bubbles: true }))
+      return true
+    })()`
+  )
+// a button inside a LEARNED DATA section ('places' | 'sites' | 'planets' | 'blocked') whose text matches re
+const clickInSection = (port, section, re) =>
+  cdpEval(
+    port,
+    'main',
+    `(() => {
+      const s = document.querySelector('[data-testid="learned-section-${section}"]')
+      const b = s && [...s.querySelectorAll('button')].find((x) => ${re}.test(x.textContent.trim()))
+      b?.click()
+      return !!b
+    })()`
+  )
+// supercargo.log lines from `learned data delete` / `unblock`
+// (with the earlier runs' logs moved aside by logAside: supercargo.log.<tag>)
+const learnedLogLines = (e) => {
+  let old = ''
+  try {
+    const dir = path.join(e.data, 'logs')
+    for (const f of fs.readdirSync(dir).filter((x) => /^supercargo\.log\.run\d+$/.test(x)).sort()) old += fs.readFileSync(path.join(dir, f), 'utf8') + '\n'
+  } catch {
+    // no logs
+  }
+  return (old + e.log()).split('\n').filter((l) => /learned data (delete|unblock)/.test(l))
+}
+// move a finished run's log aside so launch() waits for the next run's ready line
+const logAside = (e, tag) => {
+  try {
+    const lf = path.join(e.data, 'logs', 'supercargo.log')
+    if (fs.existsSync(lf)) fs.renameSync(lf, `${lf}.${tag}`)
+  } catch {
+    // no log yet
+  }
+}
 // the summary buckets from a memory doc, one per entry (kindOf in LearnedPlaces.tsx: memoryLabel starting with ⚠ ->
 // disputed, a game entry with wrong >= 2 too; else user -> you set; else proven (confirmed >= 2 and > wrong) -> learned)
 const memCounts = (doc) => {
@@ -3477,6 +3565,82 @@ const scenarios = {
     ]
   },
 
+  // Batch 17 A (OCR split): a contract accepted with no "New Objective" lines is filled by auto-OCR on accept (seam:
+  // main's ocr:run IPC answers with the contract's text). The fill gives 2 steps like the log path: pickup (August
+  // Dunlow Spaceport) first, then turnin (Mogote Aid Shelter). The game's late "New Objective" lines for the same two
+  // objectives adopt the OCR steps (no duplicates) and their CreateMarker lines link to the right steps by objectiveId.
+  // Batch 17 A3: "August Dunlow Spaceport in Orison" resolves to the spaceport (not a site/city tie -> none).
+  'ocr-split-pickup-dropoff': async () => {
+    const name = 'ocr-split-pickup-dropoff'
+    const RAW = 'PRIMARY OBJECTIVES\nDeliver Ammunition Crate to Mogote Aid Shelter.\nCollect Ammunition Crate from August Dunlow\nSpaceport in Orison.'
+    const id = mission()
+    const uuid = 'b17a0c5e-5a11-4c0e-9d17-00000000b170'
+    const PICK = `pickup_${uuid}_0`
+    const DROP = `dropoff_${uuid}_0`
+    // star-frame marker points (used as is): a few hundred metres from each place's roster point
+    const PICK_POS = { x: -18956880483.059193 + 300, y: -2665823193.5330234, z: 5282237.225567 }
+    const DROP_POS = { x: -18987809783.623302, y: -2708958870.967037 + 300, z: 160874.780687 }
+    const markerLine = (oid, p, entity) =>
+      `${stamp()} [Notice] <CLocalMissionPhaseMarker::CreateMarker> Creating objective marker: missionId [${id}], generator name [FTL_Courier], contract [FTL_Courier_Stanton_Ammunition_Rank1], contractDefinitionId[0d41bca1-0bd1-4aad-bf63-9436567a221a], objectiveId [${oid}], markerEntityId [${entity}], zoneHostId [862551775550], position [x: ${p.x}, y: ${p.y}, z: ${p.z}] [Team_MissionFeatures][Missions]`
+    const objLine = (text, oid) => `${stamp()} ${NOTE} "New Objective: ${text}: " [48] to queue. New queue size: 6, MissionId: [${id}], ObjectiveId: [${oid}] ${TAGS}`
+    const e = setup(name, { otherStartMode: 'fixed', ocrAutoCapture: true, ocrCaptureDelay: 0 }, { jobs: [], history: [], startLocation: 'Lorville', startTypedAt: iso(ago(60)), listOrder: 'distance', lastLogEventAt: iso(ago(30)) })
+    e.append(`${stamp(ago(120))} BackupNameAttachment=" Build(12913470) 14 Oct 26 (10 12 26)"  -- used by backup system`, L.logStarted(ago(120)))
+    const port = await freePort()
+    const iport = await freePort()
+    const stop = await launch(e, [...cdpArgs(port), ...inspectArgs(iport)])
+    const copy = (v) => JSON.parse(JSON.stringify(v ?? null))
+    let stub = false
+    let ocrDoc = null
+    let lateDoc = null
+    let matches = null
+    let err = ''
+    try {
+      stub = await stubOcr(iport, RAW)
+      // the game writes the drop-off marker first (as J74), then the pickup marker, then the accept; no New Objective
+      e.append(markerLine(DROP, DROP_POS, 7145), markerLine(PICK, PICK_POS, 7146), `${stamp()} ${NOTE} "Contract Accepted:  Courier Run - Ammunition Crate <EM4>[417 Rep]</EM4>: " [47] to queue. New queue size: 5, MissionId: [${id}], ObjectiveId: [] ${TAGS}`)
+      await until(() => ((findJob(e.jobs(), id)?.steps?.length ?? 0) >= 2 ? true : null), 20000)
+      await sleep(1500)
+      ocrDoc = copy(findJob(e.jobs(), id))
+      // the game's late objectives for the same two steps (game casing "To" / "From")
+      e.append(objLine('Deliver Ammunition Crate To Mogote Aid Shelter', DROP), objLine('Collect Ammunition Crate From August Dunlow Spaceport in Orison', PICK))
+      await until(() => {
+        const st = findJob(e.jobs(), id)?.steps ?? []
+        return st.length > 2 || (st.length === 2 && st.every((s) => s.logText && s.objectiveId && s.position)) ? true : null
+      }, 12000)
+      await sleep(1500)
+      lateDoc = copy(findJob(e.jobs(), id))
+      const out = path.join(e.data, `${name}.txt`)
+      await stubSaveDialog(iport, out)
+      const res = await cdpEval(port, 'main', `window.supercargo.diagExport({ note: '', includeImages: false })`, 40000)
+      matches = sectionJson(diagSections(fs.readFileSync(res?.path ?? out, 'utf8'))['MATCHES'])
+    } catch (x) {
+      err = String(x?.message ?? x)
+    }
+    await stop()
+    const near = (p, q) => !!p && !!q && Math.abs(p.x - q.x) < 1 && Math.abs(p.y - q.y) < 1 && Math.abs(p.z - q.z) < 1
+    const brief = (s) => s && { kind: s.kind, label: s.label, location: s.location, locationRaw: s.locationRaw, pickupLocation: s.pickupLocation, item: s.item, objectiveId: s.objectiveId, logText: s.logText, position: s.position }
+    const st0 = ocrDoc?.steps ?? []
+    const st1 = lateDoc?.steps ?? []
+    const isPick = (s) => s?.kind === 'pickup' && /August Dunlow Spaceport/i.test(`${s.locationRaw ?? ''} ${s.location ?? ''}`)
+    const isDrop = (s) => s?.kind === 'turnin' && /Mogote Aid Shelter/i.test(`${s.locationRaw ?? ''} ${s.location ?? ''}`)
+    // before the late lines a step may hold a marker only by order; whatever it holds must be its own objective's
+    const ownOrNone = (s, mine, other) => !s?.position || (near(s.position, mine) && !near(s.position, other))
+    const m = matchEntry(matches, /August Dunlow/i)
+    const log = e.log()
+    return [
+      ['OCR stub in place, job created from the accept', stub === true && !!ocrDoc, `stub=${stub} job=${short(ocrDoc && { ref: ocrDoc.ref, title: ocrDoc.title }, 200)} ${err}`],
+      ['auto-OCR fill: 2 steps', st0.length === 2, `steps=${short(st0.map(brief), 900)} autoOcr=${short((log.match(/auto-ocr[^\n]*/g) ?? []).slice(-4), 500)}`],
+      ['auto-OCR fill: step 1 pickup at August Dunlow Spaceport, step 2 turnin at Mogote Aid Shelter', isPick(st0[0]) && isDrop(st0[1]), `steps=${short(st0.map(brief), 900)}`],
+      ['auto-OCR fill: no combined Collect+Deliver step', !st0.some((s) => /collect/i.test(s.label ?? '') && /deliver/i.test(s.label ?? '')), `labels=${short(st0.map((s) => s.label), 400)}`],
+      ['before the late lines: no step holds the other step\'s marker', ownOrNone(st0[0], PICK_POS, DROP_POS) && ownOrNone(st0[1], DROP_POS, PICK_POS), `positions=${short(st0.map((s) => s.position), 400)}`],
+      ['late New Objective lines: still 2 steps (no duplicates)', st1.length === 2, `steps=${short(st1.map(brief), 1200)}`],
+      ['late lines adopted: pickup first, turnin second, each with its log text', isPick(st1[0]) && isDrop(st1[1]) && /^Collect/i.test(st1[0]?.logText ?? '') && /^Deliver/i.test(st1[1]?.logText ?? ''), `steps=${short(st1.map(brief), 1200)}`],
+      ['pickup step linked to the pickup marker (objectiveId + position)', st1[0]?.objectiveId === PICK && near(st1[0]?.position, PICK_POS), `step=${short(brief(st1[0]), 500)}`],
+      ['turnin step linked to the drop-off marker (objectiveId + position)', st1[1]?.objectiveId === DROP && near(st1[1]?.position, DROP_POS), `step=${short(brief(st1[1]), 500)}`],
+      ['## MATCHES: the pickup resolves to August Dunlow Spaceport (not none)', !!m && m.status !== 'none' && /August Dunlow Spaceport/.test(JSON.stringify(m.match ?? m.place ?? m)), `match=${short(m, 600)} all=${short(matches, 300)}`]
+    ]
+  },
+
   // Batch 15 answer 8: Settings -> GENERAL, OCR section: "OCR time limit (seconds)", 5-30, default 10. An old settings
   // file without ocrTimeLimitSec shows 10 s; moving the slider to 20 saves ocrTimeLimitSec 20, still 20 after a restart.
   'ocr-time-limit-setting': async () => {
@@ -3685,7 +3849,7 @@ const scenarios = {
       ['Other bottom menu: NEXT JOBS HISTORY LEARNED DATA SETTINGS', short(r.nav) === short(['NEXT', 'JOBS', 'HISTORY', 'LEARNED DATA', 'SETTINGS']), `nav=${short(r.nav)} ${err}`],
       ['Haul bottom menu: no LEARNED DATA', !!haulNav && !haulNav.includes('LEARNED DATA'), `nav=${short(haulNav)}`],
       ['Settings OTHER MODE: the line, no learned list', /Learned places are on the LEARNED DATA tab\./.test(r.settings) && r.settingsRows === 0 && !/RECENT CHANGES/i.test(r.settings), `rows=${r.settingsRows} places=${short(lineWith(r.settings, /learned|RECENT/i))}`],
-      ['OPEN LEARNED DATA opens the tab: Places, Sites, Planets', r.link && short(r.p0?.sections) === short(['places', 'sites', 'planets']), `clicked=${r.link} sections=${short(r.p0?.sections)}`],
+      ['OPEN LEARNED DATA opens the tab: Places, Sites, Planets, Blocked (batch 16)', r.link && short(r.p0?.sections) === short(['places', 'sites', 'planets', 'blocked']), `clicked=${r.link} sections=${short(r.p0?.sections)}`],
       ['summary counts match other-matches.json (one bucket per entry)', sameCounts(r.p0?.counts, r.file0) && r.file0.disputed === 2 && r.file0.learned === 1, `summary=${short(r.p0?.counts)} file=${short(r.file0)}`],
       ['disputed number filters the table to the disputed rows', r.filter && (r.filtered?.rows ?? []).length === 2 && r.filtered.rows.every((x) => x.kind === 'disputed'), `rows=${short((r.filtered?.rows ?? []).map((x) => [x.key, x.kind]))}`],
       ['disputed pinned on top with "you were at Covalex …"', ['seed-keep', 'seed-use'].every((k, i, a) => (r.p0?.rows ?? []).slice(0, a.length).some((x) => x.key === k)) && (r.p0?.where ?? []).some((w) => /you were at Covalex Distribution Centre S1DC06/i.test(w)), `top=${short((r.p0?.rows ?? []).slice(0, 3).map((x) => x.key))} where=${short(r.p0?.where)}`],
@@ -3699,6 +3863,271 @@ const scenarios = {
       ['Planets: Hurston, Stanton, 1,000 km exact (panel); others estimated', /Stanton/.test(hurston) && /1[,.\s]?000\s*km/.test(hurston) && /exact \(panel\)/i.test(hurston) && planets.some((x) => /estimated/i.test(x)), `hurston=${short(hurston)} planets=${planets.length}`],
       ['MatchFix "Open in Learned Data": tag and link found', r.fixTag && r.open, `tag=${r.fixTag} link=${r.open} key=${r.key}`],
       ['lands on the entry: row in view and lit', !!r.view?.inView && !!r.view.marked, `view=${short(r.view)}`]
+    ]
+  },
+
+  // Batch 16 (1): a place entry with RECENT CHANGES history, deleted through otherDataDelete (block off) -> gone from
+  // other-matches.json with every change for its key (nothing to UNDO), gone from the table, nothing blocked; then
+  // DELETE on a row through the UI: the confirm ("Delete permanently?", "This can't be undone."), Esc cancels,
+  // Delete removes it. The log names kind / count / block, never the entry's text.
+  'learned-delete-place': async () => {
+    const name = 'learned-delete-place'
+    const at = iso(ago(3600))
+    const ent = (key, text, place, origin, extra = {}) => ({ key, text, place, origin, confirmed: 0, wrong: 0, seen: 1, firstAt: at, lastAt: at, ...extra })
+    const del = ent('seed-del', 'Port Tresler Gate 3', 'Port Tressler', 'user', { seen: 5 })
+    const ui = ent('seed-ui', 'Seraphim Stn Hab', 'Seraphim Station', 'game', { confirmed: 3, seen: 9 })
+    const stay = ent('seed-stay', 'Covalex S1DCO06 Hurstn', COVALEX, 'game', { seen: 2 })
+    const change = (x, what, by) => ({ at, key: x.key, text: x.text, what, by, before: null, after: x })
+    const matchesDoc = { entries: [del, ui, stay], changes: [change(del, 'set', 'user'), change(del, 'seen-new', 'game'), change(ui, 'proof', 'game'), change(stay, 'seen-new', 'game')] }
+    const { e, port, stop } = await memLaunch(name, { files: { 'other-matches.json': matchesDoc } })
+    const r = { p0: null, undo0: 0, reply: null, p1: null, changes1: '', blocked: null, rowDel: null, dlg: '', esc: null, kept: false, rowDel2: null, confirm: false, gone: false, p2: null }
+    let err = ''
+    try {
+      await openLearnedData(port, /RECENT CHANGES/i)
+      r.p0 = await until(() => learnedProbe(port).then((p) => (p?.rows?.some((x) => x.key === 'seed-del') ? p : null)), 10000)
+      r.undo0 = await cdpEval(port, 'main', `[...document.querySelectorAll('[data-testid="learned-change"]')].filter((x) => /Port Tresler Gate 3/.test(x.textContent)).length`)
+      r.reply = await dataDelete(port, { kind: 'place', keys: ['seed-del'], block: false })
+      await until(() => (memFile(e) && !memKeys(memFile(e)).includes('seed-del') ? true : null), 8000)
+      r.p1 = (await until(() => learnedProbe(port).then((p) => (p?.rows?.length && !p.rows.some((x) => x.key === 'seed-del') ? p : null)), 8000)) ?? (await learnedProbe(port))
+      r.changes1 = await cdpEval(port, 'main', `[...document.querySelectorAll('[data-testid="learned-change"]')].map((x) => x.textContent).join(' | ')`)
+      r.blocked = await blockedGet(port)
+      // the UI: DELETE on the row, the confirm, Esc = Cancel (nothing deleted), DELETE again, Delete
+      r.rowDel = await clickRowButton(port, 'seed-ui', /^DELETE$/i)
+      r.dlg = (await until(() => confirmText(port), 5000)) ?? ''
+      await pressEsc(port)
+      r.esc = (await until(() => confirmText(port).then((t) => (!t ? 'closed' : null)), 4000)) === 'closed'
+      r.kept = memKeys(memFile(e)).includes('seed-ui') && memKeys(await memGet(port)).includes('seed-ui')
+      r.rowDel2 = await clickRowButton(port, 'seed-ui', /^DELETE$/i)
+      await until(() => confirmText(port), 5000)
+      r.confirm = await confirmClick(port, /^Delete$/i)
+      r.gone = !!(await until(() => (memFile(e) && !memKeys(memFile(e)).includes('seed-ui') ? true : null), 8000))
+      r.p2 = (await until(() => learnedProbe(port).then((p) => (p?.rows?.length && !p.rows.some((x) => x.key === 'seed-ui') ? p : null)), 8000)) ?? (await learnedProbe(port))
+      r.blocked2 = await blockedGet(port)
+    } catch (x) {
+      err = String(x?.message ?? x)
+    }
+    await stop()
+    const file = memFile(e)
+    const logs = learnedLogLines(e)
+    return [
+      ['seeded: the row and its RECENT CHANGES lines show', !!r.p0 && r.undo0 >= 1, `rows=${short((r.p0?.rows ?? []).map((x) => x.key))} changes=${r.undo0} ${err}`],
+      ['otherDataDelete (place, block off): ok, deleted 1, blocked 0', r.reply?.ok === true && r.reply.deleted === 1 && r.reply.blocked === 0, `reply=${short(r.reply)}`],
+      ['other-matches.json: entry gone, no change with its key (UNDO impossible)', !!file && !memKeys(file).includes('seed-del') && !(file.changes ?? []).some((c) => c.key === 'seed-del'), `keys=${short(memKeys(file))} changeKeys=${short((file?.changes ?? []).map((c) => c.key))}`],
+      ['other entries and their changes kept', memKeys(file).includes('seed-stay') && (file?.changes ?? []).some((c) => c.key === 'seed-stay'), `keys=${short(memKeys(file))}`],
+      ['LEARNED DATA: row gone, RECENT CHANGES no longer names it', !!r.p1 && !r.p1.rows.some((x) => x.key === 'seed-del') && !/Port Tresler Gate 3/.test(r.changes1), `rows=${short((r.p1?.rows ?? []).map((x) => x.key))} changes=${short(r.changes1, 300)}`],
+      ['block off: BLOCKED list empty', (r.blocked?.items ?? []).length === 0 && (r.blocked2?.items ?? []).length === 0, `blocked=${short(r.blocked)} after ui=${short(r.blocked2)}`],
+      ['UI: DELETE on the row opens "Delete permanently?" / "This can\'t be undone." with Delete, Delete and block, Cancel', !!r.rowDel?.button && /Delete permanently\?/i.test(r.dlg) && /can['’]t be undone/i.test(r.dlg) && /Delete and block/i.test(r.dlg) && /Cancel/i.test(r.dlg) && /Seraphim Stn Hab/.test(r.dlg), `row=${short(r.rowDel)} dialog=${short(r.dlg, 300)}`],
+      ['UI: Esc closes the confirm, nothing deleted', r.esc === true && r.kept === true, `closed=${r.esc} kept=${r.kept}`],
+      ['UI: Delete removes the entry from the file and the table', !!r.rowDel2?.button && r.confirm && r.gone && !!r.p2 && !r.p2.rows.some((x) => x.key === 'seed-ui'), `row=${short(r.rowDel2)} confirm=${r.confirm} gone=${r.gone}`],
+      ['log: "learned data delete" lines with kind place, no entry text', logs.length >= 2 && logs.every((l) => /place/.test(l) && !/Tresler|Seraphim|seed-/.test(l)), `log=${short(logs, 500)}`]
+    ]
+  },
+
+  // Batch 16 (2): the open stop "Shubin Mining Facility on Lyria" is seen (an entry), then deleted with block on -> gone,
+  // in the BLOCKED list (IPC and the LEARNED DATA section) and other-blocked.json. A control stop is deleted without
+  // block. After a restart the game shows both stops again: the control is learned again (the seen reporter ran),
+  // the blocked one is not; the block is still there. A seen report for the blocked key is ignored; UNBLOCK removes it
+  // from BLOCKED (file and UI) without bringing data back, and the text can then be learned again.
+  'learned-delete-block': async () => {
+    const name = 'learned-delete-block'
+    const CTRL = 'Covalex Distribution Center S1DC06 on microTech'
+    const { e, port, stop } = await memLaunch(name, { jobs: [{ ref: 'J92', steps: [goStep('s1', SHUBIN)] }, { ref: 'J90', steps: [goStep('s1', CTRL)] }] })
+    const r = { k: null, c: null, reply: null, reply2: null, file1: null, blocked1: null, ui1: null, bfile1: null }
+    let err = ''
+    try {
+      const d = await until(() => memGet(port).then((x) => (memEntry(x, /Shubin Mining Facility on Lyria/i) && memEntry(x, /on microTech/i) ? x : null)), 20000)
+      r.k = memEntry(d, /Shubin Mining Facility on Lyria/i)?.key ?? null
+      r.c = memEntry(d, /on microTech/i)?.key ?? null
+      r.reply = await dataDelete(port, { kind: 'place', keys: [r.k], block: true })
+      r.reply2 = await dataDelete(port, { kind: 'place', keys: [r.c], block: false })
+      r.file1 = await until(() => {
+        const f = memFile(e)
+        return f && !memKeys(f).includes(r.k) && !memKeys(f).includes(r.c) ? f : null
+      }, 8000)
+      r.blocked1 = await blockedGet(port)
+      r.bfile1 = await until(() => (hasBlocked(blockedFile(e), 'place', r.k) ? blockedFile(e) : null), 8000)
+      await openLearnedData(port, /BLOCKED/)
+      r.ui1 = (await until(() => blockedUi(port).then((t) => (t && /Shubin Mining Facility on Lyria/i.test(t) ? t : null)), 8000)) ?? (await blockedUi(port))
+    } catch (x) {
+      err = String(x?.message ?? x)
+    }
+    await stop()
+    // restart on the same data folder: the jobs are still open, the seen reporter reports both stops again
+    logAside(e, 'run1')
+    const r2 = { relearned: null, blocked: null, ui: null, seenAnchor: null, seenBlocked: null, unblock: null, ui2: null, again: null }
+    const again = await launch(e, cdpArgs(port))
+    try {
+      r2.relearned = await until(() => memGet(port).then((x) => (memEntry(x, /on microTech/i) ? x : null)), 20000)
+      r2.blocked = await blockedGet(port)
+      // a seen report for the blocked key (with an anchor key so we know the report was handled)
+      await cdpEval(port, 'main', `window.supercargo.otherMemorySeen(${JSON.stringify([{ key: r.k, text: SHUBIN, place: null, status: 'unsure', confidence: 3, evidence: [] }, { key: 'e2e-anchor', text: 'E2E anchor stop', place: null, status: 'none', confidence: 0, evidence: [] }])})`)
+      r2.seenAnchor = await until(() => memGet(port).then((x) => (memKeys(x).includes('e2e-anchor') ? x : null)), 8000)
+      r2.seenBlocked = memKeys(await memGet(port)).includes(r.k)
+      await openLearnedData(port, /BLOCKED/)
+      r2.ui = (await until(() => blockedUi(port).then((t) => (t && /Shubin Mining Facility on Lyria/i.test(t) ? t : null)), 8000)) ?? (await blockedUi(port))
+      r2.unblock = await blockedUnblock(port, [{ kind: 'place', key: r.k }])
+      r2.ui2 = (await until(() => blockedUi(port).then((t) => (t !== null && !/Shubin Mining Facility on Lyria/i.test(t) ? t : null)), 8000)) ?? (await blockedUi(port))
+      r2.dataAfterUnblock = memKeys(await memGet(port)).includes(r.k)
+      await cdpEval(port, 'main', `window.supercargo.otherMemorySeen(${JSON.stringify([{ key: r.k, text: SHUBIN, place: null, status: 'unsure', confidence: 3, evidence: [] }])})`)
+      r2.again = await until(() => memGet(port).then((x) => (memKeys(x).includes(r.k) ? x : null)), 8000)
+    } catch (x) {
+      err += ` restart: ${String(x?.message ?? x)}`
+    }
+    await again()
+    const bfile2 = blockedFile(e)
+    const blk = (r.blocked1?.items ?? []).find((x) => x.key === r.k)
+    const logs = learnedLogLines(e)
+    return [
+      ['seen entries for both stops', !!r.k && !!r.c, `k=${r.k} c=${r.c} ${err}`],
+      ['delete with block: ok, deleted 1, blocked 1; control deleted, blocked 0', r.reply?.ok && r.reply.deleted === 1 && r.reply.blocked === 1 && r.reply2?.ok && r.reply2.deleted === 1 && r.reply2.blocked === 0, `reply=${short(r.reply)} control=${short(r.reply2)}`],
+      ['other-matches.json: both entries gone', !!r.file1, `keys=${short(memKeys(memFile(e)))}`],
+      ['otherBlockedGet: place item with label, at; control not blocked', blk?.kind === 'place' && /Shubin Mining Facility on Lyria/i.test(blk.label) && !!Date.parse(blk.at) && !hasBlocked(r.blocked1, 'place', r.c), `blocked=${short(r.blocked1)}`],
+      ['other-blocked.json holds the item', !!r.bfile1, `file=${short(r.bfile1 ?? blockedFile(e))}`],
+      ['LEARNED DATA BLOCKED section: the text, from Places, UNBLOCK', !!r.ui1 && /Shubin Mining Facility on Lyria/i.test(r.ui1) && /Places/i.test(r.ui1) && /UNBLOCK/i.test(r.ui1), `ui=${short(r.ui1, 300)}`],
+      ['after restart: the block is still there', hasBlocked(r2.blocked, 'place', r.k), `blocked=${short(r2.blocked)}`],
+      ['after restart: the deleted control stop is learned again (reporter ran), the blocked stop is not', !!r2.relearned && !memKeys(r2.relearned).includes(r.k), `keys=${short(memKeys(r2.relearned))}`],
+      ['a seen report for the blocked key is ignored', !!r2.seenAnchor && r2.seenBlocked === false, `anchor=${!!r2.seenAnchor} blockedLearned=${r2.seenBlocked}`],
+      ['after restart: BLOCKED section still shows it', !!r2.ui && /Shubin Mining Facility on Lyria/i.test(r2.ui), `ui=${short(r2.ui, 300)}`],
+      ['UNBLOCK: gone from BLOCKED (IPC, UI, file), data not brought back', !hasBlocked(r2.unblock, 'place', r.k) && r2.ui2 !== null && !/Shubin Mining Facility on Lyria/i.test(r2.ui2 ?? '') && !hasBlocked(bfile2, 'place', r.k) && r2.dataAfterUnblock === false, `reply=${short(r2.unblock)} ui=${short(r2.ui2, 200)} file=${short(bfile2)} data=${r2.dataAfterUnblock}`],
+      ['after UNBLOCK the text can be learned again', !!r2.again, `keys=${short(memKeys(r2.again))}`],
+      ['log: delete (block on) and unblock lines, no entry text', logs.some((l) => /learned data delete/.test(l) && /true/.test(l)) && logs.some((l) => /learned data unblock/.test(l)) && logs.every((l) => !/Shubin|microTech/i.test(l)), `log=${short(logs, 500)}`]
+    ]
+  },
+
+  // Batch 16 (review): UNBLOCK without a restart -> a stop that is still open is learned again in the same session
+  // (the renderer's seen dedupe forgets unblocked keys); then the fix panel's DELETE AND BLOCK on a stop with no entry
+  // puts the text as read, not the key, in the BLOCKED list.
+  'learned-unblock-same-session': async () => {
+    const name = 'learned-unblock-same-session'
+    const { e, port, stop } = await memLaunch(name, { jobs: [{ ref: 'J92', steps: [goStep('s1', SHUBIN)] }] })
+    const r = { k: null, block: null, blocked: null, unblock: null, nav: false, relearned: null, del: null, absent: null, tag: false, fixBtn: false, dlg: '', confirm: false, blocked2: null }
+    let err = ''
+    try {
+      const d = await until(() => memGet(port).then((x) => memEntry(x, /Shubin Mining Facility on Lyria/i) ?? null), 20000)
+      r.k = d?.key ?? null
+      r.block = await dataDelete(port, { kind: 'place', keys: [r.k], block: true })
+      r.blocked = await until(() => blockedGet(port).then((b) => (hasBlocked(b, 'place', r.k) ? b : null)), 8000)
+      r.unblock = await blockedUnblock(port, [{ kind: 'place', key: r.k }])
+      // show the stops again in this session: NEXT, then LEARNED DATA
+      r.nav = await clickButton(port, 'main', /^NEXT$/)
+      await openLearnedData(port, /BLOCKED/)
+      r.relearned = await until(() => (memKeys(memFile(e)).includes(r.k) ? memFile(e) : null), 20000)
+      // delete (no block) so the fix panel blocks a text with (usually) no entry; it may be learned again ~5 s later
+      r.del = await dataDelete(port, { kind: 'place', keys: [r.k], block: false })
+      await until(() => (!memKeys(memFile(e)).includes(r.k) ? true : null), 8000)
+      await nextText(port, TAG.unsure)
+      r.tag = await clickButton(port, 'main', TAG.unsure)
+      r.fixBtn = !!(await until(() => clickSel(port, '[data-testid="matchfix-delete-block"]').then((ok) => ok || null), 5000))
+      r.dlg = (await until(() => confirmText(port), 5000)) ?? ''
+      r.absent = !memKeys(await memGet(port)).includes(r.k)
+      // the fix panel is a dialog with its own DELETE AND BLOCK: the confirm's button by its test id
+      r.confirm = await clickSel(port, '[data-testid="delete-confirm-block"]')
+      r.blocked2 = await until(() => blockedGet(port).then((b) => (hasBlocked(b, 'place', r.k) ? b : null)), 8000)
+    } catch (x) {
+      err = String(x?.message ?? x)
+    }
+    await stop()
+    const item = (r.blocked2?.items ?? []).find((x) => x.key === r.k)
+    return [
+      ['seen entry for the open stop; blocked, then unblocked', !!r.k && r.block?.blocked === 1 && !!r.blocked && !hasBlocked(r.unblock, 'place', r.k), `k=${r.k} block=${short(r.block)} unblock=${short(r.unblock)} ${err}`],
+      ['same session, no restart: the open stop is learned again after UNBLOCK', r.nav && !!r.relearned, `nav=${r.nav} keys=${short(memKeys(r.relearned ?? memFile(e)))}`],
+      ['fix panel: tag, DELETE AND BLOCK, confirm with the text', r.tag && r.fixBtn && /Delete permanently\?/i.test(r.dlg) && /Shubin Mining Facility on Lyria/.test(r.dlg), `tag=${r.tag} btn=${r.fixBtn} dialog=${short(r.dlg, 200)}`],
+      ['plain delete before the fix-panel block removed the entry', r.del?.deleted === 1, `del=${short(r.del)} absent=${r.absent}`],
+      ['BLOCKED label is the text as read, not the key', r.confirm && item?.label === SHUBIN && item.label !== r.k, `confirm=${r.confirm} item=${short(item)}`]
+    ]
+  },
+
+  // Batch 16 (3): a learned site and Hurston's panel radius deleted through otherDataDelete -> the site is gone from
+  // other-bodies.json and the Sites table; Hurston stays but its radius is no longer from the panel ("estimated").
+  'learned-delete-bodies': async () => {
+    const name = 'learned-delete-bodies'
+    const at = iso(ago(3600))
+    const P = { x: 12850457093, y: 0, z: 0 }
+    const bodiesDoc = {
+      bodies: { hurston: { name: 'Hurston', system: 'Stanton', centre: P, radiusM: 1000000, radiusSource: 'panel', seen: 3, lastSeen: at } },
+      learned: [
+        { name: 'Security Compound', near: COVALEX, nearMeters: 850, body: 'Hurston', system: 'Stanton', point: { x: P.x + 1000, y: 0, z: 0 }, seen: 2, lastSeen: at },
+        { name: 'Landing Pad', near: COVALEX, nearMeters: 400, body: 'Hurston', system: 'Stanton', point: { x: P.x + 1200, y: 0, z: 0 }, seen: 1, lastSeen: at }
+      ]
+    }
+    const { e, port, stop } = await memLaunch(name, { files: { 'other-bodies.json': bodiesDoc } })
+    const hurstonRow = (p) => (p?.planets ?? []).find((x) => /^\s*Hurston/.test(x)) ?? ''
+    const r = { p0: null, site: null, planet: null, p1: null }
+    let err = ''
+    try {
+      await openLearnedData(port, /Security Compound/)
+      r.p0 = await until(() => learnedProbe(port).then((p) => (/exact \(panel\)/i.test(hurstonRow(p)) && p.sites.some((x) => /Security Compound/.test(x)) ? p : null)), 10000)
+      r.site = await dataDelete(port, { kind: 'site', keys: [`security compound|${COVALEX.toLowerCase()}`], block: false })
+      r.planet = await dataDelete(port, { kind: 'planet', keys: ['hurston'], block: false })
+      r.file = await until(() => {
+        const f = bodiesFile(e)
+        return f && !(f.learned ?? []).some((l) => /Security Compound/.test(l.name)) && f.bodies?.hurston?.radiusSource !== 'panel' ? f : null
+      }, 8000)
+      r.p1 = (await until(() => learnedProbe(port).then((p) => (!p.sites.some((x) => /Security Compound/.test(x)) && /estimated/i.test(hurstonRow(p)) ? p : null)), 8000)) ?? (await learnedProbe(port))
+      r.blocked = await blockedGet(port)
+    } catch (x) {
+      err = String(x?.message ?? x)
+    }
+    await stop()
+    const f = bodiesFile(e)
+    const h = f?.bodies?.hurston
+    return [
+      ['seeded: Sites shows Security Compound, Hurston exact (panel)', !!r.p0, `sites=${short(r.p0?.sites)} hurston=${short(hurstonRow(r.p0))} ${err}`],
+      ['otherDataDelete site and planet: ok, deleted 1 each', r.site?.ok && r.site.deleted === 1 && r.planet?.ok && r.planet.deleted === 1, `site=${short(r.site)} planet=${short(r.planet)}`],
+      ['other-bodies.json: site gone, the other site kept', !!f && !(f.learned ?? []).some((l) => /Security Compound/.test(l.name)) && (f.learned ?? []).some((l) => /Landing Pad/.test(l.name)), `learned=${short((f?.learned ?? []).map((l) => l.name))}`],
+      ['other-bodies.json: Hurston kept, panel radius removed', !!h && h.radiusSource !== 'panel' && (h.radiusM == null || h.radiusM !== 1000000), `hurston=${short(h, 300)}`],
+      ['LEARNED DATA: site gone; Hurston "estimated", not "exact (panel)"', !!r.p1 && !r.p1.sites.some((x) => /Security Compound/.test(x)) && /estimated/i.test(hurstonRow(r.p1)) && !/exact \(panel\)/i.test(hurstonRow(r.p1)), `sites=${short(r.p1?.sites)} hurston=${short(hurstonRow(r.p1))}`],
+      ['nothing blocked', (r.blocked?.items ?? []).length === 0, `blocked=${short(r.blocked)}`]
+    ]
+  },
+
+  // Batch 16 (4): search the Places table ("gate": 3 of 6 rows), DELETE SHOWN, the confirm names the count, Delete ->
+  // exactly the 3 shown entries are gone, the other 3 stay
+  'learned-delete-shown': async () => {
+    const name = 'learned-delete-shown'
+    const at = iso(ago(3600))
+    const ent = (key, text, place, origin, extra = {}) => ({ key, text, place, origin, confirmed: 0, wrong: 0, seen: 1, firstAt: at, lastAt: at, ...extra })
+    const GATES = ['seed-gate-1', 'seed-gate-2', 'seed-gate-3']
+    const OTHERS = ['seed-o1', 'seed-o2', 'seed-o3']
+    const matchesDoc = {
+      entries: [
+        ent('seed-gate-1', 'Port Tresler Gate 1', 'Port Tressler', 'user'),
+        ent('seed-gate-2', 'Port Tresler Gate 2', 'Port Tressler', 'game', { seen: 3 }),
+        ent('seed-gate-3', 'Port Tresler Gate 3', 'Port Tressler', 'game', { confirmed: 2, seen: 4 }),
+        ent('seed-o1', 'Seraphim Stn Hab', 'Seraphim Station', 'game', { confirmed: 3, seen: 9 }),
+        ent('seed-o2', 'Covalex S1DCO06 Hurstn', COVALEX, 'game', { seen: 2 }),
+        ent('seed-o3', 'Shubin SAL 5 Lyria', 'Shubin Mining Facility SAL-5', 'user', { seen: 4 })
+      ],
+      changes: []
+    }
+    const { e, port, stop } = await memLaunch(name, { files: { 'other-matches.json': matchesDoc } })
+    const r = { p0: null, typed: false, shown: null, click: false, dlg: '', confirm: false, file: null, p1: null }
+    let err = ''
+    try {
+      await openLearnedData(port, /Port Tresler Gate/)
+      r.p0 = await until(() => learnedProbe(port).then((p) => (p?.rows?.length >= 6 ? p : null)), 10000)
+      r.typed = await learnedSearch(port, 'gate')
+      r.shown = await until(() => learnedProbe(port).then((p) => (p?.rows?.length === 3 ? p : null)), 6000)
+      r.shownBtn = await cdpEval(port, 'main', `document.querySelector('[data-testid="learned-section-places"] [data-testid$="-delete-shown"]')?.textContent ?? null`)
+      r.click = await clickInSection(port, 'places', /^DELETE SHOWN\b/i)
+      r.dlg = (await until(() => confirmText(port), 5000)) ?? ''
+      r.confirm = await confirmClick(port, /^Delete$/i)
+      r.file = await until(() => {
+        const f = memFile(e)
+        return f && GATES.every((k) => !memKeys(f).includes(k)) ? f : null
+      }, 8000)
+      r.p1 = await learnedProbe(port)
+    } catch (x) {
+      err = String(x?.message ?? x)
+    }
+    await stop()
+    const f = memFile(e)
+    return [
+      ['seeded: 6 rows', (r.p0?.rows ?? []).length >= 6, `rows=${short((r.p0?.rows ?? []).map((x) => x.key))} ${err}`],
+      ['search "gate" shows exactly the 3 Gate rows', r.typed && !!r.shown && short(r.shown.rows.map((x) => x.key).sort()) === short(GATES), `typed=${r.typed} rows=${short((r.shown?.rows ?? []).map((x) => x.key))}`],
+      ['DELETE SHOWN (3) opens the confirm with the count', r.click && /DELETE SHOWN \(3\)/i.test(r.shownBtn ?? '') && /Delete 3 entries permanently\?/i.test(r.dlg), `button=${short(r.shownBtn)} clicked=${r.click} dialog=${short(r.dlg, 300)}`],
+      ['Delete: exactly the 3 shown entries gone, the other 3 kept', r.confirm && !!f && GATES.every((k) => !memKeys(f).includes(k)) && OTHERS.every((k) => memKeys(f).includes(k)), `confirm=${r.confirm} keys=${short(memKeys(f))}`],
+      ['table: no Gate rows left', !!r.p1 && !r.p1.rows.some((x) => GATES.includes(x.key)), `rows=${short((r.p1?.rows ?? []).map((x) => x.key))}`]
     ]
   },
 

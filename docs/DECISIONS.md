@@ -72,6 +72,15 @@ Marked **NOT DOING**: decided against, or left out on purpose.
 - Distances are system-aware (Stanton, Pyro, Nyx via gateways, "+ 1 jump") and stops on the same planet or
   moon are measured over the surface (13:44, 13:54, batch 1).
 - Pickup before delivery: an open pickup comes before the delivery of the same item (batch 4, approved 16:08).
+  **Superseded in part by batch 17 (2026-10-15):** the combined "collect from A, deliver to B" step that OCR fills
+  made is no longer made; it stays only on jobs saved before 1.0.4.
+- **OCR-filled jobs split into pickup and drop-off (batch 17, 2026-10-15).** "the contracts sometime dont break out
+  into the 'pickup' and Drop off, some do. thoughts?"; then "do as recommeded and then build the new release" (R1
+  1.0.4). Answers: **1A** OCR fills (auto-OCR and the SCAN CONTRACT window) give a separate pickup step and drop-off
+  step like the log, pickup first; late log objectives adopt the matching step, no duplicates. **2A** jobs already
+  saved with a combined step are left as they are (no migration; the combined display and completion stay). **3A** a
+  "<site> in <city>" text prefers the site over the city when the site lies in that city, instead of "not sure" /
+  "not found". STANDALONE rules 24, 37; contract [batch-17-ocr-split.md](contracts/batch-17-ocr-split.md).
 - A stop not yet picked up is measured from the pickup place, never from the drop-off marker (batch 6,
   "code as recommended. approved", 17:12).
 - REFRESH button on the Next and Jobs screens (not the overlay), so jobs pick up newly placeable locations
@@ -191,6 +200,20 @@ Marked **NOT DOING**: decided against, or left out on purpose.
   "→ place" words, words only, same rule as `stopIssue.ts` (2026-10-14, "we will hold the release until these are
   finished"; recommendation accepted; STANDALONE rule 38).
 - **NOT DOING:** S5 bulk clean-up and S6 export/import of learned places (not picked, 18:54).
+  **Superseded in part by batch 16 (2026-10-15):** DELETE SHOWN and DELETE SELECTED now remove many entries at once;
+  S6 export/import is still NOT DOING.
+- **Delete and block learned data (batch 16, 2026-10-15).** "I want the ability to delete any learned value from the
+  database. right now I have an undo etc.. but I need a way to permanently remove data."; "I want to be able to delete
+  data, and any thing that is blocked permanalty needs to be put into a sperate list so I can go back and undo it if I
+  need to."; the open points as recommended ("lets selected the remainder as you recommend"); approved and for the next
+  release ("lets go with your recommended and build it, then do everything to release this into the next release",
+  R1 1.0.4). DELETE on every Places / Sites / Planets row with a confirm (Delete / Delete and block / Cancel); a place
+  delete also removes its RECENT CHANGES so UNDO can't restore it; a planet delete removes only the learned panel
+  radius; blocked keys are never learned again until UNBLOCK (a user CHANGE still works); a BLOCKED list on LEARNED
+  DATA with UNBLOCK (unblocking brings nothing back); suggestions taken: DELETE SHOWN and tick boxes with DELETE
+  SELECTED, Delete and block in the fix panel, a grey `blocked` tag that opens the BLOCKED list; logs and a
+  `## BLOCKED` diagnostics section. FORGET and UNDO stay as they are. STANDALONE rules 97-103, re-tie 24; contract
+  [batch-16-delete-block.md](contracts/batch-16-delete-block.md).
 
 ## 6. Settings
 

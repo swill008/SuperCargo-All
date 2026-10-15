@@ -34,7 +34,7 @@ import { trace } from '@renderer/state/trace'
 import { otherSetting, resolveWorkMode } from '@other/workMode'
 import { useOtherHistory } from './otherHistory'
 import { requestAutoOcrIfEnabled } from './otherCapture'
-import { findStepByText, kindFromGenerator, stepFromObjectiveText, stepKey } from '@other/otherLog'
+import { findStepByText, findUnloggedStep, kindFromGenerator, pairMarkersToSteps, stepFromObjectiveText, stepKey } from '@other/otherLog'
 import type { AppSettings, Location } from '@shared/types'
 
 export interface OtherJobDraft {
@@ -405,14 +405,18 @@ function placeSteps(d: Draft, ctx: Ctx, jobId?: string): void {
     // markers no step claims by objectiveId, in log order (Map keeps first-insert order)
     const claimed = new Set(j.steps.map((s) => s.objectiveId).filter(Boolean))
     const unused = [...marks.entries()].filter(([oid]) => !claimed.has(oid))
-    let nextUnused = 0
+    // steps to link by order (no objectiveId, no sure place); paired by marker kind first (pickup_ / dropoff_)
+    const open = j.steps.map((s, i) => (!s.objectiveId && !hasUex(s) ? i : -1)).filter((i) => i >= 0)
+    const pairs = pairMarkersToSteps(open.map((i) => j.steps[i].kind), unused.map(([oid]) => oid))
+    const pairOf = new Map(open.map((si, k) => [si, pairs[k]]))
     let changed = false
-    const steps = j.steps.map((s) => {
+    const steps = j.steps.map((s, si) => {
       let m = s.objectiveId ? marks.get(s.objectiveId) : undefined
       let byOrder: string | undefined
       if (!m && !s.objectiveId) {
-        if (hasUex(s)) return s
-        const hit = unused[nextUnused++]
+        const pi = pairOf.get(si)
+        if (pi === undefined) return s
+        const hit = pi >= 0 ? unused[pi] : undefined
         if (!hit) return s
         byOrder = hit[0]
         m = hit[1]
@@ -744,6 +748,17 @@ function reduce(d: Draft, e: OtherLogEvent, ctx: Ctx): void {
       }
       const step: OtherStep = { ...stepFromObjectiveText(e.text, mergeLocations(useStore.getState().locations), { memory: memoryLookup }), logText: e.text }
       if (e.objectiveId) step.objectiveId = e.objectiveId
+      // a late log line for a step an OCR fill already made: adopt the log text, no duplicate (batch 17)
+      const same = findUnloggedStep(job.steps, step)
+      if (same >= 0) {
+        const adopt: Partial<OtherStep> = { logText: e.text }
+        if (e.objectiveId) adopt.objectiveId = e.objectiveId
+        decide('step adopted log text', mid, { ref: job.ref, text: e.text, objectiveId: e.objectiveId, step: stepKey(job.steps[same]) })
+        dlog.info('other', 'objective matched existing step', { ref: job.ref, id: short(e.missionId), stepKey: stepKey(job.steps[same]) })
+        d.jobs = d.jobs.map((j) => (j.id === job.id ? { ...j, steps: j.steps.map((s, i) => (i === same ? { ...s, ...adopt } : s)) } : j))
+        if (e.objectiveId) placeSteps(d, ctx, job.id)
+        break
+      }
       decide('step added', mid, {
         ref: job.ref,
         text: e.text,

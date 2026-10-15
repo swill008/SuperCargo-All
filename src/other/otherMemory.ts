@@ -272,3 +272,22 @@ export function memoryLabel(e: MemoryEntry): string {
   if (e.wrong >= 2) return '⚠ the game disagrees'
   return 'unproven'
 }
+
+/**
+ * DELETE (permanent): removes the entries for `keys` and every change with one of those keys, so UNDO
+ * can't bring them back. Nothing is logged in changes. `deleted` = entries removed.
+ */
+export function deleteEntries(doc: MemoryDoc, keys: readonly string[]): { doc: MemoryDoc; deleted: number } {
+  const drop = new Set(keys)
+  if (!drop.size) return { doc, deleted: 0 }
+  const entries = doc.entries.filter((e) => !drop.has(e.key))
+  const changes = doc.changes.filter((c) => !drop.has(c.key))
+  const deleted = doc.entries.length - entries.length
+  if (!deleted && changes.length === doc.changes.length) return { doc, deleted: 0 }
+  return { doc: { entries, changes }, deleted }
+}
+
+/** the game's inputs (seen / proof) minus the blocked keys; user actions never go through this */
+export function withoutBlocked<T extends { key: string }>(list: readonly T[], blocked: (key: string) => boolean): T[] {
+  return list.filter((x) => !blocked(x.key))
+}

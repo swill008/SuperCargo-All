@@ -10,7 +10,10 @@ import { IPC } from '@shared/channels'
 import type { WhereRunResult } from '@other/otherWhere'
 import {
   bodiesDiag,
+  bodyKey,
   buildBodies,
+  deleteLearned,
+  deletePanelRadius,
   emptyBodiesDoc,
   normalizeBodiesDoc,
   radiusSane,
@@ -25,6 +28,13 @@ import { logger } from '../../main/logger'
 const FILE = 'other-bodies.json'
 
 let saved: BodiesDoc | null = null
+
+/** blocked-list check, set by main/blocked.ts (kept injected so this module doesn't import it) */
+let blockCheck: (kind: 'site' | 'planet', key: string) => boolean = () => false
+
+export function setBodiesBlockCheck(fn: (kind: 'site' | 'planet', key: string) => boolean): void {
+  blockCheck = fn
+}
 
 function filePath(): string {
   return dataPath(FILE)
@@ -75,7 +85,11 @@ export function onWhereRead(r: WhereRunResult): void {
     return
   }
   const doc = getBodies()
-  const next = recordPanelRadius(doc, info.body, info.system, info.radiusM, new Date().toISOString())
+  if (blockCheck('planet', bodyKey(info.body))) {
+    logger.debug('other', 'bodies: panel radius for a blocked planet, ignored', { body: info.body })
+    return
+  }
+  const next = recordPanelRadius(doc, info.body, info.system, info.radiusM, new Date().toISOString(), (k) => blockCheck('planet', k))
   if (next === doc) {
     logger.debug('other', 'bodies: panel radius for a body not in the table, ignored', { body: info.body })
     return
@@ -87,12 +101,27 @@ export function onWhereRead(r: WhereRunResult): void {
 
 export function recordLearnedPlace(entry: LearnedPlaceReport): boolean {
   const doc = getBodies()
-  const next = recordLearned(doc, entry, new Date().toISOString())
+  const next = recordLearned(doc, entry, new Date().toISOString(), (k) => blockCheck('site', k))
   if (next === doc) return false
   save(next)
   broadcast(next)
   logger.info('other', 'bodies: learned place', { name: entry.name, near: entry.near, nearMeters: Math.round(entry.nearMeters), learned: next.learned.length })
   return true
+}
+
+/**
+ * Delete learned data: 'site' keys are learnedKey(name, near); 'planet' keys are bodyKey(name) and drop the
+ * panel radius (the planet falls back to the estimate). Saves and broadcasts when anything went. Returns the count.
+ */
+export function bodiesDelete(kind: 'site' | 'planet', keys: string[]): number {
+  if (!Array.isArray(keys) || !keys.length) return 0
+  const doc = getBodies()
+  const r = kind === 'site' ? deleteLearned(doc, keys) : deletePanelRadius(doc, keys)
+  if (!r.deleted) return 0
+  save(r.doc)
+  broadcast(r.doc)
+  logger.info('other', 'bodies: learned data deleted', { kind, count: r.deleted })
+  return r.deleted
 }
 
 /** diagnostics 'BODIES' section */

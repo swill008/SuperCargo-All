@@ -186,7 +186,15 @@
     { "id": "T-code-one-digit", "src": "batch 8 T rule", "job": "-",
       "step": { "kind": "go", "label": "", "location": "Covalex Distribution Centre S1DC05 on Hurston" },
       "expect": { "status": "none" },
-      "note": "T: one digit off (5 for 6 is not a look-alike): the spelling is 0.97 close to S1DC06 but code tokens differ, so no spelling points and no distance; never S1DC06 or S4DC05" }
+      "note": "T: one digit off (5 for 6 is not a look-alike): the spelling is 0.97 close to S1DC06 but code tokens differ, so no spelling points and no distance; never S1DC06 or S4DC05" },
+    { "id": "B17-site-in-city", "src": "export 2026-10-15 (OCR pickup)", "job": "-",
+      "step": { "kind": "pickup", "label": "Collect Ammunition Crate from August Dunlow Spaceport in Orison.", "location": "August Dunlow Spaceport in Orison" },
+      "expect": { "status": "guess", "name": "August Dunlow Spaceport", "maxMeters": 0 },
+      "note": "batch 17 item 3: '<site> in <city>' with the site at the city's point: the site wins (was a 3-3 tie with Orison -> none, confidence 0)" },
+    { "id": "B17-site-not-in-city", "src": "batch 17 item 3 (negative)", "job": "-",
+      "step": { "kind": "pickup", "label": "Collect Ammunition Crate from Teasa Spaceport in Orison.", "location": "Teasa Spaceport in Orison" },
+      "expect": { "status": "none" },
+      "note": "batch 17 item 3: Teasa Spaceport is in Lorville, not Orison: the texts disagree, the tie stays (rule 37), no distance" }
   ],
   "imports": {
     "about": "Job import (importPlace): the OTHER_LOCATION_SNAP_CASES (real New Objective lines, 2026-09-12) moved here, plus the OCR and sub-place cases. resolve_checks.mjs runs importPlace(raw, roster, {ocr, label}) and checks location / locationSnapped / match.status (/ match name, confidence). location is the roster name only when the resolver is sure; \"old\" = the old snap answer where it differs.",

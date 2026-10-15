@@ -65,3 +65,6 @@ with a push: + CI (~10 min, in the background); a release: + ~4 min.
 | 2026-10-15 | Batch 15 one reader: 5 build agents (reader, where, settings, e2e, docs) + ci-digest | agent | 2-6 min | 1-6 min each | 10:16-10:22 |
 | 2026-10-15 | Batch 15 gold proof (real reader, 11 reads) + re-trace (read-only) | study | 1-8 min | 3 min each | 10:21-10:24 |
 | 2026-10-15 | Full run batch 15 (538 pass, 0 fail, 8 real logs) | test | ~7 min | 7 min | 10:25-10:32 |
+| 2026-10-15 | Batch 16 delete & block: 7 agents (memory, bodies, blocked, page, fix, e2e, docs) + 4 fix-ups | agent | 2-6 min | 1-5 min each | 10:34-10:45 |
+| 2026-10-15 | Batch 17 OCR split: 4 agents (ocrsplit, resolver, e2e, docs) + marker fix-up; study + re-traces | agent | 2-6 min | 1-7 min each | 10:46-11:01 |
+| 2026-10-15 | Full run 1.0.4 (587 pass, 0 fail, 8 real logs) | test | ~7 min | 6 min | 11:02-11:08 |

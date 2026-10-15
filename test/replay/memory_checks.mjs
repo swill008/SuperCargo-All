@@ -245,6 +245,45 @@ safe('learnedPlace', () => {
   }
 })
 
+safe('deleteEntries', () => {
+  let d = M.emptyMemoryDoc()
+  d = M.recordSeen(d, seen('a', 'A'), T(1))
+  d = M.recordSeen(d, seen('b', 'B'), T(2))
+  d = M.setUserPlace(d, { key: 'a', text: 'A', place: 'A2' }, T(3))
+  d = M.recordProof(d, { key: 'b', text: 'B', place: 'B', ok: true, actual: where('B', 10) }, T(4))
+  const before = J(d)
+  const r = M.deleteEntries(d, ['a'])
+  check('deleteEntries', 'returns 1 deleted', r.deleted === 1, J(r.deleted))
+  check('deleteEntries', 'entry gone', !M.lookupMemory(r.doc, 'a'))
+  check('deleteEntries', 'every change with the key gone', r.doc.changes.every((c) => c.key !== 'a') && d.changes.some((c) => c.key === 'a'))
+  check('deleteEntries', 'other entry and its changes untouched', J(M.lookupMemory(r.doc, 'b')) === J(M.lookupMemory(d, 'b')) && J(r.doc.changes) === J(d.changes.filter((c) => c.key === 'b')))
+  check('deleteEntries', 'input not changed', J(d) === before)
+  let u = r.doc
+  for (let i = 0; i < u.changes.length; i++) u = M.undoChange(u, i, T(9))
+  check('deleteEntries', 'UNDO of every remaining change cannot bring it back', !M.lookupMemory(u, 'a'))
+  const none = M.deleteEntries(d, ['zz'])
+  check('deleteEntries', 'unknown key: same doc, 0', none.doc === d && none.deleted === 0)
+  const empty = M.deleteEntries(d, [])
+  check('deleteEntries', 'no keys: same doc, 0', empty.doc === d && empty.deleted === 0)
+  const both = M.deleteEntries(d, ['a', 'b'])
+  check('deleteEntries', 'several keys', both.deleted === 2 && both.doc.entries.length === 0 && both.doc.changes.length === 0)
+})
+
+safe('withoutBlocked', () => {
+  const blocked = new Set(['b'])
+  const isB = (k) => blocked.has(k)
+  const list = [seen('a', 'A'), seen('b', 'B')]
+  const kept = M.withoutBlocked(list, isB)
+  check('withoutBlocked', 'blocked key dropped, others kept', kept.length === 1 && kept[0].key === 'a', J(kept.map((x) => x.key)))
+  // the main path: seen list -> filter -> recordSeen; proof -> filter -> recordProof
+  let d = M.emptyMemoryDoc()
+  for (const s of kept) d = M.recordSeen(d, s, T(1))
+  for (const p of M.withoutBlocked([{ key: 'b', text: 'B', place: 'B', ok: true, actual: where('B', 10) }], isB)) d = M.recordProof(d, p, T(2))
+  check('withoutBlocked', 'blocked key not learned by seen or proof', !M.lookupMemory(d, 'b') && d.changes.every((c) => c.key !== 'b'))
+  const u = M.setUserPlace(d, { key: 'b', text: 'B', place: 'B' }, T(3))
+  check('withoutBlocked', 'user set of a blocked key still works', M.lookupMemory(u, 'b')?.origin === 'user')
+})
+
 fs.rmSync(tmp, { recursive: true, force: true })
 let failed = 0
 for (const { name, what, ok, detail } of results) {

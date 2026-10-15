@@ -9,7 +9,7 @@
 import type { Location } from '@shared/types'
 import { isHaulingContract } from '@shared/contract'
 import type { OtherJobKind, OtherStep, OtherStepKind } from '@other/otherJob'
-import { importPlace, type ResolveCtx } from '@other/otherResolve'
+import { importPlace, placeKey, type ResolveCtx } from '@other/otherResolve'
 
 export type OtherObjectiveParse = {
   kind: OtherStepKind
@@ -116,31 +116,61 @@ export function parseOtherObjectiveText(raw: string): OtherObjectiveParse | null
 
 const itemKey = (s?: string): string => (s || '').toLowerCase().replace(/[^a-z0-9]+/g, ' ').trim()
 
-/** Fold nested Collect X from A under Deliver X to B when the item matches. */
-export function mergeCollectIntoDeliver<T extends OtherObjectiveParse>(rows: T[]): T[] {
+/**
+ * A late log "New Objective" step that an OCR fill already made: the first step with no logText and the same
+ * kind, item and place (placeKey of the place as read or as resolved). Combined saved steps (pickupLocation) are
+ * never matched. -1 when none.
+ */
+export function findUnloggedStep(
+  steps: OtherStep[],
+  step: Pick<OtherStep, 'kind' | 'item' | 'location' | 'locationRaw'>
+): number {
+  const keys = (s: Pick<OtherStep, 'location' | 'locationRaw'>): string[] =>
+    [s.location, s.locationRaw].filter((v): v is string => !!v?.trim()).map(placeKey).filter(Boolean)
+  const want = keys(step)
+  if (!want.length) return -1
+  return steps.findIndex(
+    (s) =>
+      !s.logText &&
+      !s.pickupLocation &&
+      s.kind === step.kind &&
+      itemKey(s.item) === itemKey(step.item) &&
+      keys(s).some((k) => want.includes(k))
+  )
+}
+
+/** what a step or marker objectiveId says it is: 'pickup', 'drop' (turn-in / dropoff), or '' when it doesn't tell */
+const markerClass = (objectiveId: string): string =>
+  /^pickup[_-]/i.test(objectiveId) ? 'pickup' : /^(?:dropoff|turnin|deliver)[_-]/i.test(objectiveId) ? 'drop' : ''
+const stepClass = (kind: OtherStepKind): string => (kind === 'pickup' ? 'pickup' : kind === 'turnin' ? 'drop' : '')
+
+/**
+ * Pair steps that have no objectiveId with a mission's unclaimed markers (objectiveIds in log order).
+ * First by kind (pickup_ markers to pickup steps, dropoff_ markers to turn-in steps, in order within each kind),
+ * then the rest in plain log order where one side's kind doesn't tell. The game writes the dropoff marker before
+ * the pickup marker, so log order alone would swap a split pickup / turn-in pair (batch 17).
+ * Returns, per step, the index into `markerIds` or -1.
+ */
+export function pairMarkersToSteps(stepKinds: OtherStepKind[], markerIds: string[]): number[] {
+  const out = stepKinds.map(() => -1)
   const used = new Set<number>()
-  const out: T[] = []
-  for (let i = 0; i < rows.length; i++) {
-    const row = rows[i]
-    if (row.kind === 'pickup') continue
-    if (row.kind === 'turnin' && itemKey(row.item)) {
-      const key = itemKey(row.item)
-      const cIdx = rows.findIndex((r, j) => !used.has(j) && r.kind === 'pickup' && itemKey(r.item) === key)
-      if (cIdx >= 0) {
-        used.add(cIdx)
-        const collect = rows[cIdx]
-        out.push({
-          ...row,
-          pickupLocation: collect.location,
-          label: `${collect.label.replace(/[.]+$/, '')}. ${row.label}`
-        })
-        continue
-      }
+  stepKinds.forEach((k, i) => {
+    const c = stepClass(k)
+    if (!c) return
+    const at = markerIds.findIndex((id, j) => !used.has(j) && markerClass(id) === c)
+    if (at >= 0) {
+      used.add(at)
+      out[i] = at
     }
-    out.push(row)
-  }
-  rows.forEach((r, j) => {
-    if (r.kind === 'pickup' && !used.has(j)) out.push(r)
+  })
+  stepKinds.forEach((k, i) => {
+    if (out[i] >= 0) return
+    const c = stepClass(k)
+    const at = markerIds.findIndex((id, j) => !used.has(j) && (!c || !markerClass(id)))
+    if (at >= 0) {
+      used.add(at)
+      out[i] = at
+    }
   })
   return out
 }

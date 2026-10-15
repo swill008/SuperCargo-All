@@ -164,11 +164,19 @@ export function bodyRadiusFromTable(table: Record<string, BodyInfo> | null | und
 
 /**
  * Record a panel "Radius:" read. Returns the same doc object when nothing changed
- * (unknown body, or radius outside 50 km - 10,000 km).
+ * (unknown body, radius outside 50 km - 10,000 km, or the planet key bodyKey(body) is blocked).
  */
-export function recordPanelRadius(doc: BodiesDoc, body: string, system: string | null | undefined, radiusM: number, at: string): BodiesDoc {
+export function recordPanelRadius(
+  doc: BodiesDoc,
+  body: string,
+  system: string | null | undefined,
+  radiusM: number,
+  at: string,
+  isBlocked?: (key: string) => boolean
+): BodiesDoc {
   if (!body || !radiusSane(radiusM)) return doc
   const k = bodyKey(body)
+  if (isBlocked?.(k)) return doc
   const prev = doc.bodies[k]
   if (!prev) return doc
   const next: BodyInfo = {
@@ -182,15 +190,18 @@ export function recordPanelRadius(doc: BodiesDoc, body: string, system: string |
   return { ...doc, bodies: { ...doc.bodies, [k]: next } }
 }
 
-const learnedKey = (name: string, near: string): string => `${bodyKey(name)}|${bodyKey(near)}`
+/** site key: `${bodyKey(name)}|${bodyKey(near)}` (delete / block use it) */
+export const learnedKey = (name: string, near: string): string => `${bodyKey(name)}|${bodyKey(near)}`
 
 /**
  * Record a generic place found near a roster place. Keyed by name + near; a repeat updates the point and
- * moves to the end (newest). Keeps the newest LEARNED_MAX. Returns the same doc when the entry is invalid.
+ * moves to the end (newest). Keeps the newest LEARNED_MAX. Returns the same doc when the entry is invalid
+ * or its site key is blocked.
  */
-export function recordLearned(doc: BodiesDoc, entry: LearnedPlaceReport, at: string): BodiesDoc {
+export function recordLearned(doc: BodiesDoc, entry: LearnedPlaceReport, at: string, isBlocked?: (key: string) => boolean): BodiesDoc {
   if (!entry || !str(entry.name) || !str(entry.near) || !isVec(entry.point) || !isNum(entry.nearMeters) || entry.nearMeters < 0) return doc
   const k = learnedKey(entry.name, entry.near)
+  if (isBlocked?.(k)) return doc
   const prev = doc.learned.find((l) => learnedKey(l.name, l.near) === k)
   const rest = doc.learned.filter((l) => learnedKey(l.name, l.near) !== k)
   const item: LearnedPlace = {
@@ -205,6 +216,37 @@ export function recordLearned(doc: BodiesDoc, entry: LearnedPlaceReport, at: str
   }
   const learned = [...rest, item]
   return { ...doc, learned: learned.length > LEARNED_MAX ? learned.slice(learned.length - LEARNED_MAX) : learned }
+}
+
+/** remove learned sites by key (learnedKey); returns the same doc when none matched */
+export function deleteLearned(doc: BodiesDoc, keys: string[]): { doc: BodiesDoc; deleted: number } {
+  const drop = new Set(keys)
+  const learned = doc.learned.filter((l) => !drop.has(learnedKey(l.name, l.near)))
+  const deleted = doc.learned.length - learned.length
+  return deleted ? { doc: { ...doc, learned }, deleted } : { doc, deleted: 0 }
+}
+
+/**
+ * Remove the learned panel radius of planets by key (bodyKey): radiusM, seen and lastSeen go, so the body
+ * falls back to the estimate. The body itself (roster data) stays. Counts only bodies that had a panel radius.
+ */
+export function deletePanelRadius(doc: BodiesDoc, keys: string[]): { doc: BodiesDoc; deleted: number } {
+  let bodies: Record<string, BodyInfo> | null = null
+  let deleted = 0
+  for (const k of new Set(keys.map(bodyKey))) {
+    const prev = doc.bodies[k]
+    if (!prev || prev.radiusM === undefined) continue
+    bodies ??= { ...doc.bodies }
+    bodies[k] = {
+      ...prev,
+      radiusM: undefined,
+      radiusSource: radiusSane(prev.radiusEstM) ? 'estimate' : null,
+      seen: 0,
+      lastSeen: undefined
+    }
+    deleted++
+  }
+  return bodies ? { doc: { ...doc, bodies }, deleted } : { doc, deleted: 0 }
 }
 
 /** saved file -> doc; drops anything malformed */

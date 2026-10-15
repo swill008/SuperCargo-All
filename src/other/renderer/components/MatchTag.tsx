@@ -2,6 +2,7 @@
  * How sure a stop's place is (otherResolve StopPlace): "✓ exact", "≈ corrected", "📍 game marker"...
  * Colour from confidence on the WHERE AM I accuracy gradient. Only exact/marker/you set/learned can look green;
  * every other status is held to amber/red. Hover lists the evidence weighed; click opens MatchFix.
+ * A blocked stop text (batch 16) also gets a grey "blocked" tag that opens LEARNED DATA at the BLOCKED list.
  */
 import React, { useCallback, useState } from 'react'
 import { C, F } from '@renderer/theme'
@@ -10,6 +11,14 @@ import { formatDistance, formatPlaceNear, formatPlaceWithBodySystem } from '@oth
 import type { Location } from '@shared/types'
 import { accuracyColor } from './AccuracyMeter'
 import { MatchFix } from './MatchFix'
+import { useBlocked } from '../state/otherBlockedStore'
+import { focusLearnedSection } from '../state/learnedFocus'
+
+/** true when this place key is on the BLOCKED list */
+function useBlockedPlace(key: string | undefined): boolean {
+  const doc = useBlocked()
+  return !!key && doc.items.some((b) => b.kind === 'place' && b.key === key)
+}
 
 const NORMAL = new Set<StopPlace['status']>(['exact', 'marker', 'user', 'learned'])
 
@@ -66,6 +75,7 @@ export function MatchTag({ match }: { match?: StopPlace | null }): React.ReactEl
   const [anchor, setAnchor] = useState<HTMLButtonElement | null>(null)
   const [open, setOpen] = useState(false)
   const close = useCallback(() => setOpen(false), [])
+  const blocked = useBlockedPlace(match?.memoryKey)
   if (!match) return null
   const col = matchColor(match)
   const disputed = disputedLine(match)
@@ -92,6 +102,24 @@ export function MatchTag({ match }: { match?: StopPlace | null }): React.ReactEl
       >
         {matchWord(match.status)}
       </button>
+      {blocked ? (
+        <button
+          type="button"
+          data-testid="match-blocked-tag"
+          title="This text is blocked: it is not learned. Click to see the BLOCKED list"
+          onClick={(e) => {
+            e.stopPropagation()
+            focusLearnedSection('blocked')
+          }}
+          onMouseDown={(e) => e.stopPropagation()}
+          style={{
+            fontFamily: F.body, fontSize: 10, letterSpacing: '0.04em', color: C.ghost, background: 'transparent',
+            border: `1px solid ${C.ghost}`, borderRadius: 2, padding: '0 4px', lineHeight: 1.4, margin: '0 0 0 4px',
+            flex: 'none', whiteSpace: 'nowrap', verticalAlign: 'middle', textTransform: 'none', cursor: 'pointer',
+            WebkitAppRegion: 'no-drag'
+          } as React.CSSProperties}
+        >blocked</button>
+      ) : null}
       {disputed ? (
         <span style={{
           fontFamily: F.body, fontSize: 10, color: C.amber, marginLeft: 6, whiteSpace: 'nowrap',

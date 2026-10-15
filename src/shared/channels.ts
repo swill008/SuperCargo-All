@@ -106,6 +106,10 @@ export const IPC = {
   otherMemoryForget: 'otherMemory:forget', // (key) -> MemoryDoc
   otherMemoryUndo: 'otherMemory:undo', // (index into changes) -> MemoryDoc
   evtOtherMemory: 'evt:other:memory', // main -> all windows, MemoryDoc on every change
+  otherDataDelete: 'otherData:delete', // (DeleteRequest) -> DeleteReply; permanent delete (+ block) of learned data (batch 16)
+  otherBlockedGet: 'otherBlocked:get', // -> BlockedDoc
+  otherBlockedUnblock: 'otherBlocked:unblock', // ({ kind, key }[]) -> BlockedDoc
+  evtOtherBlocked: 'evt:other:blocked', // main -> all windows, BlockedDoc on every change
   otherGameDataGet: 'otherGameData:get', // -> GameDataReply (Star Citizen Wiki game data: counts, source, site table)
   otherGameDataUpdate: 'otherGameData:update', // download + rebuild -> GameDataReply (error? on failure)
   evtOtherGameData: 'evt:other:gameData', // main -> all windows, GameDataReply after every update

@@ -87,6 +87,48 @@ check('learned', `cap ${B.LEARNED_MAX}: oldest dropped`, L.learned.length === B.
 L = B.recordLearned(L, { name: 'Place 10', near: 'Lorville', nearMeters: 10, point }, AT)
 check('learned', 'repeat moves to newest', L.learned[L.learned.length - 1].name === 'Place 10' && L.learned.length === B.LEARNED_MAX)
 
+// ---- delete and block (batch 16) ----
+check('delete', 'learnedKey exported (name|near, lower case)', typeof B.learnedKey === 'function' && B.learnedKey(' Security Compound ', 'HDPC-Cassillo') === 'security compound|hdpc-cassillo')
+const hasDel = typeof B.deleteLearned === 'function' && typeof B.deletePanelRadius === 'function'
+check('delete', 'deleteLearned / deletePanelRadius exported', hasDel)
+if (hasDel) {
+  let S = { bodies: d2.bodies, learned: [] }
+  S = B.recordLearned(S, { name: 'Security Compound', near: 'HDPC-Cassillo', nearMeters: 1200, point }, AT)
+  S = B.recordLearned(S, { name: 'Drop Point', near: 'Lorville', nearMeters: 300, point }, AT)
+  const sd = B.deleteLearned(S, ['security compound|hdpc-cassillo'])
+  check('delete', 'site delete: entry gone, count 1', sd.deleted === 1 && sd.doc.learned.length === 1 && sd.doc.learned[0].name === 'Drop Point', `${sd.deleted}`)
+  check('delete', 'site delete: bodies untouched, input not mutated', sd.doc.bodies === S.bodies && S.learned.length === 2)
+  const sn = B.deleteLearned(S, ['nothing|here'])
+  check('delete', 'site delete with no match: same doc, 0', sn.doc === S && sn.deleted === 0)
+
+  const pd = B.deletePanelRadius(S, ['Hurston'])
+  const ph = pd.doc.bodies.hurston
+  check('delete', 'planet delete: panel radius gone, count 1', pd.deleted === 1 && ph.radiusM === undefined && ph.seen === 0 && ph.lastSeen === undefined, `${pd.deleted} ${ph?.radiusM} ${ph?.seen}`)
+  check('delete', 'planet delete: falls back to the estimate', ph.radiusSource === 'estimate' && B.bodyRadiusFromTable(pd.doc.bodies, 'Hurston') === hur.radiusEstM, km(B.bodyRadiusFromTable(pd.doc.bodies, 'Hurston')))
+  check('delete', 'planet delete: roster body kept (name, centre, estimate)', ph.name === 'Hurston' && ph.centre.x === hurEntry.x && ph.radiusEstM === hur.radiusEstM)
+  check('delete', 'planet delete: other bodies and learned sites untouched', pd.doc.bodies.lyria === S.bodies.lyria && pd.doc.learned === S.learned && S.bodies.hurston.radiusM === 1_000_100)
+  const rb = B.buildBodies(roster, B.normalizeBodiesDoc(JSON.parse(JSON.stringify(pd.doc))))
+  check('delete', 'planet delete survives save + rebuild (estimate)', rb.hurston.radiusM === undefined && rb.hurston.radiusSource === 'estimate' && rb.hurston.seen === 0)
+  const pn = B.deletePanelRadius(S, ['Lyria'])
+  check('delete', 'planet with no panel radius: same doc, 0', pn.doc === S && pn.deleted === 0)
+}
+
+// blocked keys are not recorded (main passes its block check through these)
+const blockedSite = (k) => k === 'security compound|hdpc-cassillo'
+const E = { bodies: table, learned: [] }
+check('block', 'blocked site not recorded', B.recordLearned(E, { name: 'Security Compound', near: 'HDPC-Cassillo', nearMeters: 1200, point }, AT, blockedSite) === E)
+check('block', 'unblocked site still recorded', B.recordLearned(E, { name: 'Drop Point', near: 'Lorville', nearMeters: 300, point }, AT, blockedSite).learned.length === 1)
+const blockedPlanet = (k) => k === 'hurston'
+check('block', 'blocked planet: panel radius not recorded', B.recordPanelRadius(E, 'HURSTON', 'Stanton', 1_000_123, AT, blockedPlanet) === E)
+check('block', 'unblocked planet still recorded', B.recordPanelRadius(E, 'Lyria', 'Stanton', 224_000, AT, blockedPlanet).bodies.lyria.radiusM === 224_000)
+
+// main wiring: setter exists, record paths and bodiesDelete pass through it
+const mainSrc = fs.readFileSync(path.join(root, 'src/other/main/bodies.ts'), 'utf8')
+check('block', 'main exports setBodiesBlockCheck and bodiesDelete', /export function setBodiesBlockCheck\(/.test(mainSrc) && /export function bodiesDelete\(/.test(mainSrc))
+check('block', "recordLearnedPlace passes the 'site' check", /recordLearned\([^;]*blockCheck\('site'/.test(mainSrc))
+check('block', "panel radius record passes the 'planet' check", /recordPanelRadius\([^;]*blockCheck\('planet'/.test(mainSrc))
+check('block', 'main does not import blocked.ts', !/from '\.\/blocked'/.test(mainSrc))
+
 // ---- diagnostics ----
 const diag = B.bodiesDiag(d1)
 const dh = diag.table.find((r) => r.name === 'Hurston')

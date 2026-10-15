@@ -560,11 +560,20 @@ main `matchMemory.getMemory()`). `test/replay/resolver_guard.mjs` fails on a nam
 | Stop's place (pickup while open, else drop-off; marker, generic site, memory) | `otherResolve.ts:resolveStopPlace(step, ctx, job?)` | `otherNext.ts:listOpenStops` (rows, route sort, overlay, Next), `JobsParts.tsx` (Jobs step), `otherDiag.ts` (SNAPSHOT `match`, `## MATCHES`) | overlay, Next tab, Jobs step (`MatchTag` -> MatchFix) |
 | Any place text without a step | `otherResolve.ts:resolvePlaceText(text, ctx, marker?, related?, jobTexts?)` | `resolveStopPlace`, `otherJobs.ts` proof compare, `otherDiag.ts` | via its caller |
 | Job import from Game.log | `otherResolve.ts:importPlace(raw, ctx)` | `otherLog.ts:stepFromParse(id, parsed, locations?, ctx?)` (renderer and main scan) | Jobs step (text as read + matched place + tag) |
-| Job import from a scan (OCR) | `otherResolve.ts:importPlace(raw, ctx, { ocr: true, label })` | `renderer/state/otherOcr.ts:applyOcrRows`, `OtherCaptureModal.tsx` (confirm screen) | scan confirm screen, then Jobs step |
+| Job import from a scan (OCR) | `otherResolve.ts:importPlace(raw, ctx, { ocr: true, label })` | `renderer/state/otherOcr.ts:applyOcrRows`, `OtherCaptureModal.tsx` (confirm screen) | scan confirm screen, then Jobs step (batch 17: a pickup step and a drop-off step, pickup first, like the log; no combined step) |
 | Typed start | `otherResolve.ts:resolveStartText(text, ctx)` | `otherNext.ts:resolveOrigin({ typed, memory, ... })` -> `match` | Next tab and overlay, next to STARTING AT |
 | Log position clues (Objective Complete place, inventory) | `otherResolve.ts:resolveStartText(text, ctx)` | `renderer/state/otherJobs.ts:whereFromPlace` | where line (source shown) |
 | Map line (zone 1) names | `otherResolve.ts:resolveStartText` via the `resolve?` closure | `otherWhere.ts:resolveMapLine(..., resolve?)`, closure built in `main/whereAmI.ts` (main memory + site codes) | WHERE AM I result |
 | Marker placement (does the step's place have coordinates) | `otherResolve.ts:resolveStopPlace` | `renderer/state/otherJobs.ts:placeSteps` | |
+
+**OCR fill flow (batch 17, 2026-10-15).** `otherOcrParse.ts:parseOtherOcrText` (contract text) -> rows, one per
+objective: "Collect X from A" -> a `pickup` row, "Deliver X to B" -> a `turnin` row (no merge into one combined row)
+-> `otherOcr.ts:applyOcrRows` (auto-OCR and the SCAN CONTRACT window, `OtherCaptureModal.tsx`) -> job steps, pickup
+first (STANDALONE rule 24). Later "New Objective" log lines go through the 'objective' handler in
+`renderer/state/otherJobs.ts`, which adopts the matching step (same kind, item and `placeKey` place, no `logText`)
+instead of adding one. Combined steps (`pickupLocation`) exist only on jobs saved before 1.0.4. Resolver note:
+`otherResolve.ts` prefers the site in a "<site> in <city>" text over the city when the site lies in that city
+(STANDALONE rule 37; case row in `test/replay/fixtures/stop_cases.json`).
 
 **Code -> place**
 
@@ -670,6 +679,41 @@ LearnedDataPage
 
 Run (after `npm run build`): `node test/replay/replay.mjs learned-data-tab memory-undo settings-tabs`; pure:
 `node test/replay/memory_checks.mjs`.
+
+## Other mode: delete and block learned data (batch 16, 2026-10-15)
+
+Rules 97-103 and re-tie 24 in [STANDALONE.md](../src/other/STANDALONE.md#delete-and-block-learned-data-batch-16-user-2026-10-15);
+decision in [DECISIONS.md](DECISIONS.md) section 5; contract [batch-16-delete-block.md](contracts/batch-16-delete-block.md).
+DELETE on every LEARNED DATA row (Places, Sites, Planets), Delete and block, a BLOCKED list with UNBLOCK. Release R1 1.0.4.
+
+| File | Owns (batch 16) | Entry points |
+|---|---|---|
+| `src/other/otherBlocked.ts` (new, pure) | Types and helpers of the BLOCKED list | types `LearnedKind`, `BlockedItem { kind, key, label, at }`, `BlockedDoc { items }`, `DeleteRequest { kind, keys, block }`, `DeleteReply { ok, deleted, blocked, error? }`; helpers normalize / add / remove / isBlocked |
+| `src/other/main/blocked.ts` (new) | `<data folder>/other-blocked.json` (load, save through `dataPath()`); `isBlocked(kind, key)` for the learners; IPC handlers delete (calls `memoryDelete` / `bodiesDelete`, then adds blocks), get, unblock; broadcast `evt:other:blocked`; logs `learned data delete` { kind, count, block } / `learned data unblock` { kind, count } (no entry contents) | registered from `src/other/main/register.ts` |
+| `src/other/main/register.ts` | Registers the blocked IPC; `'BLOCKED'` diagnostics section (count per kind and the items, sanitised like the others) | `registerOther()` |
+| `src/shared/channels.ts`, `src/preload/index.ts` (Other blocks, re-tie 24) | `otherData:delete` (DeleteRequest → DeleteReply), `otherBlocked:get` (→ BlockedDoc), `otherBlocked:unblock` ({kind,key}[] → BlockedDoc), `evt:other:blocked` | `otherDataDelete(r)`, `otherBlockedGet()`, `otherBlockedUnblock(items)`, `onOtherBlocked(cb)` |
+| `src/other/otherMemory.ts`, `src/other/main/matchMemory.ts` | Pure `deleteEntries(doc, keys)` (entries and their RECENT CHANGES); main `memoryDelete(keys)` (save, broadcast `evt:other:memory`, count); `memorySeen` / `memoryProof` skip blocked place keys (injected `isBlocked`); a user set still works | `deleteEntries()`, `memoryDelete()` |
+| `src/other/otherBodies.ts`, `src/other/main/bodies.ts` | `learnedKey` exported; pure `deleteLearned(doc, keys)` (sites), `deletePanelRadius(doc, keys)` (planet `radiusM`, `seen` / `lastSeen` reset; body kept); main `bodiesDelete(kind, keys)` (save, broadcast); `recordLearnedPlace` and the panel-radius record skip blocked keys | `learnedKey()`, `deleteLearned()`, `deletePanelRadius()`, `bodiesDelete()` |
+| `src/other/renderer/state/otherBlockedStore.ts` (new) | Renderer copy of the BLOCKED list (get + `onOtherBlocked`) | store hooks |
+| `src/other/renderer/components/DeleteConfirm.tsx` (new) | The confirm: "Delete permanently?" (or "Delete N entries permanently?"), "This can't be undone.", preview (10 labels, then "and N more"), Delete / Delete and block / Cancel (Esc) | `DeleteConfirm` |
+| `src/other/renderer/components/BlockedList.tsx` (new) | BLOCKED section after Planets: label, list (Places / Sites / Planets), blocked at; UNBLOCK per row, tick boxes + UNBLOCK SELECTED | `BlockedList` |
+| `src/other/renderer/pages/LearnedDataPage.tsx`, `components/LearnedPlaces.tsx`, `LearnedBodies.tsx` | DELETE per row, tick boxes, DELETE SELECTED, DELETE SHOWN (current filter and search); BLOCKED section | |
+| `src/other/renderer/components/MatchFix.tsx`, `MatchTag.tsx`, `NeedsYourEye.tsx`, `src/other/renderer/state/learnedFocus.ts` | Delete and block in the fix panel (place, memory key); grey `blocked` tag that opens LEARNED DATA at the BLOCKED list | |
+| `test/replay/blocked_checks.mjs` (new) | Pure checks of the blocked helpers and the delete / skip rules | `node test/replay/blocked_checks.mjs` |
+| `test/replay/memory_checks.mjs`, `test/replay/bodies_checks.mjs` | `deleteEntries`; `deleteLearned`, `deletePanelRadius`; blocked keys skipped | |
+| `test/replay/replay.mjs` | Batch 16 scenario: delete a place (file + RECENT CHANGES), delete and block (seen again, not learned), BLOCKED list, UNBLOCK, restart keeps state; site and planet delete; DELETE SHOWN | `node test/replay/replay.mjs <names>` |
+
+Data file: `<data folder>/other-blocked.json` (`{ items: BlockedItem[] }`). Diagnostics: `## BLOCKED`.
+
+```
+LEARNED DATA row DELETE / DELETE SELECTED / DELETE SHOWN / MatchFix Delete and block ─► DeleteConfirm
+   ─► otherData:delete { kind, keys, block } ─► blocked.ts
+        place  ─► memoryDelete(keys)  ─► other-matches.json (entries + their changes) ─► evt:other:memory
+        site / planet ─► bodiesDelete(kind, keys) ─► other-bodies.json ─► broadcast
+        block? ─► add BlockedItems ─► other-blocked.json ─► evt:other:blocked ─► BLOCKED list, blocked tags
+game sees text again ─► recordSeen / recordProof / recordLearnedPlace / panel radius ─► isBlocked? ─► skipped
+UNBLOCK ─► otherBlocked:unblock ─► removed from other-blocked.json (data not restored; can be learned again)
+```
 
 ## Other mode: problem stops highlighted (2026-10-14)
 

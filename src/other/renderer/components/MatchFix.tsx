@@ -1,7 +1,7 @@
 /**
  * Fix a stop's match on the spot (M5): evidence lines, ✓ Right, ✗ Wrong → pick a place, Forget.
  * Writes go to main (otherMemorySet/Forget), which owns other-matches.json and broadcasts the new doc,
- * so this works in the overlay window too. PlacePicker is shared with LEARNED DATA → Places; "Open in Learned Data" jumps there.
+ * so this works in the overlay window too. DELETE AND BLOCK (batch 16) removes the stop's text from learned data for good. PlacePicker is shared with LEARNED DATA → Places; "Open in Learned Data" jumps there.
  */
 import React, { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
 import { createPortal } from 'react-dom'
@@ -13,6 +13,8 @@ import type { Location } from '@shared/types'
 import { useMergedLocations } from '../state/otherPlaces'
 import { useMemoryLookup } from '../state/otherMemoryStore'
 import { focusLearned } from '../state/learnedFocus'
+import { DeleteConfirm } from './DeleteConfirm'
+import { deleteLearned } from '../state/otherBlockedStore'
 
 /** most picks shown at once */
 const PICK_MAX = 30
@@ -159,6 +161,10 @@ export function MatchFix({ match, anchor, onClose }: {
   const lookup = useMemoryLookup()
   const entry = match.memoryKey ? lookup(match.memoryKey) : undefined
   const [picking, setPicking] = useState(false)
+  const [confirming, setConfirming] = useState(false)
+  // the confirm dialog sits outside this box: its clicks and Esc must not close the panel
+  const confirmingRef = useRef(false)
+  confirmingRef.current = confirming
   const box = useRef<HTMLDivElement>(null)
   const [pos, setPos] = useState<{ left: number; top: number } | null>(null)
 
@@ -185,9 +191,10 @@ export function MatchFix({ match, anchor, onClose }: {
 
   useEffect(() => {
     const onKey = (e: KeyboardEvent): void => {
-      if (e.key === 'Escape') onClose()
+      if (e.key === 'Escape' && !confirmingRef.current) onClose()
     }
     const onDown = (e: MouseEvent): void => {
+      if (confirmingRef.current) return
       const t = e.target as Node | null
       if (t && (box.current?.contains(t) || anchor?.contains(t))) return
       onClose()
@@ -207,6 +214,8 @@ export function MatchFix({ match, anchor, onClose }: {
     [match.candidates, right]
   )
   const canWrite = !!match.memoryKey && !!match.text
+  /** the key FORGET uses: the stored entry's, else the stop's */
+  const delKey = entry?.key ?? match.memoryKey
 
   return createPortal(
     <div
@@ -279,6 +288,16 @@ export function MatchFix({ match, anchor, onClose }: {
               hoverStyle={{ border: `1px solid ${C.acc}` }}
             >FORGET</Btn>
           ) : null}
+          {delKey && match.text ? (
+            <Btn
+              type="button"
+              data-testid="matchfix-delete-block"
+              title="Delete this text from learned data for good, and block it so it is not learned again"
+              onClick={() => setConfirming(true)}
+              style={{ ...fixBtn, color: C.red }}
+              hoverStyle={{ border: `1px solid ${C.red}` }}
+            >DELETE AND BLOCK</Btn>
+          ) : null}
         </div>
       )}
       <div style={{ marginTop: 8, textAlign: 'right' }}>
@@ -296,6 +315,19 @@ export function MatchFix({ match, anchor, onClose }: {
           }}
         >Open in Learned Data</button>
       </div>
+      {confirming && delKey ? (
+        <DeleteConfirm
+          open
+          labels={[match.text]}
+          count={1}
+          onDelete={(block) => {
+            void deleteLearned({ kind: 'place', keys: [delKey], block, labels: { [delKey]: match.text } })
+            setConfirming(false)
+            onClose()
+          }}
+          onCancel={() => setConfirming(false)}
+        />
+      ) : null}
     </div>,
     document.body
   )

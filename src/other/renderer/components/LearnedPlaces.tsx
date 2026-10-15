@@ -2,6 +2,7 @@
  * LEARNED DATA → Places (M6/M7, S1/S3/S4): summary bar (each count a filter), "Needs your eye",
  * disputed entries pinned on top of the table with KEEP MINE / USE WHERE I WAS, then every remembered game text with its
  * place and how it was learned: sortable, searchable, with Change (same picker as MatchFix) and Forget;
+ * DELETE per row, tick boxes + DELETE SELECTED, DELETE SHOWN (batch 16; same confirm, optional block);
  * then the last 50 changes with Undo. Main owns other-matches.json; every write comes back as evt:other:memory.
  */
 import React, { useEffect, useMemo, useState } from 'react'
@@ -17,6 +18,7 @@ import { offSourcePlaces, useMergedLocations } from '../state/otherPlaces'
 import { clearLearnedFocus, useLearnedFocus } from '../state/learnedFocus'
 import NeedsYourEye from './NeedsYourEye'
 import { PlacePicker, fixBtn, memoryForget, memorySet } from './MatchFix'
+import { DeleteBar, tickStyle, useDeleteFlow, useSelection, type DeleteItem } from './DeleteConfirm'
 
 export type Kind = 'user' | 'learned' | 'unproven' | 'disputed'
 type Filter = 'all' | 'game' | Kind
@@ -113,13 +115,16 @@ function compare(col: SortCol, a: MemoryEntry, b: MemoryEntry): number {
 }
 
 const COLS: { col: SortCol | null; label: string; width: string; align?: 'right' }[] = [
-  { col: 'text', label: 'TEXT AS READ', width: '22%' },
-  { col: 'place', label: 'PLACE', width: '28%' },
-  { col: 'how', label: 'HOW LEARNED', width: '15%' },
-  { col: 'seen', label: 'SEEN', width: '7%', align: 'right' },
-  { col: 'last', label: 'LAST USED', width: '11%' },
-  { col: null, label: '', width: '17%' }
+  { col: 'text', label: 'TEXT AS READ', width: '20%' },
+  { col: 'place', label: 'PLACE', width: '25%' },
+  { col: 'how', label: 'HOW LEARNED', width: '14%' },
+  { col: 'seen', label: 'SEEN', width: '6%', align: 'right' },
+  { col: 'last', label: 'LAST USED', width: '10%' },
+  { col: null, label: '', width: '22%' }
 ]
+
+/** what the delete confirm lists for an entry */
+const deleteLabel = (e: MemoryEntry): string => (e.context ? `${e.text} (at ${e.context})` : e.text)
 
 export default function LearnedPlaces(): React.ReactElement {
   const doc = useMemory()
@@ -192,6 +197,14 @@ export default function LearnedPlaces(): React.ReactElement {
     return head
   }, [rows, flash])
 
+  // batch 16: tick boxes over every row the filter/search shows; DELETE SHOWN takes them all
+  const shownItems = useMemo<DeleteItem[]>(() => rows.map((e) => ({ key: e.key, label: deleteLabel(e) })), [rows])
+  const shownKeys = useMemo(() => shownItems.map((i) => i.key), [shownItems])
+  const { sel, toggle, setAll, clear } = useSelection(shownKeys)
+  const { ask, dialog } = useDeleteFlow('place', clear)
+  const picked = shownItems.filter((i) => sel.has(i.key))
+  const drawnAllOn = shown.length > 0 && shown.every((e) => sel.has(e.key))
+
   const choiceStyle = (on: boolean): React.CSSProperties => ({
     padding: '4px 10px',
     border: `1px solid ${on ? C.accBorder : C.lineStrong}`,
@@ -259,10 +272,24 @@ export default function LearnedPlaces(): React.ReactElement {
           {rows.length === doc.entries.length ? `${rows.length}` : `${rows.length} of ${doc.entries.length}`}
         </span>
       </div>
+      {rows.length ? <DeleteBar selected={picked} shown={shownItems} onAsk={ask} testid="learned-places" /> : null}
       {rows.length ? (
         <table data-testid="learned-table" style={{ width: '100%', borderCollapse: 'collapse', tableLayout: 'fixed' }}>
           <thead>
             <tr>
+              <th style={{ ...head, width: 26, paddingLeft: 4 }}>
+                <input
+                  type="checkbox"
+                  aria-label="Select all drawn rows"
+                  checked={drawnAllOn}
+                  onChange={() => {
+                    // header box ticks the drawn rows (up to 100); DELETE SHOWN covers the rest
+                    if (drawnAllOn) setAll(false)
+                    else for (const e of shown) if (!sel.has(e.key)) toggle(e.key)
+                  }}
+                  style={tickStyle}
+                />
+              </th>
               {COLS.map((c, i) => (
                 <th
                   key={i}
@@ -302,7 +329,17 @@ export default function LearnedPlaces(): React.ReactElement {
                     transition: 'background 0.6s'
                   }}
                 >
-                  <td style={{ ...cell, paddingLeft: 4, wordBreak: 'break-word' }}>
+                  <td style={{ ...cell, paddingLeft: 4 }}>
+                    <input
+                      type="checkbox"
+                      data-testid="learned-row-tick"
+                      aria-label={`Select ${e.text}`}
+                      checked={sel.has(e.key)}
+                      onChange={() => toggle(e.key)}
+                      style={tickStyle}
+                    />
+                  </td>
+                  <td style={{ ...cell, wordBreak: 'break-word' }}>
                     <span style={{ color: C.text }}>{e.text}</span>
                     {e.context ? <div style={{ color: C.dim, fontSize: 11 }}>{`at ${e.context}`}</div> : null}
                   </td>
@@ -374,6 +411,14 @@ export default function LearnedPlaces(): React.ReactElement {
                       <Btn type="button" onClick={() => memoryForget(e.key)} style={fixBtn} hoverStyle={{ border: `1px solid ${C.acc}` }}>
                         FORGET
                       </Btn>
+                      <Btn
+                        type="button"
+                        data-testid="learned-row-delete"
+                        title="Delete permanently (no undo)"
+                        onClick={() => ask([{ key: e.key, label: deleteLabel(e) }])}
+                        style={{ ...fixBtn, color: C.red }}
+                        hoverStyle={{ border: `1px solid ${C.red}` }}
+                      >DELETE</Btn>
                     </div>
                   </td>
                 </tr>
@@ -386,6 +431,7 @@ export default function LearnedPlaces(): React.ReactElement {
           {doc.entries.length ? 'Nothing matches.' : 'Nothing learned yet.'}
         </div>
       )}
+      {dialog}
       {rows.length > ROWS_MAX ? (
         <div style={{ fontSize: 12, color: C.dim, marginTop: 4 }}>{`Showing ${ROWS_MAX}; search to find the rest.`}</div>
       ) : null}

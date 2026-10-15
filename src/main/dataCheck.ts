@@ -19,6 +19,7 @@ export const DATA_FILES = [
   'other-jobs.json',
   'other-matches.json',
   'other-bodies.json',
+  'other-blocked.json',
   'other-uex-places.json',
   'reference-data-status.json',
   'upload-queue.json'
@@ -83,6 +84,7 @@ const SHAPES: Record<string, Shape> = {
   'other-jobs.json': object, // other/main/jobs.ts parseDoc: 'not an object'
   'other-matches.json': object, // matchMemory.ts normalizeMemoryDoc
   'other-bodies.json': object, // otherBodies.ts normalizeBodiesDoc
+  'other-blocked.json': object, // otherBlocked.ts normalizeBlockedDoc (batch 16)
   'other-uex-places.json': needsList('places'), // other/main/uex.ts loadOtherPlaces
   'upload-queue.json': listsIfPresent('items'), // telemetry.ts loadQueue
   'reference-data-status.json': listsIfPresent('files'), // dataSync.ts loadRefDataStatus

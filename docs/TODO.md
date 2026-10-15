@@ -59,3 +59,16 @@ with an Electron version that runs Node 22. The Electron upgrade is NOT DOING fo
   time it is opened while tesseract.js is broken.
 - `readerStats()` (restarts, trashed, timeouts, switches) is not in the diagnostics export yet.
 - Haul glare retries (up to 5 contract reads 400 ms apart) can use up a WHERE AM I press's 5 re-runs.
+
+## Delete and block follow-ups (batch 16 review, 2026-10-15; ask the user before changing behaviour)
+
+- DELETE on a planet that only has an estimate deletes nothing (Delete and block still blocks it); no message says so.
+- The grey "blocked" tag in the overlay window opens LEARNED DATA in that window (same as the existing "Open in
+  Learned Data"), which may do nothing useful there.
+- OCR parse: a "Reward …aUEC" line right after a wrapped objective line is glued onto the place text (old behaviour;
+  on the real screen the reward sits above the objectives). Fix (treat a reward line as not a continuation) needs the
+  user's OK. (batch 17, 2026-10-15)
+- Scan window leftovers: `OtherCaptureModal.tsx` still maps/previews `pickupLocation`, which OCR no longer sets
+  (harmless). A pickup row whose label the user cleared gets the fallback label "Deliver 0/N …" (older behaviour).
+- Jobs saved with a combined step still get extra steps if late "New Objective" lines arrive (unchanged behaviour,
+  user's choice 2A: leave saved jobs as they are). (batch 17 review, 2026-10-15)

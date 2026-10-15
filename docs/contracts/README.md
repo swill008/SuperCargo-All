@@ -27,6 +27,8 @@ Game ids (mission ids, zone ids) and repo owner handles are replaced with placeh
 | 12b | [batch-12b-final-scope.md](batch-12b-final-scope.md) | Final batch 12 scope: data folder like Gremlin, damaged-data check and "Moved for Repair", updates like Gremlin, reference data status, overlay fixes O1-O3, release notes in the workflow | `4345d95` |
 | 14 | [batch-14-zones-share-reader.md](batch-14-zones-share-reader.md) | Zones 1 and 2 share the WHERE AM I reader: two OCR readers instead of three | (batch 14 commit) |
 | 15 | [batch-15-one-reader.md](batch-15-one-reader.md) | One Tesseract reader for all OCR (contracts and both WHERE AM I zones): contract first, re-runs, no backup reader, closes on quit, OCR time limit setting | (release 1.0.3 commit) |
+| 16 | [batch-16-delete-block.md](batch-16-delete-block.md) | Delete learned data permanently (Places, Sites, Planets), delete and block, BLOCKED list with UNBLOCK (R1 1.0.4) | (release 1.0.4 commit) |
+| 17 | [batch-17-ocr-split.md](batch-17-ocr-split.md) | OCR-filled jobs split into pickup and drop-off steps like the log (late log objectives adopt them, no duplicates); saved combined steps left as they are; resolver prefers "<site> in <city>" site over the city (R1 1.0.4) | (release 1.0.4 commit) |
 
 Earlier work (debug logging, the upstream v0.9.1 merge, the first Other-mode fix batch with options 1-10,
 the replay tests, distances on the Next page and overlay) was planned in the chat without a written

@@ -393,7 +393,7 @@ safe("holdsData", () => {
   const missing = names.filter((n) => !DC.isDataEntry(n));
   check("holdsData", "every SuperCargo name counts", missing.length === 0, missing.join(", "));
   for (const n of ["manifest.json", "history.json", "window-state.json", "other-jobs.json", "other-matches.json",
-    "other-bodies.json", "other-uex-places.json", "reference-data-status.json", "upload-queue.json", "game-data",
+    "other-bodies.json", "other-blocked.json", "other-uex-places.json", "reference-data-status.json", "upload-queue.json", "game-data",
     "logs", "ocr-samples", "other-ocr-session", "outbox", "exports"]) {
     check("holdsData", `list has ${n}`, DC.isDataEntry(n));
   }

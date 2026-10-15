@@ -29,8 +29,9 @@ import {
 } from './whereAmI'
 import { disposeReader, setReaderTimeLimit } from './ocrReader'
 import { getAfkDiag, registerOtherAfkIpc, stopOtherAfk } from './afk'
-import { getBodiesDiag, registerOtherBodiesIpc } from './bodies'
-import { flushMemory, getMemoryDiag, registerOtherMemoryIpc } from './matchMemory'
+import { getBodiesDiag, registerOtherBodiesIpc, setBodiesBlockCheck } from './bodies'
+import { flushMemory, getMemoryDiag, registerOtherMemoryIpc, setMemoryBlockCheck } from './matchMemory'
+import { getBlockedDiag, isBlocked, registerOtherBlockedIpc } from './blocked'
 import { getGameDataStatus, registerOtherGameDataIpc } from './gameData'
 import { loadCachedLocations } from '../../main/uex'
 import { logger } from '../../main/logger'
@@ -64,6 +65,10 @@ export function registerOther({ watcher, getSettings, getMainWindow, reregisterH
   registerOtherAfkIpc(getSettings)
   registerOtherBodiesIpc()
   registerOtherMemoryIpc()
+  // delete and block (batch 16): blocked keys are never learned again until UNBLOCK
+  registerOtherBlockedIpc()
+  setMemoryBlockCheck((k) => isBlocked('place', k))
+  setBodiesBlockCheck(isBlocked)
   registerOtherGameDataIpc()
   // diagnostics export: each key becomes a '## <KEY>' section (sanitised there); zone crops only when images are opted in
   setOtherDiagSource({
@@ -77,6 +82,7 @@ export function registerOther({ watcher, getSettings, getMainWindow, reregisterH
         'AFK LOG': getAfkDiag(),
         BODIES: getBodiesDiag(),
         'MATCH MEMORY': getMemoryDiag(),
+        BLOCKED: getBlockedDiag(),
         'GAME DATA': getGameDataStatus()
       }
     },

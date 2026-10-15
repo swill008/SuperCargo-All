@@ -10,12 +10,14 @@ import { IPC } from '@shared/channels'
 import {
   CHANGES_MAX,
   MEMORY_MAX,
+  deleteEntries,
   emptyMemoryDoc,
   forgetEntry,
   recordProof,
   recordSeen,
   setUserPlace,
   undoChange,
+  withoutBlocked,
   type MemoryChange,
   type MemoryDoc,
   type MemoryEntry,
@@ -182,6 +184,13 @@ function apply(next: MemoryDoc, what: string, info: Record<string, unknown>): Me
 
 const now = (): string => new Date().toISOString()
 
+/** blocked place keys (Delete and block): set by blocked.ts so this file doesn't import it */
+let blockCheck: (key: string) => boolean = () => false
+
+export function setMemoryBlockCheck(fn: (key: string) => boolean): void {
+  blockCheck = fn
+}
+
 export function getMemory(): MemoryDoc {
   return load()
 }
@@ -190,8 +199,8 @@ export function memorySeen(list: MemorySeenInput[]): MemoryDoc {
   let d = load()
   const at = now()
   let n = 0
-  for (const s of list) {
-    if (!isObj(s) || !isStr(s.key) || !s.key || !isStr(s.text)) continue
+  const valid = list.filter((s) => isObj(s) && isStr(s.key) && !!s.key && isStr(s.text))
+  for (const s of withoutBlocked(valid, blockCheck)) {
     d = recordSeen(d, s, at)
     n++
   }
@@ -203,6 +212,7 @@ export function memoryProof(p: MemoryProofInput): MemoryDoc {
     logger.debug('other', 'match memory: proof rejected', {})
     return load()
   }
+  if (!withoutBlocked([p], blockCheck).length) return load()
   return apply(recordProof(load(), p, now()), 'proof', { key: p.key, place: p.place, ok: p.ok, actual: p.actual.name, meters: p.actual.meters })
 }
 
@@ -220,6 +230,15 @@ export function memorySet(p: MemorySetInput): MemoryDoc {
 export function memoryForget(key: string): MemoryDoc {
   if (!isStr(key) || !key) return load()
   return apply(forgetEntry(load(), key, now()), 'forget', { key })
+}
+
+/** DELETE: entries and their changes go for good; returns how many entries were removed */
+export function memoryDelete(keys: string[]): number {
+  if (!Array.isArray(keys)) return 0
+  const { doc: next, deleted } = deleteEntries(load(), keys.filter((k) => isStr(k) && !!k))
+  apply(next, 'delete', { count: deleted })
+  logger.info('other', 'match memory delete', { count: deleted })
+  return deleted
 }
 
 export function memoryUndo(index: number): MemoryDoc {

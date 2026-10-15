@@ -4,7 +4,6 @@
  * Item / location / counts are still extracted when the line matches.
  */
 import type { OtherObjectiveParse } from '@other/otherLog'
-import { mergeCollectIntoDeliver } from '@other/otherLog'
 
 const SKIP =
   /^(primary\s+)?(objectives?|details?|description|reputation|risk|reward|aUEC|max box|box size|pickup|drop-?off|contract|accepted|offered)$/i
@@ -149,6 +148,23 @@ export function parseOtherOcrLine(raw: string): OtherOcrRow | null {
   return null
 }
 
+const itemKey = (s?: string): string => (s || '').toLowerCase().replace(/[^a-z0-9]+/g, ' ').trim()
+
+/**
+ * Separate pickup and turn-in rows, pickup first (rule 24 order): a pickup row moves to just before the first
+ * earlier turn-in row with the same item. Rows without an item keep game order.
+ */
+export function pickupsFirst<T extends Pick<OtherOcrRow, 'kind' | 'item'>>(rows: T[]): T[] {
+  const out: T[] = []
+  for (const r of rows) {
+    const key = itemKey(r.item)
+    const at = r.kind === 'pickup' && key ? out.findIndex((o) => o.kind === 'turnin' && itemKey(o.item) === key) : -1
+    if (at >= 0) out.splice(at, 0, r)
+    else out.push(r)
+  }
+  return out
+}
+
 function rowKey(r: OtherOcrRow): string {
   return `${r.kind}|${r.label.toLowerCase()}`
 }
@@ -179,7 +195,7 @@ export function parseOtherOcrText(rawText: string): OtherOcrParse {
     seen.add(key)
     rows.push(parsed)
   }
-  return { reward, rows: mergeCollectIntoDeliver(rows) }
+  return { reward, rows: pickupsFirst(rows) }
 }
 
 /** Orison Relief / count-less objective lines from Stacie's 2026-09-16 capture. */

@@ -1,6 +1,6 @@
 /**
  * LEARNED DATA tab (Other mode only): what the app has learned from the game.
- * Places (match memory, editable), Sites and Planets (planet table, read-only).
+ * Places (match memory, editable), Sites and Planets (planet table), Blocked (batch 16). Every list can delete.
  * Section headings match Settings → OTHER MODE.
  */
 import React from 'react'
@@ -8,6 +8,7 @@ import { C, F } from '@renderer/theme'
 import PageHeader, { PAGE_PADDING } from '@renderer/components/PageHeader'
 import LearnedPlaces from '../components/LearnedPlaces'
 import { LearnedPlanets, LearnedSites } from '../components/LearnedBodies'
+import BlockedList from '../components/BlockedList'
 
 const headingStyle: React.CSSProperties = {
   fontFamily: F.display,
@@ -31,7 +32,7 @@ function Section({ id, title, desc, first = false, children }: {
   children: React.ReactNode
 }): React.ReactElement {
   return (
-    <section id={`learned-${id}`} data-testid={`learned-section-${id}`}>
+    <section id={`learned-${id}`} data-testid={`learned-section-${id}`} data-learned-section={id} style={{ scrollMarginTop: 12 }}>
       <h2 style={{ ...headingStyle, ...(first ? { marginTop: 18 } : null) }}>{title}</h2>
       <div style={descStyle}>{desc}</div>
       {children}
@@ -51,11 +52,18 @@ export default function LearnedDataPage(): React.ReactElement {
       >
         <LearnedPlaces />
       </Section>
-      <Section id="sites" title="Sites" desc="Unnamed sites (such as a Security Compound) the app found near a known place. Read only.">
+      <Section id="sites" title="Sites" desc="Unnamed sites (such as a Security Compound) the app found near a known place. Delete one if it is wrong.">
         <LearnedSites />
       </Section>
-      <Section id="planets" title="Planets" desc="Planets and moons with their size: exact once read from the game panel, else estimated. Read only.">
+      <Section id="planets" title="Planets" desc="Planets and moons with their size: exact once read from the game panel, else estimated. Deleting a planet removes only its read size; it goes back to the estimate.">
         <LearnedPlanets />
+      </Section>
+      <Section
+        id="blocked"
+        title="Blocked"
+        desc="Entries you deleted and blocked, so the game doesn't learn them again. Unblocking doesn't bring the data back; it can be learned again."
+      >
+        <BlockedList />
       </Section>
     </div>
   )

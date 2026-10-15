@@ -562,6 +562,28 @@ interface Weighed {
   accepted: boolean
 }
 
+/**
+ * "<site> in <city>" (batch 17 item 3): the text names a place inside the city, not the city. When a site
+ * candidate (name partly matched) lies within the city's area, the site gets +2 and the city loses its
+ * containment points; a site elsewhere changes nothing, so the tie and rule 37 stand.
+ */
+function siteInCity(p: Parsed, scored: Scored[]): void {
+  for (const city of scored) {
+    if (city.nameKind !== 'contains' || city.partOf || !city.e.hasCoords || !endsWithPlace(p.name, city.e.key)) continue
+    const sites = scored.filter((s) =>
+      s !== city && s.nameKind === 'contains' && !s.partOf && s.e.hasCoords &&
+      sysKey(s.e.loc.system) === sysKey(city.e.loc.system) && dist(s.e.loc, city.e.loc as XYZ) <= NEAR_MAX_M
+    )
+    if (!sites.length) continue
+    for (const s of sites) {
+      s.score += PTS_BODY
+      s.evidence.push({ kind: 'body', ok: true, points: PTS_BODY, text: `contract says in ${city.e.loc.name} ✓ (${shortDist(dist(s.e.loc, city.e.loc as XYZ))} from it)` })
+    }
+    city.score -= PTS_CONTAINS
+    city.evidence.push({ kind: 'name', ok: false, points: -PTS_CONTAINS, text: `the text names a place in ${city.e.loc.name}, not ${city.e.loc.name} itself` })
+  }
+}
+
 function weigh(raw: string, ctx: ResolveCtx, mk?: GeoPoint, adj: Adjust[] = []): Weighed {
   const p = parsePlace(raw)
   const rawLower = raw.toLowerCase()
@@ -574,6 +596,7 @@ function weigh(raw: string, ctx: ResolveCtx, mk?: GeoPoint, adj: Adjust[] = []):
       const s = scoreEntry(p, rawLower, e, ctx, mk, adj, !named)
       if (s) scored.push(s)
     }
+    siteInCity(p, scored)
   }
   // highest score first; ties: with coords, then the stronger name evidence, then roster order
   const nameRank = { exact: 0, key: 1, close: 2, contains: 3, token: 4 }
