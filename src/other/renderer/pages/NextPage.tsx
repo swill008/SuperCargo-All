@@ -6,12 +6,16 @@ import { Btn } from '@renderer/components/ui'
 import Typeahead from '@renderer/components/Typeahead'
 import { useStore } from '@renderer/state/store'
 import { otherSetting } from '@other/workMode'
-import { useOtherJobs } from '../state/otherJobs'
+import { useOtherJobs, planRouteNow } from '../state/otherJobs'
 import {
-  listOpenStopsWithRoute, stopKey, formatMapDistance, stepActionLabel, stepActivePlace, formatPlaceWithBodySystem, formatPlaceNear, routeTotal,
+  listOpenStopsWithRoute, formatMapDistance, stepActionLabel, stepActivePlace, formatPlaceWithBodySystem, formatPlaceNear, routeTotal,
   resolveOrigin, groupByPlace, type OpenStopRow, type ListOrder, type RouteInfo
 } from '@other/otherNext'
-import { formatTravel } from '@other/otherGeo'
+import { formatTravel, travel, type GeoPoint } from '@other/otherGeo'
+import {
+  routeView, routeVisits, visitLabel, ROUTE_NOTE_MS, ROUTE_TAG_MS, type RouteView, type ViewRow
+} from '@other/otherRoutePlan'
+import { MatchFix } from '../components/MatchFix'
 import type { WhereSource } from '@other/otherWhere'
 import { useMergedLocations } from '../state/otherPlaces'
 import { otherView, withoutWithdrawn, JobTags } from './JobsPartsStyles'
@@ -21,7 +25,6 @@ import type { StopPlace } from '@other/otherResolve'
 import { memoryKey } from '@other/otherMemory'
 import { useMemoryLookup } from '../state/otherMemoryStore'
 import { stopIssue, worstIssue, issueRowStyle } from '../stopIssue'
-import { getRoutePin, noteRouteFirst, routePinMode } from '../state/routePin'
 
 type OpenStop = OpenStopRow
 
@@ -222,24 +225,50 @@ export default function NextPage(): React.ReactElement {
   const view = otherView(settings)
   // withdrawn steps are never next; 'grey' lists them dimmed under their group when showing all
   const liveJobs = useMemo(() => jobs.map(withoutWithdrawn), [jobs])
-  // batch 18: the steady next stop applies only with the switch on, ROUTE order and a read/auto start
-  const pinMode = routePinMode(listOrder, routeOptimize)
-  const usePin = routeOptimize && listOrder === 'route' && originIsRead
+  // batch 19: locked route (switch on + ROUTE order); the plan is shared by both windows (other-jobs.json routePlan)
+  const locked = routeOptimize && listOrder === 'route'
+  // locked: every open step (showAll, completed hidden) so each plan key has its row, same as the store's routeRows
   const { rows: open, route } = useMemo(
     () => listOpenStopsWithRoute(liveJobs, startLocation, locations, {
-      showAll, hideCompleted, listOrder, jobOrder, markerDistance, origin: originPoint, originIsRead, memory,
-      ...(routeOptimize ? { routeOptimize: true } : {}),
-      ...(usePin ? { routePin: getRoutePin('next', pinMode, liveJobs) } : {})
+      showAll: locked ? true : showAll, hideCompleted: locked ? true : hideCompleted,
+      listOrder, jobOrder, markerDistance, origin: originPoint, originIsRead, memory,
+      ...(routeOptimize ? { routeOptimize: true } : {})
     }),
     [liveJobs, startLocation, originPoint, originIsRead, locations, showAll, hideCompleted, listOrder, jobOrder, markerDistance, memory,
-      routeOptimize, usePin, pinMode]
+      routeOptimize, locked]
   )
-  // remember the plan's first stop for the next compute (per window)
-  const firstKey = open[0] ? stopKey(open[0]) : undefined
+  const routePlan = useOtherJobs((s) => s.routePlan)
+  // finer clock for 4 s notes and 60 s NEW/MOVED tags: re-render when the next one expires
+  const [planNow, setPlanNow] = useState(() => Date.now())
+  // a new plan doc (event, tag) is measured from the time it arrived
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  const planSeen = useMemo(() => Date.now(), [routePlan])
   useEffect(() => {
-    // off, another order or a typed start: forget the pin
-    noteRouteFirst(usePin ? firstKey : undefined, 'next', pinMode)
-  }, [usePin, firstKey, pinMode])
+    const t0 = Date.now()
+    if (!locked || !routePlan) return
+    const ends = [
+      ...routePlan.events.map((e) => Date.parse(e.at) + ROUTE_NOTE_MS),
+      ...routePlan.tags.map((t) => Date.parse(t.at) + ROUTE_TAG_MS)
+    ].filter((t) => Number.isFinite(t) && t > t0)
+    if (!ends.length) return
+    const t = window.setTimeout(() => setPlanNow(Date.now()), Math.min(...ends) - t0 + 50)
+    return () => window.clearTimeout(t)
+  }, [locked, routePlan, planNow])
+  const viewNow = Math.max(now, planNow, planSeen)
+  const rv: RouteView | null = useMemo(
+    () => locked
+      ? routeView(routePlan, open, { now: viewNow, locations, start: (originPoint as GeoPoint | null | undefined) ?? null, startLabel: originName })
+      : null,
+    [locked, routePlan, open, viewNow, locations, originPoint, originName]
+  )
+  const [planBusy, setPlanBusy] = useState(false)
+  const runPlan = (): void => {
+    if (planBusy) return
+    setPlanBusy(true)
+    planRouteNow().finally(() => setPlanBusy(false))
+  }
+  // the row whose "why" line is shown (click a row)
+  const [whyKey, setWhyKey] = useState<string | null>(null)
 
   const groups = useMemo(() => {
     let all: Group[]
@@ -293,8 +322,9 @@ export default function NextPage(): React.ReactElement {
   }, [open, groupBy, jobs, showAll, view.withdrawn])
 
   const hasStart = !!(startLocation.trim() || originPoint)
-  const nearest = hasStart ? open.find((r) => r.distance != null) : undefined
-  const total = routeTotal(open)
+  const nextNumbered = rv && rv.state === 'planned' ? rv.rows.find((r) => r.number != null)?.row ?? undefined : undefined
+  const nearest = hasStart ? nextNumbered ?? open.find((r) => r.distance != null) : undefined
+  const total = rv && rv.state === 'planned' ? rv.status.remainingMeters : routeTotal(open)
   const orderLine = listOrder === 'manual'
     ? 'Manual order'
     : !hasStart
@@ -461,6 +491,162 @@ export default function NextPage(): React.ReactElement {
     )
   }
 
+  // ---- locked route (batch 19): one card per visit, grey stops in place, "why" on click
+  const tagStyle = (col: string): React.CSSProperties => ({
+    fontFamily: F.display, fontSize: 10, letterSpacing: '0.12em', color: col, border: `1px solid ${col}`,
+    padding: '0 4px', marginLeft: 8, verticalAlign: 'middle'
+  })
+  const whyLine = (vr: ViewRow): React.ReactElement | null => whyKey === vr.key ? (
+    <div data-testid="route-why" style={{ fontFamily: F.body, fontSize: 12, color: C.acc, marginTop: 3 }}>{vr.why}</div>
+  ) : null
+  const toggleWhy = (key: string): void => setWhyKey((k) => (k === key ? null : key))
+  const renderGreyRow = (vr: ViewRow): React.ReactElement => (
+    <div
+      key={vr.key}
+      data-testid="route-grey"
+      onClick={() => toggleWhy(vr.key)}
+      style={{
+        marginBottom: 14, border: `1px solid ${C.lineStrong}`, padding: '10px 14px 10px 46px', opacity: 0.5, cursor: 'pointer',
+        display: 'grid', gridTemplateColumns: '1fr auto', gap: 12, alignItems: 'center'
+      }}
+    >
+      <div>
+        <div style={{ fontFamily: F.body, fontSize: 14, color: C.dim, textDecoration: 'line-through' }}>
+          {vr.row ? vr.row.step.label : vr.grey?.stop?.label ?? 'Removed contract stop'}
+        </div>
+        {vr.row ? (
+          <div style={{ fontFamily: F.mono, fontSize: 12, color: C.dim, marginTop: 2 }}>
+            {`${vr.row.job.ref}${vr.row.place ? ` \u00b7 ${fmtPlace(vr.row.place)}` : ''}`}
+          </div>
+        ) : vr.grey?.stop ? (
+          <div style={{ fontFamily: F.mono, fontSize: 12, color: C.dim, marginTop: 2 }}>
+            {`${vr.grey.stop.ref}${vr.grey.stop.place ? ` \u00b7 ${fmtPlace(vr.grey.stop.place)}` : ''}`}
+          </div>
+        ) : null}
+        {whyLine(vr)}
+      </div>
+      <span style={{ fontFamily: F.display, fontSize: 11, letterSpacing: '0.12em', color: C.ghost }}>{vr.grey?.label ?? ''}</span>
+    </div>
+  )
+  const renderVisit = (rows: ViewRow[], visitNo: number | null, leg: ReturnType<typeof travel> | null, legFrom: string): React.ReactElement => {
+    const first = rows[0].row!
+    const numbered = visitNo != null
+    const near = first.match ? first.match.near : first.near
+    const placeText = first.match ? stopPlaceText(first.match, first.place, locations) : formatPlaceNear(first.place, near, locations)
+    const label = visitLabel(rows)
+    // the place part of visitLabel is replaced by the formatted place (body, system, near)
+    const counts = label.split(' \u00b7 ').slice(1).join(' \u00b7 ')
+    const groupIssue = worstIssue(rows.map((vr) => stopIssue(vr.row!.match, { location: vr.row!.place })))
+    const why = !first.point && first.noDistanceWhy && !(near && first.noDistanceWhy === 'not-in-uex') ? NO_DISTANCE_TEXT[first.noDistanceWhy] : null
+    return (
+      <div key={rows[0].visitId} data-testid="route-visit" style={{ marginBottom: 14, border: `1px solid ${C.accBorder}`, background: C.accFill, padding: '12px 14px' }}>
+        <div data-issue={groupIssue?.level} style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 8, ...(groupIssue ? issueRowStyle(groupIssue.level) : {}) }}>
+          <span style={{
+            width: 22, height: 22, borderRadius: '50%', border: `1px solid ${numbered ? C.acc : C.lineStrong}`, color: numbered ? C.acc : C.dim,
+            fontFamily: F.display, fontSize: 12, display: 'inline-flex', alignItems: 'center', justifyContent: 'center', flex: 'none'
+          }}>{numbered ? visitNo : '\u2013'}</span>
+          <div style={{ fontFamily: F.display, fontSize: 16, color: C.text, flex: 1, minWidth: 0 }}>
+            {placeText}
+            {first.match ? <span style={{ marginLeft: 8 }}><MatchTag match={first.match} /></span> : null}
+            {counts ? <span style={{ fontFamily: F.body, fontSize: 13, color: C.dim }}>{` \u00b7 ${counts}`}</span> : null}
+            {candidatesLine(first.match) ? <div style={{ fontFamily: F.body, fontSize: 12, color: C.amber, marginTop: 2 }}>{candidatesLine(first.match)}</div> : null}
+          </div>
+          {leg ? (
+            <div title={formatMapDistance(leg.meters)} style={{ fontFamily: F.mono, fontSize: 14, color: C.text, textAlign: 'right', flex: 'none' }}>
+              {distText(leg.meters, first.distanceSource, leg.jumps, leg.surface)}
+              <div style={{ fontFamily: F.mono, fontSize: 11, color: C.dim, marginTop: 2 }}>{`from ${legFrom}`}</div>
+            </div>
+          ) : why ? (
+            <div style={{ fontFamily: F.body, fontSize: 11, color: C.dim, textAlign: 'right', flex: 'none', maxWidth: 220 }}>{why}</div>
+          ) : null}
+        </div>
+        {rows.map((vr) => {
+          const { job, step, pickup, match, place } = vr.row!
+          const issue = stopIssue(match, { location: place })
+          return (
+            <div
+              key={vr.key}
+              data-testid="route-row"
+              data-issue={issue?.level}
+              onClick={() => toggleWhy(vr.key)}
+              style={{
+                display: 'grid', gridTemplateColumns: '1fr auto', gap: 12, alignItems: 'center', padding: '6px 0 2px 32px', cursor: 'pointer',
+                ...(issue ? issueRowStyle(issue.level) : {})
+              }}
+            >
+              <div>
+                <div style={{ fontFamily: F.body, fontSize: 14, color: C.textBody }}>
+                  {vr.number != null ? <span style={{ fontFamily: F.mono, fontSize: 12, color: C.acc, marginRight: 6 }}>{`${vr.number}.`}</span> : null}
+                  {step.label}
+                  {vr.tag ? <span data-testid="route-tag" style={tagStyle(vr.tag === 'NEW' ? C.acc : C.amber)}>{vr.tag}</span> : null}
+                </div>
+                {step.location && !pickup ? (
+                  <div style={{ fontFamily: F.body, fontSize: 12, color: step.locationSnapped ? C.acc : C.dim, marginTop: 2 }}>
+                    {match ? stopPlaceText(match, step.location, locations) : fmtPlace(step.location)}
+                  </div>
+                ) : null}
+                <div style={{ fontFamily: F.mono, fontSize: 12, color: C.dim, marginTop: 2 }}>
+                  {job.ref}
+                  {trackedMissionId && job.missionId === trackedMissionId ? <span style={{ marginLeft: 8 }}><TrackedTag /></span> : null}
+                  <span style={{ marginLeft: 8 }}><JobTags rep={job.rep} repMax={job.repMax} sharedBy={job.sharedBy} view={view} /></span>
+                </div>
+                {whyLine(vr)}
+              </div>
+              <Btn onClick={(e) => { e.stopPropagation(); toggleStep(job.id, step.id) }} style={{
+                border: 0, background: C.acc, color: '#111',
+                fontFamily: F.display, fontSize: 11, fontWeight: 700, letterSpacing: '0.12em', padding: '8px 14px', cursor: 'pointer'
+              }}>{stepActionLabel(step)}</Btn>
+            </div>
+          )
+        })}
+      </div>
+    )
+  }
+  const renderRouteList = (v: RouteView): React.ReactElement => {
+    const visits = routeVisits(v)
+    const placedVisits = visits.filter((vis) => vis.rows[0].grey || vis.rows[0].row?.point)
+    const unplacedVisits = visits.filter((vis) => !vis.rows[0].grey && !vis.rows[0].row?.point)
+    let prevPt: GeoPoint | undefined = (originPoint as GeoPoint | null | undefined) ?? undefined
+    let prevNo = 0
+    let visitNo = 0
+    const visitEl = (vis: { rows: ViewRow[] }): React.ReactElement | null => {
+      const head = vis.rows[0]
+      if (head.grey) return renderGreyRow(head)
+      if (!head.row) return null
+      const numbered = head.number != null
+      let leg: ReturnType<typeof travel> | null = null
+      let from = ''
+      if (numbered) {
+        visitNo += 1
+        if (head.row.point && prevPt) leg = travel(prevPt, head.row.point, locations)
+        from = prevNo === 0 ? 'start' : circled(prevNo)
+        if (head.row.point) prevPt = head.row.point
+        prevNo = visitNo
+      }
+      return renderVisit(vis.rows, numbered ? visitNo : null, leg, from)
+    }
+    return (
+      <>
+        {placedVisits.map(visitEl)}
+        {unplacedVisits.length > 0 ? (
+          <div style={{ display: 'flex', alignItems: 'center', gap: 10, margin: '22px 0 12px' }}>
+            <span style={{ fontFamily: F.display, fontSize: 11, letterSpacing: '0.16em', color: C.dim, flex: 'none' }}>
+              {`NO DISTANCE (${unplacedVisits.length}) \u00b7 ${NO_DISTANCE_TEXT['not-in-uex']}`}
+            </span>
+            <span style={{ flex: 1, borderTop: `1px solid ${C.lineStrong}` }} />
+          </div>
+        ) : null}
+        {unplacedVisits.map(visitEl)}
+      </>
+    )
+  }
+  const firstUnroutable = rv ? rv.rows.find((r) => !r.grey && r.row && !r.row.point)?.row ?? undefined : undefined
+  const statusText = rv
+    ? rv.status.text + (rv.state === 'planned' && rv.status.droppedCount
+      ? ` \u00b7 ${rv.status.droppedCount} dropped`
+      : '')
+    : ''
+
   return (
     <div style={{ padding: PAGE_PADDING }}>
       <PageHeader
@@ -493,7 +679,34 @@ export default function NextPage(): React.ReactElement {
           </div>
         }
       />
-      {orderLine ? (
+      {rv ? (
+        <div style={{ margin: '-6px 0 14px' }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}>
+            <span data-testid="route-status" style={{
+              fontFamily: F.body, fontSize: 12, color: rv.state === 'planned' ? (rv.replanPct != null ? C.amber : C.text) : C.dim
+            }}>{statusText}</span>
+            {rv.state !== 'complete' || open.length ? (
+              <Btn
+                data-testid="route-plan-btn"
+                onClick={runPlan}
+                disabled={planBusy}
+                title={rv.state === 'planned' ? 'Fresh plan of every stop left, from your current position' : 'Plan the route from your current position; it stays put while you fly'}
+                style={{
+                  fontFamily: F.display, fontSize: 10, letterSpacing: '0.14em', color: '#111', border: 0, background: C.acc,
+                  padding: '4px 10px', flex: 'none', cursor: planBusy ? 'default' : 'pointer', opacity: planBusy ? 0.6 : 1
+                }}
+              >{planBusy ? 'PLANNING\u2026' : rv.state === 'planned' ? 'RE-PLAN' : 'PLAN ROUTE'}</Btn>
+            ) : null}
+          </div>
+          {rv.notes.length ? (
+            <div data-testid="route-notes" style={{ marginTop: 4 }}>
+              {rv.notes.map((n) => (
+                <div key={`${n.at}|${n.text}`} style={{ fontFamily: F.body, fontSize: 12, color: n.kind === 'grey' || n.kind === 'position' ? C.amber : C.acc }}>{n.text}</div>
+              ))}
+            </div>
+          ) : null}
+        </div>
+      ) : orderLine ? (
         <div style={{ fontFamily: F.body, fontSize: 12, color: C.dim, margin: '-6px 0 14px' }}>{orderLine}</div>
       ) : (
         <div style={{ fontFamily: F.body, fontSize: 12, color: C.amber, margin: '-6px 0 14px' }}>
@@ -549,9 +762,11 @@ export default function NextPage(): React.ReactElement {
           }}>CLEAR</Btn>
         )}
       </div>
-      {groups.placed.length + groups.unplaced.length === 0 && <div style={{ fontFamily: F.body, fontSize: 14, color: C.dim }}>No open stops. Add a job on the Jobs tab.</div>}
-      {groups.placed.map((g, gi) => renderGroup(g, gi))}
-      {groups.unplaced.length > 0 ? (
+      {(rv ? rv.rows.length === 0 : groups.placed.length + groups.unplaced.length === 0) && <div style={{ fontFamily: F.body, fontSize: 14, color: C.dim }}>No open stops. Add a job on the Jobs tab.</div>}
+      {rv ? renderRouteList(rv) : null}
+      {rv && rv.unroutable > 0 && firstUnroutable ? <UnroutableLine count={rv.unroutable} row={firstUnroutable} /> : null}
+      {rv ? null : groups.placed.map((g, gi) => renderGroup(g, gi))}
+      {!rv && groups.unplaced.length > 0 ? (
         <div style={{ display: 'flex', alignItems: 'center', gap: 10, margin: '22px 0 12px' }}>
           <span style={{ fontFamily: F.display, fontSize: 11, letterSpacing: '0.16em', color: C.dim, flex: 'none' }}>
             {`NO DISTANCE (${groups.unplaced.length}) \u00b7 ${NO_DISTANCE_TEXT['not-in-uex']}`}
@@ -559,7 +774,31 @@ export default function NextPage(): React.ReactElement {
           <span style={{ flex: 1, borderTop: `1px solid ${C.lineStrong}` }} />
         </div>
       ) : null}
-      {groups.unplaced.map((g, i) => renderGroup(g, groups.placed.length + i))}
+      {rv ? null : groups.unplaced.map((g, i) => renderGroup(g, groups.placed.length + i))}
+    </div>
+  )
+}
+
+/** "N stops can't be routed (no place) · FIX": FIX opens the first one's match in the fix panel (MatchFix) */
+function UnroutableLine({ count, row }: { count: number; row: OpenStopRow }): React.ReactElement {
+  const [anchor, setAnchor] = useState<HTMLButtonElement | null>(null)
+  const [open, setOpen] = useState(false)
+  return (
+    <div data-testid="route-unroutable" style={{ display: 'flex', alignItems: 'center', gap: 10, margin: '8px 0 14px' }}>
+      <span style={{ fontFamily: F.body, fontSize: 12, color: C.amber }}>
+        {`${count} ${count === 1 ? "stop can't" : "stops can't"} be routed (no place) \u00b7`}
+      </span>
+      <button
+        type="button"
+        ref={setAnchor}
+        title={`Fix the place of ${row.job.ref}: ${row.place || row.step.label}`}
+        onClick={() => setOpen((v) => !v)}
+        style={{
+          fontFamily: F.display, fontSize: 10, letterSpacing: '0.14em', color: C.amber, border: `1px solid ${C.amber}`,
+          background: 'transparent', padding: '2px 8px', cursor: 'pointer'
+        }}
+      >FIX</button>
+      {open && row.match ? <MatchFix match={row.match} anchor={anchor} onClose={() => setOpen(false)} /> : null}
     </div>
   )
 }

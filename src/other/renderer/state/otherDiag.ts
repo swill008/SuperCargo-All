@@ -5,7 +5,7 @@
  */
 import type { Location } from '@shared/types'
 import type { ListOrder, OtherHistoryEntry, OtherJob, OtherStep } from '@other/otherJob'
-import { listOpenStopsWithRoute, locationPoint, resolveOrigin, stepActivePlace, stepIsPickup } from '@other/otherNext'
+import { listOpenStopsWithRoute, locationPoint, resolveOrigin, stepActivePlace, stepIsPickup, type OpenStopRow } from '@other/otherNext'
 import { explainTravel, systemKey, type GeoPoint } from '@other/otherGeo'
 import { resolveStartText, type StopPlace } from '@other/otherResolve'
 import { accuracyWord, whereAccuracy, type DisplayInfo, type Where } from '@other/otherWhere'
@@ -16,7 +16,7 @@ import { useOtherJobs, otherMissionMarkers, otherLastWhereRun, otherLiveWhereRea
 import { useOtherHistory } from './otherHistory'
 import { mergeLocations, otherPlacesVersion, sourceCounts, starmapSourceOn } from './otherPlaces'
 import { currentMemoryLookup, memoryCounts } from './otherMemoryStore'
-import { getRoutePin, routePinMode } from './routePin'
+import { routeView, type RoutePlanDoc } from '@other/otherRoutePlan'
 
 const hasCoords = (p?: { x?: number; y?: number; z?: number } | null): boolean => !!p && p.x != null && p.y != null && p.z != null
 const round = (n: number | null | undefined): number | null => (n == null || !Number.isFinite(n) ? null : Math.round(n))
@@ -228,6 +228,66 @@ function placesSummary(locations: Location[], haulCount: number): Record<string,
   }
 }
 
+/** the locked route (batch 19): plan, stops in order with grey reasons and tags, added, events, re-plan suggestion.
+ *  Stops are named by job ref and place (never job or mission ids). */
+function routePlanInfo(
+  plan: RoutePlanDoc,
+  rows: OpenStopRow[],
+  jobs: (OtherJob | OtherHistoryEntry)[],
+  locations: Location[],
+  start: GeoPoint | undefined,
+  startLabel: string
+): Record<string, unknown> {
+  // a stop key is job id:step id; name it by job ref and step place
+  const stepBy = new Map<string, { ref: string; label: string; place: string }>()
+  for (const j of jobs) for (const st of j.steps) stepBy.set(`${j.id}:${st.id}`, { ref: j.ref, label: st.label, place: stepActivePlace(st) })
+  const name = (k: string): { ref: string | null; step: string | null; place: string | null } => {
+    const e = stepBy.get(k)
+    return e ? { ref: e.ref, step: e.label, place: e.place } : { ref: null, step: null, place: null }
+  }
+  let view: ReturnType<typeof routeView> | null = null
+  let viewError: string | undefined
+  try {
+    view = routeView(plan, rows, { now: Date.now(), locations, start: start ?? null, startLabel })
+  } catch (err) {
+    viewError = (err as Error)?.message ?? String(err)
+  }
+  const greyBy = new Map(plan.grey.map((g) => [g.key, g]))
+  const tagBy = new Map(plan.tags.map((t) => [t.key, t]))
+  const viewBy = new Map((view?.rows ?? []).map((r) => [r.key, r]))
+  return {
+    at: plan.at,
+    startLabel: plan.startLabel,
+    complete: plan.complete ?? null,
+    stopsCount: plan.stops,
+    stops: plan.order.map((k, i) => {
+      const g = greyBy.get(k)
+      const t = tagBy.get(k)
+      const v = viewBy.get(k)
+      return {
+        i: i + 1,
+        ...name(k),
+        number: v?.number ?? null,
+        ...(g ? { grey: { reason: g.reason, at: g.at, label: g.label } } : {}),
+        ...(t ? { tag: t.tag, tagAt: t.at, tagShown: v?.tag ?? null } : {}),
+        why: v?.why ?? null
+      }
+    }),
+    unplaced: plan.unplaced.map(name),
+    nearestMeters: round(plan.nearestMeters),
+    plannedMeters: round(plan.plannedMeters),
+    plannedJumps: plan.plannedJumps,
+    savedMeters: plan.nearestMeters != null && plan.plannedMeters != null ? round(plan.nearestMeters - plan.plannedMeters) : null,
+    added: plan.added.map((a) => ({ ref: a.jobRef, place: name(a.key).place, at: a.at, addMeters: round(a.addMeters) })),
+    events: plan.events.slice(-10),
+    view: view
+      ? { state: view.state, status: view.status.text, short: view.status.short, left: view.status.left, remainingMeters: round(view.status.remainingMeters) }
+      : { error: viewError },
+    replanPct: view?.replanPct ?? null,
+    unroutable: view?.unroutable ?? null
+  }
+}
+
 export function otherDiagSnapshot(): Record<string, unknown> {
   try {
     const s = useOtherJobs.getState()
@@ -255,15 +315,28 @@ export function otherDiagSnapshot(): Record<string, unknown> {
 
     const orders: ListOrder[] = ['distance', 'route', 'manual']
     const distanceTable: Record<string, unknown> = {}
-    // batch 18: route optimization switch; the Next page's pin when it applies (on, ROUTE, read start)
+    // batch 18: route optimization switch; batch 19: the locked route plan (doc.routePlan)
     const routeOptimize = !!otherSetting(settings, 'otherRouteOptimize')
     const originIsRead = origin.kind != null && origin.kind !== 'typed'
     let routeInfo: Record<string, unknown> | null = null
+    let routeRows: OpenStopRow[] = []
+    // locked route (switch on + ROUTE order): every open step (showAll, completed hidden, withdrawn hidden) so each
+    // plan key has its row, same as the store's routeRows
+    const lockedRows = (): OpenStopRow[] => listOpenStopsWithRoute(live, start, locations, {
+      showAll: true,
+      hideCompleted: true,
+      listOrder: 'route',
+      jobOrder: s.jobOrder,
+      markerDistance: useMarker,
+      withdrawnSteps: 'hide',
+      origin: origin.point,
+      originIsRead,
+      memory,
+      routeOptimize: true
+    }).rows
     // every open stop whose place isn't an exact name match (## MATCHES in the export)
     const matches: Record<string, unknown>[] = []
     for (const order of orders) {
-      const usePin = routeOptimize && order === 'route' && originIsRead && s.listOrder === 'route'
-      const pin = usePin ? getRoutePin('next', routePinMode('route', true), live) : undefined
       const { rows, route } = listOpenStopsWithRoute(live, start, locations, {
         showAll,
         hideCompleted,
@@ -274,9 +347,9 @@ export function otherDiagSnapshot(): Record<string, unknown> {
         origin: origin.point,
         originIsRead,
         memory,
-        ...(routeOptimize ? { routeOptimize: true } : {}),
-        ...(pin ? { routePin: pin } : {})
+        ...(routeOptimize ? { routeOptimize: true } : {})
       })
+      if (order === 'route') routeRows = rows
       if (order === 'route' && routeOptimize && route) {
         routeInfo = {
           optimised: route.optimised,
@@ -285,8 +358,6 @@ export function otherDiagSnapshot(): Record<string, unknown> {
           optimisedMeters: round(route.optimisedMeters),
           optimisedJumps: route.optimisedJumps,
           savedMeters: route.nearestMeters != null && route.optimisedMeters != null ? round(route.nearestMeters - route.optimisedMeters) : null,
-          pin: route.pin,
-          pinKey: pin ?? null,
           stops: route.stops
         }
       }
@@ -415,6 +486,7 @@ export function otherDiagSnapshot(): Record<string, unknown> {
       locationHistory: whereHistory(),
       distanceTable,
       ...(routeOptimize ? { routeOptimize: routeInfo } : {}),
+      ...(s.routePlan ? { routePlan: routePlanInfo(s.routePlan, routeOptimize && s.listOrder === 'route' ? lockedRows() : routeRows, [...s.jobs, ...history], locations, origin.point, origin.label ?? start) } : {}),
       matches,
       memory: memoryCounts()
     }

@@ -5,6 +5,7 @@
  */
 import { create } from 'zustand'
 import {
+  isRoutePlanDoc,
   nextJobRef,
   type OtherHistoryEntry,
   type OtherJob,
@@ -15,10 +16,11 @@ import {
   type OtherStep
 } from '@other/otherJob'
 import { calibrateZone, resolveMarker, type BodyRadiusLookup, type CalibrateResult, type MarkerPos } from '@other/otherMarkers'
-import { stepActivePlace } from '@other/otherNext'
+import { listOpenStops, resolveOrigin, stepActivePlace, type OpenStopRow, type ResolvedOrigin } from '@other/otherNext'
+import { makePlan, updatePlan, ROUTE_EVENTS_MAX, type RoutePlanDoc, type RouteEvent } from '@other/otherRoutePlan'
 import { isSurePlace, nearestPlace, placeKey, resolvePlaceText, resolveStartText, resolveStopPlace } from '@other/otherResolve'
 import { PROOF_METERS, PROOF_WINDOW_MS, type MemoryWhere } from '@other/otherMemory'
-import { memoryLookup, startMemorySeenReporter } from './otherMemoryStore'
+import { currentMemoryLookup, memoryLookup, startMemorySeenReporter } from './otherMemoryStore'
 import { setBodyRadiusLookup } from '@other/otherGeo'
 import { bodyRadiusFromTable } from '@other/otherBodies'
 import { bodiesTable } from './otherBodiesStore'
@@ -105,6 +107,8 @@ interface OtherJobsState {
   markerBuild?: string
   /** app version+commit the automatic REFRESH last ran for (doc field) */
   refreshedForVersion?: string
+  /** batch 19: the locked ROUTE plan (doc field); null = not planned */
+  routePlan: RoutePlanDoc | null
   /** a REFRESH is running (UI disables the button) */
   refreshing: boolean
   /** newest REFRESH result this run */
@@ -935,6 +939,7 @@ export function buildOtherDoc(): OtherJobsDoc {
     trackedMissionId: s.trackedMissionId,
     trackedAt: s.trackedAt,
     refreshedForVersion: s.refreshedForVersion,
+    routePlan: s.routePlan,
     rev: s.rev
   }
 }
@@ -946,6 +951,8 @@ function saveNow(): void {
   }
   // rule 8: the overlay never writes
   if (useOtherJobs.getState().passive) return
+  // batch 19: every doc change passes here once; bring the locked route up to date before it is written
+  reconcileRoutePlan()
   const rev = (useOtherJobs.getState().rev ?? 0) + 1
   useOtherJobs.setState({ rev })
   const doc = buildOtherDoc()
@@ -960,6 +967,195 @@ function saveNow(): void {
     lastLogEventCount: doc.lastLogEventCount
   })
   void window.supercargo.saveOtherJobs?.(doc)
+}
+
+// ---- batch 19: locked route (contract docs/contracts/batch-19-locked-route.md) -----------------------
+
+/** the locked route applies only with the switch on and ROUTE order; otherwise routePlan is kept untouched */
+function routePlanActive(): boolean {
+  return !!otherSetting(settingsNow(), 'otherRouteOptimize') && useOtherJobs.getState().listOrder === 'route'
+}
+
+/** the current origin, as the Next tab resolves it (auto/fixed start mode, typed start, latest read) */
+function routeOrigin(locations: Location[], where?: Where | null): ResolvedOrigin {
+  const s = useOtherJobs.getState()
+  return resolveOrigin({
+    typed: s.startLocation,
+    typedAt: s.startTypedAt,
+    where: where === undefined ? s.where : where,
+    mode: otherSetting(settingsNow(), 'otherStartMode'),
+    locations,
+    memory: currentMemoryLookup()
+  })
+}
+
+/** every open step (showAll) with its point; plan order comes from the route plan, not from this list */
+function routeRows(origin: ResolvedOrigin, locations: Location[], optimise: boolean): OpenStopRow[] {
+  const s = useOtherJobs.getState()
+  return listOpenStops(s.jobs, origin.name ?? '', locations, {
+    showAll: true,
+    hideCompleted: true,
+    listOrder: 'route',
+    jobOrder: s.jobOrder,
+    withdrawnSteps: 'hide',
+    markerDistance: otherSetting(settingsNow(), 'otherMarkerDistance'),
+    ...(origin.point ? { origin: origin.point } : {}),
+    originIsRead: origin.kind != null && origin.kind !== 'typed',
+    memory: currentMemoryLookup(),
+    ...(optimise ? { routeOptimize: true } : {})
+  })
+}
+
+function logRouteEvents(events: RouteEvent[], data?: Record<string, unknown>): void {
+  for (const e of events) {
+    dlog.info('other', `route ${e.kind}: ${e.text}`, data)
+    decide(`route ${e.kind}`, undefined, { text: e.text, ...data })
+  }
+}
+
+/** a saved plan with any missing list / number fields filled and malformed list items dropped (hand-edited file) */
+function normalizeRoutePlan(p: RoutePlanDoc): RoutePlanDoc {
+  const arr = <T,>(v: T[] | undefined): T[] => (Array.isArray(v) ? v : [])
+  const num = (v: unknown): number | null => (typeof v === 'number' && Number.isFinite(v) ? v : null)
+  const str = (v: unknown): v is string => typeof v === 'string'
+  const obj = (v: unknown): v is Record<string, unknown> => !!v && typeof v === 'object' && !Array.isArray(v)
+  const pending = (p as { pendingAdded?: unknown }).pendingAdded
+  return {
+    ...p,
+    startLabel: typeof p.startLabel === 'string' ? p.startLabel : '',
+    unplaced: arr(p.unplaced).filter(str),
+    nearestMeters: num(p.nearestMeters),
+    plannedMeters: num(p.plannedMeters),
+    plannedJumps: num(p.plannedJumps) ?? 0,
+    stops: num(p.stops) ?? p.order.length,
+    grey: arr(p.grey).filter((g) => obj(g) && str(g.key) && str(g.at)),
+    tags: arr(p.tags).filter((t) => obj(t) && str(t.key) && str(t.at)),
+    added: arr(p.added).filter((a) => obj(a) && str(a.key) && str(a.at)),
+    events: arr(p.events)
+      .filter((e) => obj(e) && str(e.at) && str(e.text))
+      .slice(-ROUTE_EVENTS_MAX),
+    // optional fields core may add: keep only well-formed ones
+    ...(pending === undefined
+      ? {}
+      : { pendingAdded: Array.isArray(pending) ? pending.filter(str) : undefined })
+  }
+}
+
+let lastReconciled: { jobs: OtherJob[]; plan: RoutePlanDoc | null; history: OtherHistoryEntry[] } | null = null
+
+/**
+ * Main window, on every save: reconcile the plan with the jobs (done -> removed, dropped -> grey), slot in new / newly
+ * placed stops from the current position, mark complete. Sets routePlan only when something changed; no save of its
+ * own (the caller is the save), so no loop.
+ */
+function reconcileRoutePlan(): void {
+  const s = useOtherJobs.getState()
+  const plan = s.routePlan
+  if (!plan || plan.complete || !routePlanActive()) return
+  // nothing to do when neither the jobs nor the plan changed since the last pass (live position saves)
+  // archived jobs (Clear finished) move to history: a new history array also needs a pass
+  const history = useOtherHistory.getState().history
+  if (lastReconciled && lastReconciled.jobs === s.jobs && lastReconciled.plan === plan && lastReconciled.history === history) return
+  try {
+    const locations = mergeLocations(useStore.getState().locations ?? [])
+    const origin = routeOrigin(locations)
+    const rows = routeRows(origin, locations, false)
+    const r = updatePlan(plan, s.jobs, rows, origin.point ?? null, locations, Date.now(), history)
+    if (r.changed) {
+      useOtherJobs.setState({ routePlan: r.plan })
+      logRouteEvents(r.events, {
+        from: origin.label ?? undefined,
+        inserted: r.inserted.length ? r.inserted.map((i) => ({ index: i.index, addMeters: i.addMeters })) : undefined,
+        order: r.plan.order.length,
+        grey: r.plan.grey.length
+      })
+    }
+    lastReconciled = { jobs: s.jobs, plan: useOtherJobs.getState().routePlan, history }
+  } catch (e) {
+    dlog.warn('other', 'route reconcile failed', { error: (e as Error).message })
+  }
+}
+
+let planning: Promise<void> | null = null
+
+/**
+ * PLAN ROUTE / RE-PLAN (Next tab button; overlay via the 'planRoute' action). Main window only.
+ * From the current origin; a read older than 5 min gets a fresh WHERE AM I first (on failure: the old / typed start,
+ * with a 'position' note). A fresh plan clears grey stops, tags and added.
+ */
+export function planRouteNow(): Promise<void> {
+  if (useOtherJobs.getState().passive) {
+    dlog.debug('other', 'plan route: overlay goes through the action relay')
+    return Promise.resolve()
+  }
+  planning = planning ?? runPlanRoute().finally(() => {
+    planning = null
+  })
+  return planning
+}
+
+async function runPlanRoute(): Promise<void> {
+  if (!routePlanActive()) {
+    dlog.info('other', 'plan route: needs Route optimization on and ROUTE order', { listOrder: useOtherJobs.getState().listOrder })
+    return
+  }
+  const locations = mergeLocations(useStore.getState().locations ?? [])
+  let origin = routeOrigin(locations)
+  const extra: RouteEvent[] = []
+  const now0 = Date.now()
+  if (origin.kind != null && origin.kind !== 'typed' && origin.stale) {
+    const was = origin.label ?? ''
+    let fresh: Where | null = null
+    let why = ''
+    try {
+      const r = await window.supercargo.otherWhereRun()
+      if (r.ok && r.where) fresh = r.where
+      else why = r.error ?? 'no read'
+    } catch (e) {
+      why = (e as Error).message
+    }
+    if (fresh) {
+      origin = routeOrigin(locations, fresh)
+      decide('route: position read before planning', undefined, { from: was, to: origin.label })
+    } else {
+      // the old read, or the typed start when the mode allows it
+      const typed = useOtherJobs.getState().startLocation.trim()
+      const fallback = typed ? routeOrigin(locations, null) : origin
+      if (fallback.point) origin = fallback
+      const text = `WHERE AM I failed · planned from ${origin.label ?? 'the last start'}`
+      extra.push({ at: new Date(now0).toISOString(), kind: 'position', text })
+      dlog.warn('other', 'route: position read failed before planning', { error: why, from: origin.label })
+    }
+  }
+  if (!origin.point) {
+    dlog.info('other', 'plan route: no start position', { start: origin.label })
+    useStore.setState({ notice: 'Plan route: set STARTING AT or press WHERE AM I first.' })
+    return
+  }
+  const now = Date.now()
+  const prev = useOtherJobs.getState().routePlan
+  // optimise=true on purpose: planRoute uses the given row order as one of its starting orders, so the plan
+  // seeds from the preview the user saw and is never worse than it
+  const rows = routeRows(origin, locations, true)
+  const started = performance.now()
+  const plan = makePlan(rows, origin.point, origin.label ?? origin.name ?? '', locations, now, { prev })
+  if (extra.length) {
+    // the 'position' note goes before the planned event
+    const last = plan.events[plan.events.length - 1]
+    plan.events = [...plan.events.slice(0, -1), ...extra, last].slice(-ROUTE_EVENTS_MAX)
+  }
+  useOtherJobs.setState({ routePlan: plan })
+  lastReconciled = null
+  logRouteEvents(plan.events.slice(-1 - extra.length), {
+    from: plan.startLabel,
+    stops: plan.order.length,
+    unplaced: plan.unplaced.length,
+    plannedMeters: plan.plannedMeters,
+    nearestMeters: plan.nearestMeters,
+    jumps: plan.plannedJumps,
+    ms: Math.round(performance.now() - started)
+  })
+  useOtherJobs.getState().persist()
 }
 
 /** flush a pending debounced save now (main window closing) */
@@ -1045,6 +1241,7 @@ export const useOtherJobs = create<OtherJobsState>((set, get) => {
       trackedMissionId: typeof doc.trackedMissionId === 'string' ? doc.trackedMissionId : undefined,
       trackedAt: typeof doc.trackedAt === 'string' ? doc.trackedAt : undefined,
       refreshedForVersion: typeof doc.refreshedForVersion === 'string' ? doc.refreshedForVersion : undefined,
+      routePlan: isRoutePlanDoc(doc.routePlan) ? normalizeRoutePlan(doc.routePlan) : null,
       rev: doc.rev ?? 0
     })
     useOtherHistory.getState().load(doc)
@@ -1073,6 +1270,7 @@ export const useOtherJobs = create<OtherJobsState>((set, get) => {
         if (a.type === 'toggleStep') get().toggleStep(a.jobId, a.stepId)
         else if (a.type === 'complete') get().completeJob(a.jobId)
         else if (a.type === 'abandon') get().abandonJob(a.jobId)
+        else if (a.type === 'planRoute') void planRouteNow()
       })
       window.addEventListener('beforeunload', flushSave)
       // WHERE AM I (hotkey or overlay button): main process broadcasts each read to every window
@@ -1347,6 +1545,7 @@ export const useOtherJobs = create<OtherJobsState>((set, get) => {
     trackedMissionId: undefined,
     trackedAt: undefined,
     refreshedForVersion: undefined,
+    routePlan: null,
     refreshing: false,
     lastRefresh: null,
     crashNotice: null,

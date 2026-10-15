@@ -10,10 +10,11 @@ import { otherSetting } from '@other/workMode'
 import { useOtherJobs } from '../state/otherJobs'
 import { useMergedLocations, otherPlacesVersion } from '../state/otherPlaces'
 import {
-  listOpenStopsWithRoute, stopKey as routeStopKey, stepActivePlace, stepActionLabel, formatPlaceNear, formatMapDistance,
-  resolveOrigin, groupByPlace, remainingRoute
+  listOpenStopsWithRoute, stepActivePlace, stepActionLabel, formatPlaceNear, formatMapDistance,
+  resolveOrigin, groupByPlace, remainingRoute, routeTravel
 } from '@other/otherNext'
-import type { ListOrder } from '@other/otherNext'
+import type { ListOrder, StopGroup } from '@other/otherNext'
+import { routeView, routeVisits, ROUTE_NOTE_MS } from '@other/otherRoutePlan'
 import { formatTravel } from '@other/otherGeo'
 import type { WhereRunResult, WhereSource } from '@other/otherWhere'
 import { miniBtn, otherView, withoutWithdrawn, JobTags } from '../pages/JobsPartsStyles'
@@ -22,10 +23,11 @@ import { MatchTag, stopPlaceText } from './MatchTag'
 import { stopIssue, issueTextStyle } from '../stopIssue'
 import { useMemoryLookup } from '../state/otherMemoryStore'
 import { setOverlayDiag, overlayDiag } from '../state/otherOverlayDiag'
-import { getRoutePin, noteRouteFirst, routePinMode } from '../state/routePin'
 
 /** a stop's key: its place, lower case, spaces collapsed (same as groupKey in otherNext) */
 const stopKey = (g: { place: string }): string => g.place.toLowerCase().replace(/\s+/g, ' ').trim()
+/** a visit's place for the "then:" line */
+const visitPlace = (g: StopGroup): string => g.place || (g.rows[0] ? stepActivePlace(g.rows[0].step) || g.rows[0].step.label : '')
 
 /** AFK keep-alive state (src/other/otherAfk.ts AfkState); preload methods may be missing mid-build */
 interface AfkView { on: boolean; nextAt?: string; lastError?: string }
@@ -81,6 +83,9 @@ export default function OtherOverlay(): React.ReactElement {
   // rule 8: the overlay only sends actions; the main window applies and saves them
   const toggleStep = (jobId: string, stepId: string): void => window.supercargo.otherAction({ type: 'toggleStep', jobId, stepId })
   const abandonJob = (jobId: string): void => window.supercargo.otherAction({ type: 'abandon', jobId })
+  // batch 19: PLAN ROUTE / RE-PLAN; the main window plans and saves (jobId '' = the whole route)
+  const planRouteNow = (): void => window.supercargo.otherAction({ type: 'planRoute', jobId: '' })
+  const routePlan = useOtherJobs((s) => s.routePlan)
   const trackedMissionId = useOtherJobs((s) => (s as { trackedMissionId?: string }).trackedMissionId)
   const trackedAt = useOtherJobs((s) => (s as { trackedAt?: string }).trackedAt)
   const settings = useStore((s) => s.settings)
@@ -121,26 +126,72 @@ export default function OtherOverlay(): React.ReactElement {
   const hasStart = !!(origin.name || origin.point)
   // withdrawn steps never become the current stop
   const liveJobs = useMemo(() => jobs.map(withoutWithdrawn), [jobs])
-  // batch 18: the steady next stop applies only with the switch on, ROUTE order and a read/auto start
-  const pinMode = routePinMode(listOrder, routeOptimize)
-  const usePin = routeOptimize && listOrder === 'route' && originIsRead
+  // batch 19: switch on + ROUTE order = the locked route (routePlan, shared with the main window)
+  const locked = routeOptimize && listOrder === 'route'
+  // locked: every open step (showAll, completed hidden) so each plan key has its row, same as the store's routeRows
   const open = useMemo(
     () => listOpenStopsWithRoute(liveJobs, startLocation, locations, {
-      showAll, hideCompleted, listOrder, jobOrder, markerDistance, origin: originPoint, originIsRead, memory,
-      ...(routeOptimize ? { routeOptimize: true } : {}),
-      ...(usePin ? { routePin: getRoutePin('overlay', pinMode, liveJobs) } : {})
+      showAll: locked ? true : showAll, hideCompleted: locked ? true : hideCompleted,
+      listOrder, jobOrder, markerDistance, origin: originPoint, originIsRead, memory,
+      ...(routeOptimize ? { routeOptimize: true } : {})
     }).rows,
     [liveJobs, startLocation, originPoint, originIsRead, locations, showAll, hideCompleted, listOrder, jobOrder, markerDistance, memory,
-      routeOptimize, usePin, pinMode]
+      routeOptimize, locked]
   )
-  // remember the plan's first stop for the next compute (per window)
-  const firstKey = open[0] ? routeStopKey(open[0]) : undefined
+  // re-evaluated when a 4 s note is due to expire
+  const [noteTick, setNoteTick] = useState(0)
+  const route = useMemo(
+    () => (locked ? routeView(routePlan, open, { now: Date.now(), locations, start: originPoint ?? null, startLabel: startLocation }) : null),
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [locked, routePlan, open, locations, originPoint, startLocation, noteTick]
+  )
+  const routeNote = route?.notes.length ? route.notes[route.notes.length - 1] : null
   useEffect(() => {
-    // off, another order or a typed start: forget the pin
-    noteRouteFirst(usePin ? firstKey : undefined, 'overlay', pinMode)
-  }, [usePin, firstKey, pinMode])
+    if (!route?.notes.length) return
+    const ends = Math.min(...route.notes.map((n) => Date.parse(n.at) + ROUTE_NOTE_MS)) - Date.now()
+    const t = window.setTimeout(() => setNoteTick((n) => n + 1), Math.max(50, ends + 20))
+    return () => window.clearTimeout(t)
+  }, [route])
   // the overlay walks places: several steps at one station are one stop
-  const groups = useMemo(() => groupByPlace(open, locations), [open, locations])
+  // locked: the plan's visits in order (grey stops skipped, never next); legs re-measured between visits
+  const groups = useMemo((): StopGroup[] => {
+    if (!route) return groupByPlace(open, locations)
+    const out: StopGroup[] = []
+    for (const v of routeVisits(route)) {
+      const rows = v.rows.filter((r) => !r.grey && r.row).map((r) => r.row!)
+      if (!rows.length) continue
+      for (const g of groupByPlace(rows, locations)) {
+        const prev = out[out.length - 1]?.rows[0]
+        const first = g.rows[0]
+        if (prev) {
+          g.distance = null
+          const t = prev.point && first.point ? routeTravel([first], prev.point, locations) : null
+          g.leg = t && t.meters != null ? t.meters : null
+          if (g.leg != null) {
+            g.legJumps = t!.jumps
+            if (t!.surface) g.legSurface = true
+            else delete g.legSurface
+          } else {
+            delete g.legJumps
+            delete g.legSurface
+          }
+        }
+        out.push(g)
+      }
+    }
+    return out
+  }, [route, open, locations])
+  // locked: a place can come up twice in the plan, so the card's stop key counts earlier visits to it
+  const groupKeys = useMemo(() => {
+    const seen = new Map<string, number>()
+    return groups.map((g) => {
+      const k = stopKey(g)
+      if (!locked) return k
+      const n = seen.get(k) ?? 0
+      seen.set(k, n + 1)
+      return n ? `${k}#${n}` : k
+    })
+  }, [groups, locked])
 
   // set when the card jumped to the tracked job: the return-to-first timer leaves it there
   const heldByTrack = useRef(false)
@@ -148,23 +199,23 @@ export default function OtherOverlay(): React.ReactElement {
   // changes, and only with "Return to first stop" on. Stable string keys: live reads at the same place and job-file
   // saves make new objects but the same keys, so they never move the card (user, 2026-10-14, option A).
   const startKey = `${origin.kind ?? ''}|${(origin.name ?? '').toLowerCase().trim()}`
-  const firstStopKey = groups[0] ? stopKey(groups[0]) : ''
+  const firstStopKey = groupKeys[0] ?? ''
   // the card stays on the stop you chose, not on a list position: a live read can re-sort Distance/Route order, so
   // after every regroup the card follows the chosen stop's key; if that stop is gone the clamp below applies
   const chosenKey = useRef('')
-  const chosenIndex = (): number => (chosenKey.current ? groups.findIndex((g) => stopKey(g) === chosenKey.current) : -1)
+  const chosenIndex = (): number => (chosenKey.current ? groupKeys.indexOf(chosenKey.current) : -1)
   useEffect(() => {
     const i = chosenIndex()
     if (i >= 0) {
       if (i !== idx) setIdx(i)
     } else if (groups.length) {
-      chosenKey.current = stopKey(groups[Math.min(idx, groups.length - 1)])
+      chosenKey.current = groupKeys[Math.min(idx, groups.length - 1)]
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [groups])
   // any move (‹ ›, tracked jump, return timer, reset, clamp) remembers the stop now shown
   useEffect(() => {
-    if (groups[idx]) chosenKey.current = stopKey(groups[idx])
+    if (groups[idx]) chosenKey.current = groupKeys[idx]
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [idx])
   const lastKeys = useRef({ startKey, firstStopKey })
@@ -189,7 +240,7 @@ export default function OtherOverlay(): React.ReactElement {
     const i = groups.findIndex((g) => g.rows.some((r) => r.job.missionId === trackedMissionId))
     if (i >= 0) {
       setIdx(i)
-      chosenKey.current = stopKey(groups[i])
+      chosenKey.current = groupKeys[i]
       heldByTrack.current = true
     }
     setTrackPending(false)
@@ -321,6 +372,9 @@ export default function OtherOverlay(): React.ReactElement {
   const startWord = origin.kind ? `${SOURCE_WORD[origin.kind]}${origin.stale ? ' \u00b7 stale' : ''}` : ''
   const nextLeg = showDistance && nextGroup && nextGroup.leg != null ? nextGroup.leg : null
   const left = useMemo(() => remainingRoute(groups, idx), [groups, idx])
+  // locked: the next two visits under the current one
+  const thenText = route ? groups.slice(idx + 1, idx + 3).map(visitPlace).filter(Boolean).join(' \u00b7 ') : ''
+  const routeShort = route ? (route.state === 'complete' ? 'Route complete' : route.status.short) : ''
 
   // ## OVERLAY in EXPORT DIAGNOSTICS: what this card is showing now
   const distanceShown = showDistance && group && legMeters != null ? `${travelText(legMeters, legJumps, legSurface, legApprox)} ${legFrom}` : null
@@ -507,6 +561,11 @@ export default function OtherOverlay(): React.ReactElement {
       ) : (
         <div style={{ fontSize: 13, color: C.dim }}>Add an Other-mode job in the main window.</div>
       )}
+      {thenText ? (
+        <div data-testid="overlay-route-then" style={{ ...hintStyle, letterSpacing: '0.04em', textTransform: 'none', marginTop: 2, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }} title={thenText}>
+          then: {thenText}
+        </div>
+      ) : null}
       {(upcoming || nextGroup) && (
         <div style={{ marginTop: 12, fontSize: 13, color: C.dim, lineHeight: 1.45 }}>
           {upcoming ? (
@@ -539,7 +598,28 @@ export default function OtherOverlay(): React.ReactElement {
           {afkErr ? <span style={{ color: C.red }}>{afkErr.startsWith('AFK') ? afkErr : `AFK: ${afkErr}`}</span> : null}
         </div>
       ) : null}
-      {left.stops > 0 ? (
+      {route ? (
+        <div
+          data-testid="overlay-route-status"
+          style={{ ...hintStyle, letterSpacing: '0.06em', marginTop: 8, display: 'flex', alignItems: 'center', gap: 8, minWidth: 0 }}
+          title={route.status.text}
+        >
+          <span style={{ minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', color: route.state === 'planned' ? C.dim : C.ghost }}>
+            {routeShort}
+            {showDistance && route.state === 'planned' && left.distance != null && left.stops > 1 ? ` \u00b7 ${travelText(left.distance, left.jumps, false, false)}` : ''}
+          </span>
+          {route.state !== 'complete' ? (
+            <button
+              type="button"
+              data-testid="overlay-btn-plan-route"
+              onClick={planRouteNow}
+              style={{ ...miniBtn, color: C.acc, padding: '1px 6px', fontSize: 10, flex: 'none', WebkitAppRegion: 'no-drag' } as React.CSSProperties}
+            >
+              {route.state === 'planned' ? 'RE-PLAN' : 'PLAN ROUTE'}
+            </button>
+          ) : null}
+        </div>
+      ) : left.stops > 0 ? (
         <div style={{ ...hintStyle, letterSpacing: '0.06em', marginTop: 8 }} title={showDistance && left.distance != null ? formatMapDistance(left.distance) : undefined}>
           {left.stops} {left.stops === 1 ? 'stop' : 'stops'} left
           {showDistance && left.distance != null && left.stops > 1 ? ` \u00b7 ${travelText(left.distance, left.jumps, false, false)} route` : ''}
@@ -606,6 +686,8 @@ export default function OtherOverlay(): React.ReactElement {
             'reading\u2026'
           ) : whereMsg ? (
             <span style={{ color: whereMsg === WHERE_FAIL ? C.amber : whereMsg === LIVE_FAIL ? C.ghost : C.acc }}>{whereMsg}</span>
+          ) : routeNote ? (
+            <span data-testid="overlay-route-note" title={routeNote.text} style={{ color: C.acc }}>{routeNote.text}</span>
           ) : startName ? (
             <span title={startName}>
               <span style={{ ...hintStyle, letterSpacing: '0.08em' }}>FROM:</span>{' '}
@@ -623,7 +705,7 @@ export default function OtherOverlay(): React.ReactElement {
             </>
           )}
         </span>
-        {startName && !whereBusy && !whereMsg ? (
+        {startName && !whereBusy && !whereMsg && !routeNote ? (
           <button
             type="button"
             onClick={runWhere}

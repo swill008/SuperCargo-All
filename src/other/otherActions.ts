@@ -3,3 +3,5 @@ export type OtherAction =
   | { type: 'toggleStep'; jobId: string; stepId: string }
   | { type: 'complete'; jobId: string }
   | { type: 'abandon'; jobId: string }
+  /** batch 19: PLAN ROUTE / RE-PLAN from the overlay (jobId ''); the main window plans and saves */
+  | { type: 'planRoute'; jobId: string }

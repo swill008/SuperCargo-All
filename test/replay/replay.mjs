@@ -1461,6 +1461,81 @@ const b18OverlayOrder = (port) =>
   )
 const b18Pos = (order, name) => (order ?? []).findIndex((x) => x.toLowerCase().includes(name.toLowerCase()))
 
+// batch 19 (docs/contracts/batch-19-locked-route.md): locked route, Other mode, Route optimization on, ROUTE order.
+// The B18 jobs with known mission ids, so log lines (Objective Complete, EndMission) can reach them.
+function b19Jobs() {
+  const R = B18_ROUTE
+  const ids = { J01: mission(), J02: mission(), J03: mission(), J04: mission() }
+  const jobs = [
+    logJob(ids.J01, b18PairJob('J01', 'Lock Pair Run', R.pickup, R.delivery)),
+    logJob(ids.J02, { ref: 'J02', title: 'Lock Run Everus', steps: [b18Go('s1', 'Everus Harbor')] }),
+    logJob(ids.J03, { ref: 'J03', title: 'Lock Run Arc', steps: [b18Go('s1', 'ARC-L1 Wide Forest Station')] }),
+    logJob(ids.J04, { ref: 'J04', title: 'Lock Run Tressler', steps: [b18Go('s1', 'Port Tressler')] })
+  ]
+  // place -> the job and step label that a log line names
+  const byPlace = {
+    'Seraphim Station': { id: ids.J01, label: `Collect Scrap from ${R.pickup}` },
+    'Everus Harbor': { id: ids.J02, label: 'Deliver Scrap to Everus Harbor' },
+    'ARC-L1 Wide Forest Station': { id: ids.J03, label: 'Deliver Scrap to ARC-L1 Wide Forest Station' },
+    'MIC-L1 Shallow Frontier Station': { id: ids.J01, label: `Deliver Scrap to ${R.delivery}` },
+    'Port Tressler': { id: ids.J04, label: 'Deliver Scrap to Port Tressler' }
+  }
+  return { ids, jobs, byPlace, names: R.greedy }
+}
+// switch on, ROUTE order; a typed start (Orison) or, with `read`, AUTO from a WHERE AM I read (Covalex, Hurston)
+// allObjectives false leaves "show all objectives" (overlayShowAllObjectives) out of settings.json: its default, off
+async function b19Launch(name, { jobs = [], read = false, reuse = null, allObjectives = true } = {}) {
+  const e =
+    reuse ??
+    setup(name, { otherStartMode: read ? 'auto' : 'fixed', ...(allObjectives ? { overlayShowAllObjectives: true } : {}), otherRouteOptimize: true }, {
+      jobs,
+      history: [],
+      listOrder: 'route',
+      lastLogEventAt: iso(ago(30)),
+      ...(read ? {} : { startLocation: B18_ROUTE.start, startTypedAt: iso(ago(60)) })
+    })
+  const textFile = path.join(e.home, 'where-text.json')
+  if (read && !reuse) fs.writeFileSync(textFile, JSON.stringify({ zone2: serverTimeNow(COVALEX_READS.planet), zone1: '' }))
+  const port = await freePort()
+  const stop = await launch(e, cdpArgs(port), read ? { SC_WHERE_TEXT_FILE: textFile } : {})
+  return { e, port, stop, textFile }
+}
+const b19Plan = (e) => e.jobs()?.routePlan ?? null
+// PLAN ROUTE / RE-PLAN button in a window (Next tab in main, the card in the overlay)
+const b19PlanBtn = (port, which) => clickButton(port, which, /(^|\s)(PLAN ROUTE|RE-PLAN)$/)
+const b19HasPlanBtn = (port, which, re = /(^|\s)PLAN ROUTE$/) =>
+  cdpEval(port, which, `[...document.querySelectorAll('button')].some((x) => ${re}.test(x.textContent.trim()))`)
+// the first line of a window's text matching re
+const b19Line = (port, which, re) => windowText(port, which).then((t) => t.split(/\n/).map((l) => l.trim()).find((l) => re.test(l)) ?? null)
+// the distance figures shown in the Next tab's list, in order
+const b19Dists = (port) =>
+  windowText(port, 'main').then((t) => {
+    const at = t.indexOf('Open list is only the first matches')
+    return at < 0 ? null : (t.slice(at).match(/[\d.]+\s*(?:Gm|Mm|km)\b/g) ?? [])
+  })
+// the keys of the saved order that are still in `order` (relative order check)
+const b19Keep = (order, keys) => (order ?? []).filter((k) => keys.includes(k))
+// the Next tab's grey stop (data-testid route-grey) with a label "<reason> HH:MM" (the one naming `place` when there is
+// one; hasPlace says whether it does), its text and any stop number ("N." or a bare number) in it. Was: for `place` with a label "<reason> HH:MM": its text and any stop
+// number ("N." or a bare number) in it
+const b19GreyRow = (port, place, reason) =>
+  cdpEval(
+    port,
+    'main',
+    `(() => {
+      const re = /${reason} \\d{1,2}:\\d\\d/i
+      const gs = [...document.querySelectorAll('[data-testid="route-grey"]')].filter((x) => re.test(x.textContent))
+      const g = gs.find((x) => x.textContent.includes(${JSON.stringify(place)})) ?? gs[0]
+      if (!g) return null
+      const lab = [...g.querySelectorAll('span, div')].find((x) => re.test(x.textContent) && ![...x.children].some((c) => re.test(c.textContent)))
+      const nums = [...g.querySelectorAll('span, div')].filter((x) => /^\\d+\\.?$/.test(x.textContent.trim())).map((x) => x.textContent.trim())
+      return { label: (lab?.textContent ?? '').trim().slice(0, 80), text: g.innerText.slice(0, 300), hasPlace: g.textContent.includes(${JSON.stringify(place)}), nums, opacity: getComputedStyle(g).opacity }
+    })()`
+  )
+// the NEW / MOVED tags shown in the Next tab (data-testid route-tag)
+const b19Tags = (port, which, tag) =>
+  cdpEval(port, which, `[...document.querySelectorAll('[data-testid="route-tag"]')].filter((x) => x.textContent.trim() === ${JSON.stringify(tag)}).length`)
+
 const scenarios = {
   // #1 both windows ingest the same accept
   'single-ingest': async () => {
@@ -5009,7 +5084,8 @@ const scenarios = {
   // return-to-first timer (overlayReturnToFirst + overlayReturnSeconds) or a real start change (another place).
   // batch 18 (contract §2, §4): Settings -> OTHER MODE -> Distances & Route has "Route optimization", off by default; off
   // = today's nearest-next ROUTE; on = a shorter order, "Route (optimised) … saves … vs nearest-next", overlay
-  // "ROUTE (OPT)", no delivery before its pickup; the setting survives a restart
+  // "ROUTE (OPT)", no delivery before its pickup; the setting survives a restart. Batch 19: on and not planned is a live
+  // preview (no 1.0.5 pin): status "Not planned (preview)", overlay "ROUTE · not planned", same order after a restart
   'route-optimize-switch': async () => {
     const R = B18_ROUTE
     const names = R.greedy
@@ -5056,10 +5132,13 @@ const scenarios = {
           `(() => { const s = [...document.querySelectorAll('span')].find((x) => /^Route optimization/.test(x.textContent.trim())); const t = s?.parentElement?.lastElementChild; if (!t || t === s) return null; t.click(); return true })()`
         ), 8000)
       r.onSetting = await until(() => settingsGet(port).then((s) => (s?.otherRouteOptimize === true ? true : null)), 8000)
-      r.onOrder = await b18Next(port, names, () => b18OrderLine(port).then((l) => /^Route \(optimised\)/.test(l ?? '')))
+      r.onOrder = await b18Next(port, names, () => b19Line(port, 'main', /Not planned \(preview\)/))
       r.onLine = await b18OrderLine(port)
       r.onTotal = await until(() => b18RouteStat(port), 8000)
-      r.onOverlay = await until(() => b18OverlayOrder(port).then((v) => (/ROUTE \(OPT\)/.test(v?.hint ?? '') && v.stops.length >= names.length ? v : null)), 15000)
+      // batch 19: switch on and not planned = a live preview ("Not planned (preview)"; overlay "ROUTE · not planned")
+      r.onStatus = await until(() => b19Line(port, 'main', /Not planned \(preview\)/), 8000)
+      r.onPlan = e.jobs()?.routePlan ?? null
+      r.onOverlay = await until(() => b18OverlayOrder(port).then((v) => (/ROUTE\s*·\s*not planned/i.test(v?.hint ?? '') && v.stops.length >= names.length ? v : null)), 15000)
       r.onOverlay ??= await b18OverlayOrder(port).catch(() => null)
       await run.stop()
       r.file = e.settings()?.otherRouteOptimize
@@ -5067,8 +5146,9 @@ const scenarios = {
       run = await b18Launch('route-optimize-switch', { reuse: e })
       port = run.port
       r.restartSetting = await until(() => settingsGet(port).then((s) => (s?.otherRouteOptimize === true ? true : null)), 10000)
-      r.restartOrder = await b18Next(port, names, () => b18OrderLine(port).then((l) => /^Route \(optimised\)/.test(l ?? '')))
+      r.restartOrder = await b18Next(port, names, () => b19Line(port, 'main', /Not planned \(preview\)/))
       r.restartLine = await b18OrderLine(port)
+      r.restartStatus = await b19Line(port, 'main', /Not planned \(preview\)/)
     } catch (x) {
       r.err = String(x?.message ?? x)
     }
@@ -5081,15 +5161,272 @@ const scenarios = {
       ['switch off by default', r.defaultSetting !== true, `otherRouteOptimize=${r.defaultSetting}`],
       ['off: order line "Route from Orison · nearest next stop each time"', /^Route from Orison .*nearest next stop each time/.test(r.offLine ?? ''), `line=${r.offLine}`],
       ['off: ROUTE order = nearest-next (as before)', (r.offOrder ?? []).join('|') === names.join('|'), `got ${short(r.offOrder)} want ${short(names)}`],
-      ['off: overlay hint is ROUTE, not ROUTE (OPT)', /\bROUTE\b/.test(r.offOverlay?.hint ?? '') && !/ROUTE \(OPT\)/.test(r.offOverlay?.hint ?? ''), `overlay=${short(r.offOverlay?.stops)}`],
+      ['off: overlay hint is ROUTE, not ROUTE (OPT) / not planned', /\bROUTE\b/.test(r.offOverlay?.hint ?? '') && !/ROUTE \(OPT\)|not planned/i.test(r.offOverlay?.hint ?? ''), `overlay=${short(r.offOverlay?.stops)}`],
       ['clicking the row turns the setting on', r.click === true && r.onSetting === true, `click=${r.click} setting=${r.onSetting}`],
-      ['on: order line "Route (optimised) from Orison · saves … vs nearest-next"', /^Route \(optimised\) from Orison.*saves \S.* vs nearest-next/.test(r.onLine ?? ''), `line=${r.onLine}`],
+      // batch 19: the ROUTE status line ("Not planned (preview) …", then "🔒 Route planned …") replaces the 1.0.5
+      // "Route (optimised) from … saves …" order line
+      ['on: no old "Route from … nearest next" order line (the route status line replaces it)', !/^Route from /.test(r.onLine ?? ''), `line=${r.onLine}`],
       ['on: ROUTE order changes', !!r.onOrder && r.onOrder.length === names.length && r.onOrder.join('|') !== names.join('|'), `on=${short(r.onOrder)} off=${short(r.offOrder)}`],
       ['on: ROUTE total <= off total', offM != null && onM != null && onM <= offM, `on=${r.onTotal} off=${r.offTotal}`],
       ['on: pickup (Seraphim) before its delivery (MIC-L1) on Next', pickupFirst(r.onOrder) && pickupFirst(r.offOrder), `on=${short(r.onOrder)}`],
-      ['on: overlay hint ROUTE (OPT), pickup before delivery, same order as Next', /ROUTE \(OPT\)/.test(r.onOverlay?.hint ?? '') && pickupFirst(r.onOverlay?.stops) && (r.onOrder ?? []).every((n, i) => (r.onOverlay?.stops?.[i] ?? '').toLowerCase().includes(n.toLowerCase())), `overlay=${short(r.onOverlay?.stops)} next=${short(r.onOrder)}`],
+      ['on (not planned): status "Not planned (preview)", no routePlan saved', /Not planned \(preview\)/.test(r.onStatus ?? '') && !r.onPlan, `status=${r.onStatus} routePlan=${short(r.onPlan, 120)}`],
+      ['on: overlay "ROUTE · not planned", pickup before delivery, same order as Next', /ROUTE\s*·\s*not planned/i.test(r.onOverlay?.hint ?? '') && pickupFirst(r.onOverlay?.stops) && (r.onOrder ?? []).every((n, i) => (r.onOverlay?.stops?.[i] ?? '').toLowerCase().includes(n.toLowerCase())), `overlay=${short(r.onOverlay?.stops)} next=${short(r.onOrder)}`],
       ['setting saved in settings.json', r.file === true, `file=${r.file}`],
-      ['after restart: still on, optimised order line and same order', r.restartSetting === true && /^Route \(optimised\)/.test(r.restartLine ?? '') && (r.restartOrder ?? []).join('|') === (r.onOrder ?? []).join('|'), `setting=${r.restartSetting} line=${r.restartLine} order=${short(r.restartOrder)}`]
+      ['after restart: still on, preview status and same order', r.restartSetting === true && /Not planned \(preview\)/.test(r.restartStatus ?? '') && (r.restartOrder ?? []).join('|') === (r.onOrder ?? []).join('|'), `setting=${r.restartSetting} status=${r.restartStatus} line=${r.restartLine} order=${short(r.restartOrder)}`]
+    ]
+  },
+
+  // batch 19 §1-3, §6, §8: not planned = live preview; PLAN ROUTE (Next tab) saves routePlan; live reads change only
+  // distances; a finished step drops out with a "done · next" note; a restart keeps the plan and its order
+  'locked-route-plan': async () => {
+    const { jobs, byPlace, names } = b19Jobs()
+    const r = { err: '' }
+    let run = await b19Launch('locked-route-plan', { jobs, read: true })
+    const { e } = run
+    let rest = names
+    try {
+      let port = run.port
+      await cdpEval(port, 'main', 'window.supercargo.otherWhereRun()')
+      r.where = await until(() => (e.jobs()?.where?.name === COVALEX ? e.jobs().where.name : null), 15000)
+      r.preview = await b18Next(port, names)
+      r.previewStatus = await until(() => b19Line(port, 'main', /Not planned \(preview\)/), 10000)
+      r.previewBtn = await until(() => b19HasPlanBtn(port, 'main'), 5000)
+      r.planBefore = b19Plan(e)
+      r.click = await b19PlanBtn(port, 'main')
+      r.plan = await until(() => (b19Plan(e)?.order?.length ? b19Plan(e) : null), 15000)
+      r.status = await until(() => b19Line(port, 'main', /🔒\s*Route planned/), 10000)
+      r.replanBtn = await until(() => b19HasPlanBtn(port, 'main', /(^|\s)RE-PLAN$/), 5000)
+      r.order = await b18Next(port, names)
+      r.dists = await until(() => b19Dists(port).then((d) => (d?.length ? d : null)), 5000)
+      // a live position change: WHERE AM I read in Seraphim Station's hangar
+      const prev = e.jobs()?.where?.at
+      fs.writeFileSync(run.textFile, JSON.stringify({ zone2: OCR_SERAPHIM_HANGAR, zone1: '' }))
+      await cdpEval(port, 'main', 'window.supercargo.otherWhereRun()')
+      r.moved = await until(() => (e.jobs()?.where?.at !== prev && /Seraphim/.test(e.jobs()?.where?.name ?? '') ? e.jobs().where.name : null), 15000)
+      r.distsAfter = await until(() => b19Dists(port).then((d) => (d?.length && JSON.stringify(d) !== JSON.stringify(r.dists) ? d : null)), 10000)
+      await sleep(1000)
+      r.orderAfterMove = await b18NextOrder(port, names)
+      r.planAfterMove = b19Plan(e)
+      // the first stop finished in game (Objective Complete)
+      r.first = r.orderAfterMove?.[0]
+      const step = byPlace[r.first]
+      if (!step) throw new Error(`no first stop: ${short(r.orderAfterMove)}`)
+      e.append(L.objectiveComplete(step.id, step.label))
+      r.note = await until(() => b19Line(port, 'main', /done · next/), 15000)
+      r.planAfterDone = await until(() => (b19Plan(e)?.order?.length === r.plan.order.length - 1 ? b19Plan(e) : null), 10000)
+      rest = names.filter((n) => n !== r.first)
+      r.orderAfterDone = await until(() => b18NextOrder(port, names).then((o) => (o && !o.includes(r.first) && o.length === rest.length ? o : null)), 10000)
+      await run.stop()
+      run = await b19Launch('locked-route-plan', { reuse: e, read: true })
+      port = run.port
+      r.restartOrder = await b18Next(port, rest, () => b19Line(port, 'main', /🔒\s*Route planned/))
+      r.restartStatus = await b19Line(port, 'main', /🔒\s*Route planned/)
+      r.restartPlan = b19Plan(e)
+    } catch (x) {
+      r.err = String(x?.message ?? x)
+    }
+    await run.stop()
+    const R = B18_ROUTE
+    const pickupFirst = (o) => b18Pos(o, R.pickup) >= 0 && b18Pos(o, R.pickup) < b18Pos(o, R.delivery)
+    const saves = r.plan && r.plan.nearestMeters != null && r.plan.plannedMeters != null && r.plan.nearestMeters > r.plan.plannedMeters
+    const same = (a, b) => !!a && !!b && a.length > 0 && a.join('|') === b.join('|')
+    const doneKeys = (r.planAfterDone?.order ?? [])
+    return [
+      ['start: WHERE AM I read at Covalex (AUTO)', r.where === COVALEX, `where=${r.where} ${r.err}`],
+      ['not planned: status "Not planned (preview) · press PLAN ROUTE …"', /Not planned \(preview\).*PLAN ROUTE/.test(r.previewStatus ?? ''), `status=${r.previewStatus}`],
+      ['not planned: PLAN ROUTE button on the Next tab, no routePlan saved', r.previewBtn === true && !r.planBefore, `btn=${r.previewBtn} routePlan=${short(r.planBefore, 120)}`],
+      ['preview: all stops listed, pickup before its delivery', (r.preview ?? []).length === names.length && pickupFirst(r.preview), `preview=${short(r.preview)}`],
+      ['PLAN ROUTE: routePlan saved (v 1, 5 stops, plan time)', r.click === true && r.plan?.v === 1 && r.plan.order.length === 5 && !Number.isNaN(Date.parse(r.plan.at ?? '')), `click=${r.click} plan=${short(r.plan, 300)}`],
+      ['planned: status "🔒 Route planned HH:MM · N stops" (+ "saves" when shorter than nearest-next)', /🔒\s*Route planned \d{1,2}:\d\d\b.*\b\d+ stops/.test(r.status ?? '') && (!saves || /saves/.test(r.status ?? '')), `status=${r.status} nearest=${r.plan?.nearestMeters} planned=${r.plan?.plannedMeters}`],
+      ['planned: the button reads RE-PLAN', r.replanBtn === true, `replan=${r.replanBtn}`],
+      ['planned: pickup before its delivery', pickupFirst(r.order), `order=${short(r.order)}`],
+      ['live read at Seraphim saved', !!r.moved, `moved=${r.moved}`],
+      ['live read: distances change', !!r.distsAfter && JSON.stringify(r.distsAfter) !== JSON.stringify(r.dists), `before=${short(r.dists)} after=${short(r.distsAfter)}`],
+      ['live read: Next order unchanged', same(r.orderAfterMove, r.order), `before=${short(r.order)} after=${short(r.orderAfterMove)}`],
+      ['live read: saved routePlan order and plan time unchanged', same(r.planAfterMove?.order, r.plan?.order) && r.planAfterMove?.at === r.plan?.at, `plan=${short(r.plan?.order)} after=${short(r.planAfterMove?.order)}`],
+      ['finished step (Objective Complete) drops out of the saved order, others keep their order', !!r.planAfterDone && same(doneKeys, b19Keep(r.plan?.order, doneKeys)), `first=${r.first} after=${short(r.planAfterDone?.order)}`],
+      ['finished step: gone from the Next tab, the rest in the same order', same(r.orderAfterDone, (r.orderAfterMove ?? []).filter((n) => n !== r.first)), `after=${short(r.orderAfterDone)} before=${short(r.orderAfterMove)}`],
+      ['finished step: note "<place> done · next: <place>"', /done · next/.test(r.note ?? ''), `note=${r.note}`],
+      ['restart: same plan (plan time, order) and status 🔒', r.restartPlan?.at === r.plan?.at && same(r.restartPlan?.order, r.planAfterDone?.order) && /🔒\s*Route planned/.test(r.restartStatus ?? ''), `at=${r.restartPlan?.at} order=${short(r.restartPlan?.order)} status=${r.restartStatus}`],
+      ['restart: Next tab order the same', same(r.restartOrder, r.orderAfterDone), `restart=${short(r.restartOrder)} before=${short(r.orderAfterDone)}`]
+    ]
+  },
+
+  // batch 19 §3, §4, §6: after PLAN ROUTE, an abandoned contract's stops stay in place grey ("abandoned HH:MM", no
+  // number, never next); a new contract's stops are slotted in (NEW tags, "+N stops added", others keep their order,
+  // pickup before drop-off); RE-PLAN clears the grey stops and the tags
+  'locked-route-dropped-and-added': async () => {
+    const { ids, jobs, names } = b19Jobs()
+    const ARC = 'ARC-L1 Wide Forest Station'
+    const ADD = { pickup: 'Baijini Point', delivery: 'HUR-L1 Green Glade Station' }
+    const all = [...names, ADD.pickup, ADD.delivery]
+    const r = { err: '' }
+    const run = await b19Launch('locked-route-dropped-and-added', { jobs })
+    const { e, port } = run
+    const arcKey = `${ids.J03}:s1`
+    try {
+      await b18Next(port, names)
+      r.click = await b19PlanBtn(port, 'main')
+      r.order = await until(() => b18NextOrder(port, names).then((o) => (o?.length === names.length ? o : null)), 8000)
+      r.plan = await until(() => (b19Plan(e)?.order?.length ? b19Plan(e) : null), 15000)
+      r.planned = await until(() => b19Line(port, 'main', /🔒\s*Route planned/), 10000)
+      // abandon J03 (ARC-L1) in game
+      e.append(L.end(ids.J03, 'Abandon'))
+      r.greyNote = await until(() => b19Line(port, 'main', /abandoned · \d+ stops? greyed out/), 15000)
+      r.planGrey = await until(() => ((b19Plan(e)?.grey ?? []).some((g) => g.key === arcKey && g.reason === 'abandoned') ? b19Plan(e) : null), 10000)
+      r.greyRow = await until(() => b19GreyRow(port, ARC, 'abandoned'), 10000)
+      r.orderGrey = await b18NextOrder(port, names)
+      r.next = (await until(() => overlayHeader(port).then((v) => (v?.name ? v : null)), 10000))?.name
+      // a new contract accepted (log lines): pickup at Baijini Point, drop-off at HUR-L1
+      const nid = mission()
+      e.append(L.accept(nid, 'Courier Run Added'), L.objective(nid, `Deliver Scrap To ${ADD.delivery}`), L.objective(nid, `Collect Scrap From ${ADD.pickup}`))
+      r.addNote = await until(() => b19Line(port, 'main', /added · pickup/), 15000)
+      r.planAdded = await until(() => {
+        const p = b19Plan(e)
+        const j = findJob(e.jobs(), nid)
+        if (!p || !j || (j.steps ?? []).length < 2) return null
+        const keys = j.steps.map((s) => `${j.id}:${s.id}`)
+        return keys.every((k) => p.order.includes(k)) ? { p, j, keys } : null
+      }, 15000)
+      r.status = await until(() => b19Line(port, 'main', /\+\d+ stops? added/), 8000)
+      r.newTags = await b19Tags(port, 'main', 'NEW')
+      r.orderAdded = await until(() => b18NextOrder(port, all).then((o) => (b18Pos(o, ADD.pickup) >= 0 && b18Pos(o, ADD.delivery) >= 0 ? o : null)), 8000)
+      // RE-PLAN
+      const at = b19Plan(e)?.at
+      r.replan = await b19PlanBtn(port, 'main')
+      r.planRe = await until(() => {
+        const p = b19Plan(e)
+        return p && p.at !== at && (p.grey ?? []).length === 0 && !(p.tags ?? []).length ? p : null
+      }, 15000)
+      await sleep(800)
+      r.greyAfter = await b19GreyRow(port, ARC, 'abandoned')
+      r.newAfter = await b19Tags(port, 'main', 'NEW')
+    } catch (x) {
+      r.err = String(x?.message ?? x)
+    }
+    await run.stop()
+    const p = r.planAdded?.p
+    const oldKeys = r.plan?.order ?? []
+    const steps = r.planAdded?.j?.steps ?? []
+    const keyOf = (kind) => {
+      const s = steps.find((x) => (kind === 'pickup' ? x.kind === 'pickup' : x.kind !== 'pickup'))
+      return s ? `${r.planAdded.j.id}:${s.id}` : null
+    }
+    const pi = p ? p.order.indexOf(keyOf('pickup')) : -1
+    const di = p ? p.order.indexOf(keyOf('drop')) : -1
+    const tagged = (r.planAdded?.keys ?? []).every((k) => (p?.tags ?? []).some((t) => t.key === k && t.tag === 'NEW'))
+    return [
+      ['PLAN ROUTE: planned', r.click === true && !!r.plan && /🔒/.test(r.planned ?? ''), `plan=${short(r.plan?.order)} status=${r.planned} ${r.err}`],
+      ['abandon: routePlan.grey has J03 (abandoned), still in the order', !!r.planGrey && r.planGrey.order.includes(arcKey), `grey=${short(r.planGrey?.grey)} order=${short(r.planGrey?.order)}`],
+      ['abandon: note "J03 abandoned · N stop(s) greyed out"', /J03 abandoned · \d+ stops? greyed out/.test(r.greyNote ?? ''), `note=${r.greyNote}`],
+      ['abandon: a grey row (route-grey) shows "abandoned HH:MM"', /abandoned \d{1,2}:\d\d/i.test(r.greyRow?.label ?? ''), `row=${short(r.greyRow, 300)}`],
+      ['abandon: grey row has no stop number', !!r.greyRow?.text && (r.greyRow?.nums ?? ['x']).length === 0, `nums=${short(r.greyRow?.nums)} text=${short(r.greyRow?.text, 200)}`],
+      ['abandon: the grey row names its stop (ARC-L1)', r.greyRow?.hasPlace === true, `text=${short(r.greyRow?.text, 200)}`],
+      ['abandon: ARC-L1 stays listed on the Next tab, in its place (2nd)', b18Pos(r.orderGrey, ARC) === b18Pos(r.order, ARC) && b18Pos(r.order, ARC) >= 0, `order=${short(r.orderGrey)} planned=${short(r.order)}`],
+      ['abandon: ARC-L1 is not the next stop (overlay card)', !!r.next && !r.next.includes('ARC-L1'), `next=${r.next}`],
+      ['new contract: its stops are in the saved order', !!p, `order=${short(b19Plan(e)?.order)}`],
+      ['new contract: the other stops keep their relative order', !!p && b19Keep(p.order, oldKeys).join('|') === oldKeys.join('|'), `old=${short(oldKeys)} new=${short(p?.order)}`],
+      ['new contract: pickup before its drop-off', pi >= 0 && di > pi, `pickup=${pi} drop=${di}`],
+      ['new contract: NEW tags saved and shown', tagged && r.newTags >= 1, `tags=${short(p?.tags)} shown=${r.newTags}`],
+      ['new contract: status "+N stops added"', /\+2 stops added/.test(r.status ?? ''), `status=${r.status}`],
+      ['new contract: note "J.. added · pickup …, drop-off …"', /added · pickup \S+, drop-off \S+/.test(r.addNote ?? ''), `note=${r.addNote}`],
+      ['new contract: Next tab lists the new places', b18Pos(r.orderAdded, ADD.pickup) >= 0 && b18Pos(r.orderAdded, ADD.pickup) < b18Pos(r.orderAdded, ADD.delivery), `order=${short(r.orderAdded)}`],
+      ['RE-PLAN: new plan time, no grey stops, no tags', r.replan === true && !!r.planRe && !r.planRe.order.includes(arcKey), `plan=${short(r.planRe, 300)}`],
+      ['RE-PLAN: no "abandoned" row and no NEW tag shown', !r.greyAfter && r.newAfter === 0, `grey=${short(r.greyAfter)} new=${r.newAfter}`]
+    ]
+  },
+
+  // batch 19 re-trace (HIGH): with "show all objectives" off (default) only each job's next step reached the route view,
+  // so plan keys of a job's later steps had no row and dropped out of the Next list and the overlay. A job with two
+  // open steps (Port Tressler listed first, Seraphim second): from Orison the plan visits Seraphim (the later step)
+  // first. Every planned stop must be numbered on the Next tab and counted on the overlay.
+  'locked-route-all-steps': async () => {
+    const ids = { JX: mission(), J02: mission(), J03: mission(), J04: mission() }
+    const jobs = [
+      logJob(ids.JX, { ref: 'J01', title: 'All Steps Run', steps: [b18Go('s1', 'Port Tressler'), b18Go('s2', 'Seraphim Station')] }),
+      logJob(ids.J02, { ref: 'J02', title: 'All Steps Everus', steps: [b18Go('s1', 'Everus Harbor')] }),
+      logJob(ids.J03, { ref: 'J03', title: 'All Steps Arc', steps: [b18Go('s1', 'ARC-L1 Wide Forest Station')] }),
+      logJob(ids.J04, { ref: 'J04', title: 'All Steps Mic', steps: [b18Go('s1', 'MIC-L1 Shallow Frontier Station')] })
+    ]
+    const placeOf = {
+      [`${ids.JX}:s1`]: 'Port Tressler',
+      [`${ids.JX}:s2`]: 'Seraphim Station',
+      [`${ids.J02}:s1`]: 'Everus Harbor',
+      [`${ids.J03}:s1`]: 'ARC-L1 Wide Forest Station',
+      [`${ids.J04}:s1`]: 'MIC-L1 Shallow Frontier Station'
+    }
+    const r = { err: '' }
+    const run = await b19Launch('locked-route-all-steps', { jobs, allObjectives: false })
+    const { e, port } = run
+    try {
+      r.setting = (await settingsGet(port))?.overlayShowAllObjectives
+      await clickButton(port, 'main', /^NEXT$/)
+      await until(() => b19HasPlanBtn(port, 'main'), 15000)
+      r.click = await b19PlanBtn(port, 'main')
+      r.plan = await until(() => (b19Plan(e)?.order?.length ? b19Plan(e) : null), 15000)
+      const want = r.plan?.order?.length ?? -1
+      // (a) numbered route rows on the Next tab ("N." before the step label)
+      const numbered = () =>
+        cdpEval(port, 'main', `[...document.querySelectorAll('[data-testid="route-row"]')].filter((x) => /^\\d+\\./.test(x.textContent.trim())).map((x) => x.textContent.trim().slice(0, 60))`)
+      r.rows = await until(() => numbered().then((v) => (v?.length === want ? v : null)), 10000)
+      r.rows ??= await numbered()
+      // (b) overlay "🔒 ROUTE · N of M left"
+      r.left = await until(() => b19Line(port, 'overlay', /ROUTE · \d+ of \d+ left/), 10000)
+      // (c) the overlay's current visit and its "then:" line
+      r.card = (await until(() => overlayHeader(port).then((v) => (v?.name ? v : null)), 10000))?.name ?? null
+      r.then = await until(() => b19Line(port, 'overlay', /^then:/i), 8000)
+    } catch (x) {
+      r.err = String(x?.message ?? x)
+    }
+    await run.stop()
+    const order = r.plan?.order ?? []
+    const i1 = order.indexOf(`${ids.JX}:s1`)
+    const i2 = order.indexOf(`${ids.JX}:s2`)
+    const [, n, m] = (r.left ?? '').match(/(\d+) of (\d+) left/) ?? []
+    const p0 = placeOf[order[0]] ?? '?'
+    const p1 = placeOf[order[1]] ?? '?'
+    const low = (s) => (s ?? '').toLowerCase()
+    return [
+      ['"show all objectives" off (default)', r.setting !== true, `overlayShowAllObjectives=${r.setting} ${r.err}`],
+      ['PLAN ROUTE: plan has both of J01\'s steps, the later one (Seraphim) before the first-listed one', r.click === true && order.length === 5 && i2 >= 0 && i1 >= 0 && i2 < i1, `order=${short(order.map((k) => placeOf[k] ?? k))}`],
+      ['(a) Next tab: numbered route rows = plan stops', (r.rows ?? []).length === order.length && order.length > 0, `rows=${(r.rows ?? []).length} plan=${order.length} ${short(r.rows, 300)}`],
+      ['(b) overlay "N of M left": N = M = plan stops', Number(n) === order.length && Number(m) === order.length, `line=${r.left} plan=${order.length}`],
+      ['(c) overlay card = plan stop 1, "then:" starts with plan stop 2', low(r.card).includes(low(p0)) && low(r.then).includes(low(p1).split(' ')[0]), `card=${r.card} then=${r.then} plan=${p0} > ${p1}`]
+    ]
+  },
+
+  // batch 19 §1, §2, §8: the overlay says "ROUTE · not planned" and its PLAN ROUTE button plans through the main window
+  // (OtherAction planRoute); both windows then show the same order, the overlay card shows "then:" with the next visits
+  'locked-route-overlay': async () => {
+    const { jobs, names } = b19Jobs()
+    const r = { err: '' }
+    const run = await b19Launch('locked-route-overlay', { jobs })
+    const { e, port } = run
+    try {
+      r.notPlanned = await until(() => b19Line(port, 'overlay', /ROUTE\s*·\s*not planned/i), 15000)
+      r.btn = await until(() => b19HasPlanBtn(port, 'overlay'), 5000)
+      r.click = await b19PlanBtn(port, 'overlay')
+      r.plan = await until(() => (b19Plan(e)?.order?.length ? b19Plan(e) : null), 15000)
+      r.overlayStatus = await until(() => b19Line(port, 'overlay', /🔒\s*ROUTE · \d+ of \d+ left/), 10000)
+      r.mainOrder = await b18Next(port, names, () => b19Line(port, 'main', /🔒\s*Route planned/))
+      r.mainStatus = await b19Line(port, 'main', /🔒\s*Route planned/)
+      // the card is on the first visit here (b18OverlayOrder steps through the stops)
+      r.then = await until(() => b19Line(port, 'overlay', /^then:/i), 8000)
+      r.overlay = await until(() => b18OverlayOrder(port).then((v) => (v?.stops?.length >= names.length ? v : null)), 15000)
+      r.overlay ??= await b18OverlayOrder(port).catch(() => null)
+    } catch (x) {
+      r.err = String(x?.message ?? x)
+    }
+    await run.stop()
+    const same = (r.mainOrder ?? []).length === names.length && (r.mainOrder ?? []).every((n, i) => (r.overlay?.stops?.[i] ?? '').toLowerCase().includes(n.toLowerCase()))
+    return [
+      ['overlay: "ROUTE · not planned" before planning', !!r.notPlanned, `line=${r.notPlanned} ${r.err}`],
+      ['overlay: PLAN ROUTE button, clicked', r.btn === true && r.click === true, `btn=${r.btn} click=${r.click}`],
+      ['overlay PLAN ROUTE: routePlan saved by the main window', r.plan?.v === 1 && r.plan.order.length === 5, `plan=${short(r.plan, 300)}`],
+      ['overlay: status "🔒 ROUTE · N of M left"', !!r.overlayStatus, `status=${r.overlayStatus}`],
+      ['main window: "🔒 Route planned"', /🔒\s*Route planned/.test(r.mainStatus ?? ''), `status=${r.mainStatus}`],
+      ['both windows show the same order', same, `main=${short(r.mainOrder)} overlay=${short(r.overlay?.stops)}`],
+      ['overlay: "then:" names the next visits', !!r.then && !!r.mainOrder?.[1] && r.then.toLowerCase().includes(r.mainOrder[1].split(' ')[0].toLowerCase()), `then=${r.then} main=${short(r.mainOrder)}`]
     ]
   },
 

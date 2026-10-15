@@ -9,7 +9,7 @@ import { ipcMain } from 'electron'
 import { dataFolder } from '../../main/paths'
 import { IPC } from '@shared/channels'
 import type { AppSettings } from '@shared/types'
-import type { OtherJobsDoc } from '@other/otherJob'
+import { isRoutePlanDoc, type OtherJobsDoc } from '@other/otherJob'
 import { scanOtherEvents, scanMarkersFor, resetLocationRoster } from './scanLog'
 import { loadOtherPlaces, refreshOtherPlaces } from './uex'
 import { loadCachedLocations } from '../../main/uex'
@@ -79,6 +79,7 @@ function parseDoc(raw: string): Parsed {
   check('trackedMissionId', isStr)
   check('trackedAt', isStr)
   check('refreshedForVersion', isStr)
+  check('routePlan', (v) => v === null || isRoutePlanDoc(v))
   check('rev', (v) => typeof v === 'number' && Number.isFinite(v))
   if (dropped.length) logger.warn('other', 'jobs file: bad field types reset', { fields: dropped })
   return { ok: true, doc: out as unknown as OtherJobsDoc }

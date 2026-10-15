@@ -422,8 +422,6 @@ export type ListOpenStopsOpts = {
   memory?: MemoryLookup
   /** settings.otherRouteOptimize: ROUTE = nearest-next improved by local search. Default false (nearest-next only). */
   routeOptimize?: boolean
-  /** stopKey of the stop the previous plan put first (route + routeOptimize only); kept first unless 20% shorter without it */
-  routePin?: string
 }
 
 /** a stop's identity across runs: `${job.id}:${step.id}` */
@@ -440,20 +438,18 @@ export interface RouteInfo {
   /** the trip shown */
   optimisedMeters: number | null
   optimisedJumps: number
-  /** routePin: kept first, dropped (a plan without it is >= 20% shorter or has fewer jumps), or no usable pin */
-  pin: 'kept' | 'dropped' | 'none'
   /** stops routed (rows with a known point) */
   stops: number
 }
 
-const itemKey = (s: { item?: string }): string => (s.item ?? '').trim().toLowerCase()
+export const itemKey = (s: { item?: string }): string => (s.item ?? '').trim().toLowerCase()
 
 /** an open plain pickup (not a combined "collect from A, deliver to B" step) */
-const isOpenPickup = (s: OtherStep): boolean =>
+export const isOpenPickup = (s: OtherStep): boolean =>
   s.kind === 'pickup' && !s.pickupLocation && !s.done && !s.withdrawn && !!itemKey(s)
 
 /** an open delivery / turn-in that needs an item first */
-const isOpenDelivery = (s: OtherStep): boolean =>
+export const isOpenDelivery = (s: OtherStep): boolean =>
   s.kind !== 'pickup' && !s.pickupLocation && !s.done && !s.withdrawn && !!itemKey(s)
 
 /**
@@ -536,7 +532,7 @@ const waitsForPickup = <T extends { job: { id: string }; step: OtherStep }>(r: T
   left.some((o) => o !== r && o.job.id === r.job.id && isOpenPickup(o.step) && itemKey(o.step) === itemKey(r.step))
 
 /** greedy nearest-neighbour (fewest jumps, then shortest) from start over rows with a known point; ties keep input order */
-function routeOrder<T extends { job: { id: string }; step: OtherStep; point?: GeoPoint }>(
+export function routeOrder<T extends { job: { id: string }; step: OtherStep; point?: GeoPoint }>(
   rows: T[],
   start: GeoPoint,
   locations: Location[]
@@ -563,10 +559,10 @@ function routeOrder<T extends { job: { id: string }; step: OtherStep; point?: Ge
   return out
 }
 
-type Keyed = { job: { id: string }; step: OtherStep }
+export type Keyed = { job: { id: string }; step: OtherStep }
 
 /** every open same-job same-item pickup a row's delivery needs, among rows (indices, list order); [] when none */
-function pickupIndicesFor<T extends Keyed>(rows: T[], r: T): number[] {
+export function pickupIndicesFor<T extends Keyed>(rows: T[], r: T): number[] {
   if (!isOpenDelivery(r.step)) return []
   const key = itemKey(r.step)
   const out: number[] = []
@@ -585,7 +581,7 @@ export function pickupsBeforeDeliveries<T extends Keyed>(rows: T[]): T[] {
 }
 
 /** pickupsBeforeDeliveries for the rows `movable` accepts only */
-function placeAfterPickups<T extends Keyed>(rows: T[], movable: (r: T) => boolean): T[] {
+export function placeAfterPickups<T extends Keyed>(rows: T[], movable: (r: T) => boolean): T[] {
   const after = new Map<T, T[]>()
   const moved = new Set<T>()
   for (const r of rows) {
@@ -607,24 +603,28 @@ function placeAfterPickups<T extends Keyed>(rows: T[], movable: (r: T) => boolea
 }
 
 /** a trip's cost: unmeasurable legs, then jumps, then metres (compareTravel's order) */
-type Cost = { bad: number; jumps: number; meters: number }
+export type Cost = { bad: number; jumps: number; meters: number }
 
-const costLess = (a: Cost, b: Cost): boolean =>
+export const costLess = (a: Cost, b: Cost): boolean =>
   a.bad !== b.bad ? a.bad < b.bad : a.jumps !== b.jumps ? a.jumps < b.jumps : a.meters < b.meters - 1e-6
 
-const samePoint = (a?: GeoPoint, b?: GeoPoint): boolean =>
+export const samePoint = (a?: GeoPoint, b?: GeoPoint): boolean =>
   !!a && !!b && a.x === b.x && a.y === b.y && a.z === b.z && (a.system ?? null) === (b.system ?? null) &&
   (a.body ?? null) === (b.body ?? null)
 
-/** total travel of start -> rows in order (rows need a point): metres null when any leg can't be measured */
+/**
+ * total travel of start -> rows in order (rows need a point): metres null when any leg can't be measured;
+ * surface true when every leg was measured over a body's surface (one leg = that leg's surface flag)
+ */
 export function routeTravel(
   rows: { point?: GeoPoint }[],
   start: GeoPoint,
   locations: Location[]
-): { meters: number | null; jumps: number; bad: number } {
+): { meters: number | null; jumps: number; bad: number; surface: boolean } {
   let meters: number | null = 0
   let jumps = 0
   let bad = 0
+  let surface = rows.length > 0
   let cur: GeoPoint | undefined = start
   for (const r of rows) {
     const t = travel(cur, r.point, locations)
@@ -634,10 +634,11 @@ export function routeTravel(
     } else {
       if (meters != null) meters += t.meters
       jumps += t.jumps
+      if (!t.surface) surface = false
     }
     cur = r.point
   }
-  return { meters, jumps, bad }
+  return { meters, jumps, bad, surface: surface && bad === 0 }
 }
 
 const MAX_PASSES = 60
@@ -646,7 +647,7 @@ const MAX_PASSES = 60
  * Local search on a route (rows with points, e.g. the nearest-next order): move one stop elsewhere (or-opt) or
  * reverse a stretch (2-opt), keeping a change only when the whole trip gets strictly better (fewer jumps, then fewer
  * metres). A delivery never goes before its same-job same-item open pickup. Consecutive rows at the same point move
- * as one block. Deterministic; at most MAX_PASSES improving moves. fixedFirst keeps the first block first (a pin).
+ * as one block. Deterministic; at most MAX_PASSES improving moves. fixedFirst keeps the first block first.
  */
 export function improveRoute<T extends Keyed & { point?: GeoPoint }>(
   rows: T[],
@@ -746,12 +747,11 @@ export function improveRoute<T extends Keyed & { point?: GeoPoint }>(
  */
 export const ROUTE_OPT_MAX_STOPS = 50
 
-/** best plan = nearest-next then improveRoute; the pin (stopKey) first when it is open, placeable, and worth keeping */
+/** best plan = nearest-next then improveRoute (the live ROUTE preview; a locked plan is otherRoutePlan.planRoute) */
 export function optimiseRoute<T extends Keyed & { point?: GeoPoint }>(
   rows: T[],
   start: GeoPoint,
-  locations: Location[],
-  pin?: string
+  locations: Location[]
 ): { rows: T[]; info: RouteInfo } {
   const greedy = routeOrder(rows, start, locations)
   const nearest = routeTravel(greedy, start, locations)
@@ -764,34 +764,11 @@ export function optimiseRoute<T extends Keyed & { point?: GeoPoint }>(
         nearestJumps: nearest.jumps,
         optimisedMeters: nearest.meters,
         optimisedJumps: nearest.jumps,
-        pin: 'none',
         stops: rows.length
       }
     }
   }
-  const free = improveRoute(greedy, start, locations)
-  let chosen = free
-  let pinState: RouteInfo['pin'] = 'none'
-  const pinned = pin ? rows.find((r) => stopKey(r) === pin && r.point) : undefined
-  if (pinned && !pickupIndicesFor(rows, pinned).length) {
-    if (stopKey(free[0]) === pin) pinState = 'kept'
-    else {
-      const rest = rows.filter((r) => r !== pinned)
-      const tail = routeOrder(rest, pinned.point!, locations)
-      const withPin = improveRoute([pinned, ...tail], start, locations, { fixedFirst: true })
-      const a = routeTravel(withPin, start, locations)
-      const b = routeTravel(free, start, locations)
-      // metres unknown on either side: fewer unmeasurable legs wins, then fewer jumps; else jumps, then the 20% rule
-      const drop =
-        a.meters == null || b.meters == null
-          ? b.bad !== a.bad
-            ? b.bad < a.bad
-            : b.jumps < a.jumps
-          : b.jumps < a.jumps || (b.jumps === a.jumps && b.meters <= 0.8 * a.meters)
-      pinState = drop ? 'dropped' : 'kept'
-      chosen = drop ? free : withPin
-    }
-  }
+  const chosen = improveRoute(greedy, start, locations)
   const opt = routeTravel(chosen, start, locations)
   return {
     rows: chosen,
@@ -801,7 +778,6 @@ export function optimiseRoute<T extends Keyed & { point?: GeoPoint }>(
       nearestJumps: nearest.jumps,
       optimisedMeters: opt.meters,
       optimisedJumps: opt.jumps,
-      pin: pinState,
       stops: rows.length
     }
   }
@@ -868,7 +844,7 @@ export function listOpenStopsWithRoute(
         // a delivery whose open pickup has no point is not routed: it goes right after that pickup at the bottom
         const held = new Set(known.filter((r) => pickupIndicesFor(placed, r).some((i) => placed[i].travel == null)))
         if (held.size) bottom = placeAfterPickups([...unknown, ...held], (r) => held.has(r))
-        const plan = optimiseRoute(known.filter((r) => !held.has(r)), start, locations, opts.routePin)
+        const plan = optimiseRoute(known.filter((r) => !held.has(r)), start, locations)
         routed = plan.rows
         route = plan.info
       } else routed = routeOrder(known, start, locations)

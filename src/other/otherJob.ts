@@ -6,6 +6,7 @@
  * go to a place, pick up a named item, or turn in a count at one pad.
  */
 import type { Where } from './otherWhere'
+import type { RoutePlanDoc } from './otherRoutePlan'
 
 export type OtherJobKind = 'delivery' | 'collection' | 'mining' | 'salvage' | 'hauling'
 
@@ -151,11 +152,23 @@ export interface OtherJobsDoc {
   trackedAt?: string
   /** app version+commit (DebugInfo) the automatic REFRESH last ran for; a different one runs it once */
   refreshedForVersion?: string
+  /** batch 19: the locked ROUTE plan (switch otherRouteOptimize on, listOrder 'route'); null/absent = not planned */
+  routePlan?: RoutePlanDoc | null
   /** bumped on every save so a window can tell its own save from the other window's */
   rev?: number
 }
 
 export const EMPTY_OTHER_JOBS: OtherJobsDoc = { jobs: [], history: [] }
+
+/** loose shape check for a saved routePlan (v 1, plan time, order of stop keys; list fields arrays when present) */
+export function isRoutePlanDoc(v: unknown): v is RoutePlanDoc {
+  if (!v || typeof v !== 'object' || Array.isArray(v)) return false
+  const o = v as Record<string, unknown>
+  if (o.v !== 1 || typeof o.at !== 'string') return false
+  if (!Array.isArray(o.order) || !o.order.every((k) => typeof k === 'string')) return false
+  for (const k of ['grey', 'tags', 'added', 'events']) if (o[k] !== undefined && !Array.isArray(o[k])) return false
+  return true
+}
 
 export const OTHER_OUTCOME_LABEL: Record<OtherOutcome, string> = {
   completed: 'Completed',

@@ -74,3 +74,7 @@ with a push: + CI (~10 min, in the background); a release: + ~4 min.
 | 2026-10-15 | Batch 18 route optimization: 6 agents (route, settings, ui, bench, e2e, docs) + re-trace + 3 fix-ups | agent | 2-6 min | 1-11 min each | 13:04-13:17 |
 | 2026-10-15 | Full run 1.0.5 (606 pass, 0 fail, 8 real logs) | test | ~7 min | 7 min | 13:17-13:24 |
 | 2026-10-15 | Release run R1 1.0.5 (Windows + Linux) and CI on the push (passed both) | release | ~4 min + ~2 min | 6 min | 13:25-13:31 |
+| 2026-10-15 | Batch 19 locked route: 7 agents (core, state, next-ui, overlay-ui, diag, e2e, docs); core longest (10 min), next-ui 17 min (waited on others' files) | agent | 6-10 min | 6-20 min each | 13:50-14:10 |
+| 2026-10-15 | Batch 19 re-trace (read-only) | agent | rough guess 10 min | 3 min | 14:08-14:11 |
+| 2026-10-15 | Batch 19 re-trace fixes: 3 agents (fix-core, fix-state, fix-ui) | agent | 3-8 min | 3-4 min each | 14:13-14:17 |
+| 2026-10-15 | Full run 1.0.6 (all checks, 671 replay/log PASS, 8 real logs; one 1.0.5 timing check made robust mid-run) | test | ~7 min | 7 min | 14:19-14:26 |

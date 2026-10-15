@@ -109,6 +109,26 @@ Marked **NOT DOING**: decided against, or left out on purpose.
   delivery before its pickup. Recommendations taken: the next stop changes mid-flight only when the new plan is at least
   20% shorter; "saves N km" is shown whenever the switch is on. Haul mode is not touched. STANDALONE rules 105-110;
   contract [batch-18-route-optimization.md](contracts/batch-18-route-optimization.md).
+  **Superseded in part by batch 19 (2026-10-15):** the steady next stop (per-window pin, 20% rule, `routePin.ts`) is
+  removed; with the switch on, ROUTE is a preview until PLAN ROUTE, then a locked route (below).
+- **Locked route, Plan A (batch 19, 2026-10-15).** "do a round of pick ups and drop offs that is optimized and the
+  update feature doesnt update my route when I am doing the contracts that I have, only if I accept more contracts
+  should that change. the location is for distance, but once planned - the route should not change unless I acccpet
+  contracts."; "contracts are done with a contract manager and can be accepted almost anywhere in game"; "an dropped
+  or abanonded contract should grey out, so the user is aware of what has happend"; "lets go with, A"; "go as
+  recommend, code it". With the switch on and ROUTE order: a live preview until PLAN ROUTE (Next tab and overlay); the
+  plan is saved in `other-jobs.json` (`routePlan`), shared by both windows, and only changes when new contracts are
+  accepted (slotted into the remaining route at the cheapest spots) or on RE-PLAN; live reads only update distances;
+  dropped or abandoned contracts stay in the route greyed out with the reason and time. Switch off: ROUTE is plain
+  nearest-next as before. Haul mode is not touched. Answers taken as recommended: the preview shows without a pin;
+  no moving stops by hand inside a locked route (MANUAL stays a separate order; a later idea in docs/TODO.md); ships
+  in release R1 1.0.6. STANDALONE rules 108-119; contract
+  [batch-19-locked-route.md](contracts/batch-19-locked-route.md).
+  Lead's calls from the re-trace (same day, inside the plan, told to the user): a restored contract's grey stops come
+  back in place; contracts moved to history while the route was hidden count as done/abandoned; a new contract placed
+  later counts as added; the plan tries fewer starting orders on big trips (7 up to 40 stops, 4 up to 60, 2 up to 80,
+  1 above) so PLAN ROUTE stays near 1 s; with the switch on and ROUTE order, the Next tab always shows visits by place
+  (the JOB grouping toggle doesn't apply there).
 
 ## 4. WHERE AM I (position reading) and OCR
 

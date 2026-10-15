@@ -724,14 +724,13 @@ open pickup; a Route optimization switch (off by default) improves the ROUTE ord
 
 | File | Owns (batch 18) | Entry points |
 |---|---|---|
-| `src/other/otherNext.ts` | FROM START pickup order (always); ROUTE improvement by local search when `routeOptimize` is on (trips compared by `compareTravel`: jumps, then metres; same-place stops together; deterministic); the pin and its 20% rule; `RouteInfo` for display and diagnostics | `listOpenStopsWithRoute(jobs, start, locations, opts)` → `{ rows, route: RouteInfo \| null }`, `listOpenStops()` (returns `.rows`), `stopKey(row)` (`<job id>:<step id>`), `pickupsBeforeDeliveries(rows)`, `improveRoute(...)`; `ListOpenStopsOpts.routeOptimize?`, `.routePin?`; type `RouteInfo { optimised, nearestMeters, nearestJumps, optimisedMeters, optimisedJumps, pin: 'kept' \| 'dropped' \| 'none', stops }` |
+| `src/other/otherNext.ts` | FROM START pickup order (always); ROUTE improvement by local search when `routeOptimize` is on (trips compared by `compareTravel`: jumps, then metres; same-place stops together; deterministic); `RouteInfo` for display and diagnostics (the 1.0.5 pin and its 20% rule were removed in batch 19) | `listOpenStopsWithRoute(jobs, start, locations, opts)` → `{ rows, route: RouteInfo \| null }`, `listOpenStops()` (returns `.rows`), `stopKey(row)` (`<job id>:<step id>`), `pickupsBeforeDeliveries(rows)`, `improveRoute(...)`; `ListOpenStopsOpts.routeOptimize?`; type `RouteInfo { optimised, nearestMeters, nearestJumps, optimisedMeters, optimisedJumps, stops }` |
 | `src/other/workMode.ts` | Setting `otherRouteOptimize` (boolean, default `false`) in `OTHER_SETTING_DEFAULTS` | `otherSetting()` |
 | `src/other/renderer/OtherSettingsPage.tsx` | OTHER MODE → Distances & Route row "Route optimization", hint "Shortens the ROUTE order. Off = nearest stop next, as before." | settings row |
-| `src/other/renderer/state/routePin.ts` (new) | Per-window memory of the stop first in the last plan; cleared when that stop is done / withdrawn or the order mode changes | `getRoutePin(windowScope)`, `noteRouteFirst(key)`, `clearRoutePin()` |
 | `src/other/renderer/pages/NextPage.tsx` | Order line "Route (optimised) from <start>[ (auto)] · saves N km vs nearest-next" (no "saves" when 0 or unknown); ROUTE total and legs from the optimised trip | |
-| `src/other/renderer/components/OtherOverlay.tsx` | Order hint "ROUTE (OPT)"; passes the pin | |
-| `src/other/renderer/state/otherDiag.ts` | Route/order section: both totals (metres, jumps), pin kept / dropped, stop count | |
-| `test/replay/next_order.mjs` | FROM START pickup order, improvement never worse, pickups before deliveries, 20% pin rule, determinism | `node test/replay/next_order.mjs` |
+| `src/other/renderer/components/OtherOverlay.tsx` | Order hint "ROUTE (OPT)" (batch 19: "ROUTE · not planned" / the locked route status) | |
+| `src/other/renderer/state/otherDiag.ts` | Route/order section: both totals (metres, jumps), stop count | |
+| `test/replay/next_order.mjs` | FROM START pickup order, improvement never worse, pickups before deliveries, determinism | `node test/replay/next_order.mjs` |
 | `test/replay/route_bench_checks.mjs` (new) | Real job sets (place names only): optimised never longer than nearest-next, never a delivery before its pickup; reports savings | `node test/replay/route_bench_checks.mjs` |
 | `test/replay/replay.mjs` | Batch 18 scenario: the switch in Settings → OTHER MODE, order line and overlay hint | `node test/replay/replay.mjs <names>` |
 
@@ -740,9 +739,41 @@ Settings: `otherRouteOptimize` (OTHER MODE → Distances & Route; default off).
 ```
 listOrder 'distance' (FROM START) ─► distance order ─► pickupsBeforeDeliveries ─► rows
 listOrder 'route', otherRouteOptimize off ─► nearest-next (pickups first) ─► rows (route: null)
-listOrder 'route', on ─► nearest-next ─► improveRoute (move / reverse, pickups first) ─► pin from routePin.ts
-     kept unless the unpinned plan is ≥20% shorter (or fewer jumps) ─► { rows, RouteInfo }
-     ─► Next order line + "saves N km", overlay "ROUTE (OPT)", otherDiag route section
+listOrder 'route', on ─► nearest-next ─► improveRoute (move / reverse, pickups first) ─► { rows, RouteInfo }
+     ─► preview (not planned) or the locked route of batch 19 (below)
+```
+
+## Other mode: locked route (batch 19, 2026-10-15)
+
+Rules 108-119 in [STANDALONE.md](../src/other/STANDALONE.md#locked-route-batch-19-user-2026-10-15); decision in
+[DECISIONS.md](DECISIONS.md) section 3; contract [batch-19-locked-route.md](contracts/batch-19-locked-route.md). With
+Route optimization on and ROUTE order: a preview until PLAN ROUTE, then a locked route saved in `other-jobs.json` that
+changes only when new contracts are slotted in or on RE-PLAN; dropped contracts stay greyed out. Replaces the 1.0.5
+per-window pin (`routePin.ts`, deleted). Other mode only. Release R1 1.0.6.
+
+| File | Owns (batch 19) | Entry points |
+|---|---|---|
+| `src/other/otherRoutePlan.ts` (new, pure) | The locked route: planning (best of several deterministic improvement runs, up to 100 routed stops, pickups first, jumps then metres), slotting in new / newly placed stops at the cheapest spot, reconciling with the jobs (done removed, dropped greyed with reason and time, complete), the view both windows render (visits, numbers, grey, NEW / MOVED tags, "Why here?", status, notes, re-plan %), the events list (newest 10) | `planRoute(rows, start, locations, opts?)`, `slotIn(plan, rows, current, locations)`, `reconcile(plan, jobs, rows, now)`, `routeView(plan, rows, opts)`; types `RoutePlanDoc`, `RouteEvent`, `GreyReason`, `RouteView`, `ViewRow` |
+| `src/other/otherNext.ts` | `routePin` option and pin logic removed; keeps `stopKey`, the optimiser and helpers the plan uses | `stopKey(row)`, `listOpenStopsWithRoute()` |
+| `src/other/otherJob.ts` | `OtherJobsDoc.routePlan?: RoutePlanDoc \| null` | type |
+| `src/other/otherActions.ts` | OtherAction `{ type: 'planRoute', jobId: '' }` (overlay → main window) | type `OtherAction` |
+| `src/other/renderer/state/otherJobs.ts` | The only writer of `routePlan`: PLAN ROUTE / RE-PLAN (WHERE AM I first when the origin read is older than 5 min), reconcile and slot-in on every jobs change, saved with the jobs; handles the relayed `planRoute` action | store actions |
+| `src/other/main/jobs.ts` | Reads and saves `routePlan` with the rest of `other-jobs.json` | |
+| `src/other/renderer/pages/NextPage.tsx` | PLAN ROUTE / RE-PLAN button, status line with 🔒, 4 s notes, visits, grey rows, NEW / MOVED tags, "Why here?" line on row click, "N stops can't be routed (no place) · FIX" | |
+| `src/other/renderer/components/OtherOverlay.tsx` | "ROUTE · not planned" + PLAN ROUTE (sends `planRoute`), short status "🔒 ROUTE · N of M left", next visit and "then: B · C", notes | |
+| `src/other/renderer/state/otherDiag.ts` | Route section: plan state, time, start, order, grey stops, tags, added stops, last events | |
+| `test/replay/route_plan_checks.mjs` (new) | Pure checks of `otherRoutePlan.ts`: plan, slot-in, reconcile (done, grey, placed, complete), route view, determinism | `node test/replay/route_plan_checks.mjs` |
+| `test/replay/replay.mjs` | Batch 19 scenario: PLAN ROUTE (Next tab and overlay), order kept on live reads, new contract slotted in, abandoned contract greyed, RE-PLAN, restart keeps the plan | `node test/replay/replay.mjs <names>` |
+
+Data: `other-jobs.json` gains `routePlan` (`RoutePlanDoc`, `v: 1`); files without it start "Not planned".
+
+```
+switch on, ROUTE, no routePlan ─► preview (optimiser, no pin) ─► "Not planned (preview)" + PLAN ROUTE
+PLAN ROUTE (Next tab, or overlay ─► OtherAction planRoute ─► main window)
+     ─► origin older than 5 min? WHERE AM I first ─► planRoute ─► routePlan saved in other-jobs.json
+jobs change / live read ─► reconcile (done out, dropped grey, placed, complete) ─► slotIn new open stops
+     ─► routeView ─► Next tab rows + status + notes, overlay card + status, otherDiag route section
+RE-PLAN ─► fresh planRoute from the current position (grey and tags cleared)
 ```
 
 ## Other mode: problem stops highlighted (2026-10-14)

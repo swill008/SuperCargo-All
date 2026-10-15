@@ -75,13 +75,15 @@ with an Electron version that runs Node 22. The Electron upgrade is NOT DOING fo
 
 ## Route optimization follow-ups (batch 18 review, 2026-10-15; ask the user first)
 
-- The steady next stop is kept per window (Next and the overlay each remember their own), so Next's top row can
-  differ from the overlay's order for a while. Sharing one pin through the main process would make them identical.
+- ~~The steady next stop is kept per window~~ Done in batch 19: the pin is gone; the locked route is one plan in
+  `other-jobs.json`, shared by both windows.
 - Above 50 stops the improvement step is skipped (nearest-next is used) to keep the windows responsive; the search
   grows with the cube of the stop count (about 0.4 s at 80 stops).
 
-## Locked route plan (planning, 2026-10-15; not approved yet)
+## Locked route plan (built in batch 19, 2026-10-15)
 
-Plan the optimised route once (PLAN ROUTE button), keep the order while flying, slot later contracts in; ideas:
-stronger one-time plan, one visit per place, cost of a new contract, next stops on the overlay; later: landing cost,
-planned vs flown. Open questions 1-3 (slot in / button / where) are with the user.
+Built: PLAN ROUTE / RE-PLAN, the order kept while flying, new contracts slotted in, dropped contracts greyed out, one
+visit per place, next stops on the overlay (STANDALONE rules 108-119, R1 1.0.6). Later ideas (ask the user first):
+- Landing cost: count the time to land and take off at a place, not only the flight distance.
+- Planned vs flown: compare the planned route with what was actually flown.
+- Moving stops by hand inside a locked route (today MANUAL is a separate order).

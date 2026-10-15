@@ -8,7 +8,7 @@ After merging AquatikJustice/SuperCargo, restore:
 2. `src/main/logWatcher.ts` — `this.emit('line', line)` for every raw line (`'line'` in `LogWatcherEvents`).
 3. `src/renderer/src/App.tsx` — `bootOther()`, `<OtherPages>`, `<OtherModals>`, `useOtherEscape`, Other view guard (`otherOnly`, line ~94, lists the Other-only views `jobs`, `next` and, since batch 11, `learned`: switching to Haul mode on one of them sends you to MANIFEST).
 4. `src/renderer/src/pages/SettingsPage.tsx` — the tab bar GENERAL | OTHER MODE (remembered in settings.json `otherSettingsTab`): GENERAL renders the upstream sections unchanged; OTHER MODE renders `<OtherSettingsPage rowStyle keyStyle Toggle />` (`src/other/renderer/OtherSettingsPage.tsx`). To drop Other, remove the tab bar and the OTHER MODE branch (batch 10, rules 69-73).
-5. `src/preload/index.ts` and `src/shared/channels.ts` — the Other IPC methods and channels (`loadOtherJobs`, `saveOtherJobs`, `scanOtherEvents`, `onOtherLogEvent`, `onOtherJobsChanged`, `otherAction`, `onOtherAction`, …).
+5. `src/preload/index.ts` and `src/shared/channels.ts` — the Other IPC methods and channels (`loadOtherJobs`, `saveOtherJobs`, `scanOtherEvents`, `onOtherLogEvent`, `onOtherJobsChanged`, `otherAction`, `onOtherAction`, …). OtherAction types are in `src/other/otherActions.ts` (batch 19 adds `planRoute`, rule 112).
 6. `electron.vite.config.ts` / tsconfig — `@other` → `src/other`.
 7. `BottomNav` / `CompactGate` — workMode branch (Jobs/Next vs Manifest). `OTHER_NAV` is NEXT | JOBS | HISTORY | LEARNED DATA | SETTINGS (batch 11 adds `{ id: 'learned', label: 'LEARNED DATA' }` before SETTINGS); `HAUL_NAV` is upstream's, without LEARNED DATA.
 8. `src/renderer/src/state/store.ts` — `scanSession` skips when `workMode === 'other'`; `ViewId` includes `jobs`, `next` and `learned` (batch 11).
@@ -290,23 +290,90 @@ what exists, and the switch is what we are planning." Haul mode is not touched. 
      order. Stops without a point stay at the bottom as before. `listOpenStopsWithRoute(...)` returns the rows and a
      `RouteInfo`; `listOpenStops` returns the rows only. With the switch on, a delivery whose open pickup has no point is not routed; it is listed right after that pickup with the stops without a point. Above 50 routed stops the improvement step is skipped (nearest-next; `ROUTE_OPT_MAX_STOPS`) so the windows stay responsive.
 107. **Precedence.** MANUAL order wins over everything; FROM START uses rule 104 only; ROUTE uses rule 105 (off) or
-     rules 106 and 108 (on). Pickup before delivery (rule 24) holds in every order.
-108. **Steady next stop (switch on, start from a live read or auto start).** The stop that was first in the previous
-     plan stays first while it is still open, unless the best plan without that pin is at least **20% shorter** in
-     metres (or has fewer jumps). The pin is kept per window in the renderer (`src/other/renderer/state/routePin.ts`:
-     `getRoutePin(windowScope)`, `noteRouteFirst(key)`, `clearRoutePin()`, keys from `stopKey(row)` =
-     `<job id>:<step id>`) and cleared when that stop is done or withdrawn, or the order mode changes.
-109. **What it shows (switch on).** The Next tab order line reads "Route (optimised) from <start>" (plus " (auto)"
-     for an auto start) and " · saves N km vs nearest-next" (N from the usual distance formatter; left out when 0 or
-     unknown). The overlay order hint reads "ROUTE (OPT)". The ROUTE total and legs show the optimised trip.
+     rule 106 and the locked route, rules 111-119 (on). Pickup before delivery (rule 24) holds in every order.
+108. **Replaced by the locked route (batch 19, 2026-10-15).** The 1.0.5 steady next stop (per-window pin in
+     `routePin.ts`, kept unless a plan without it was 20% shorter) is removed, with `routePin.ts` and the `routePin`
+     option of `otherNext.ts`. With the switch on, ROUTE is a preview until planned and then a locked route (rules
+     111-119).
+109. **What it shows (switch on).** Not planned: the Next tab order line reads "Route (optimised) from <start>" (plus
+     " (auto)" for an auto start) and " · saves N km vs nearest-next" (N from the usual distance formatter; left out
+     when 0 or unknown), with the preview status of rule 111; the overlay order hint reads "ROUTE · not planned".
+     Planned: the order line and overlay show the locked route's status (rule 118). The ROUTE total and legs show the
+     shown trip (preview or locked).
 110. **Diagnostics.** With the switch on, the Other route/order section records both totals (nearest-next and
-     optimised, metres and jumps), whether the pin was kept or dropped, and the stop count (`RouteInfo` from
-     `otherDiag.ts`).
+     optimised, metres and jumps) and the stop count (`RouteInfo` from `otherDiag.ts`), and the locked route: state
+     (preview / planned / complete), plan time, start, order, grey stops, tags, added stops and the last events
+     (rule 118).
 
-Tests: `test/replay/next_order.mjs` (FROM START pickup order, the improvement, pickup before delivery, the 20% pin
-rule, determinism); `test/replay/route_bench_checks.mjs` (real job sets: optimised never longer than nearest-next,
-never a delivery before its pickup, savings reported); the batch 18 scenario in `test/replay/replay.mjs` (the switch
-in Settings → OTHER MODE, order line and overlay hint).
+Tests: `test/replay/next_order.mjs` (FROM START pickup order, the improvement, pickup before delivery, determinism);
+`test/replay/route_bench_checks.mjs` (real job sets: optimised never longer than nearest-next, never a delivery before
+its pickup, savings reported); the batch 18 scenario in `test/replay/replay.mjs` (the switch in Settings → OTHER MODE,
+order line and overlay hint).
+
+## Locked route (batch 19, user 2026-10-15)
+
+User: "do a round of pick ups and drop offs that is optimized and the update feature doesnt update my route when I am
+doing the contracts that I have, only if I accept more contracts should that change. the location is for distance, but
+once planned - the route should not change unless I acccpet contracts."; "contracts are done with a contract manager
+and can be accepted almost anywhere in game"; "an dropped or abanonded contract should grey out, so the user is aware
+of what has happend"; "lets go with, A"; "go as recommend, code it". Applies with the switch `otherRouteOptimize` on
+and listOrder ROUTE; switch off = ROUTE plain nearest-next as before. Haul mode is not touched. Contract
+[batch-19-locked-route.md](../../docs/contracts/batch-19-locked-route.md). The route logic is pure, in
+`src/other/otherRoutePlan.ts` (`planRoute`, `slotIn`, `reconcile`, `routeView`); the windows import only from it and
+`otherNext.ts`.
+
+111. **Not planned (preview).** ROUTE shows a live optimised preview (the rule 106 optimiser, no pin). Status "Not
+     planned (preview) · press PLAN ROUTE when you're ready to fly"; overlay "ROUTE · not planned" and a PLAN ROUTE
+     button. Old jobs files without `routePlan` start here.
+112. **PLAN ROUTE.** A button on the Next tab and on the overlay. The overlay sends OtherAction
+     `{ type: 'planRoute', jobId: '' }`, relayed to the main window, which alone writes jobs. The plan starts from the
+     current origin (live / auto start, else STARTING AT); if the origin is a read older than 5 min, a WHERE AM I read
+     runs first (`window.supercargo.otherWhereRun`) and the plan starts from its result (on failure, from the old or
+     typed start, and the status says so). The plan is the best of several deterministic improvement runs
+     (nearest-next start plus other starting orders), up to 100 routed stops (above that: nearest-next); every
+     delivery comes after all its same-job, same-item pickups; fewest jumps first, then metres.
+113. **Saved and shared.** The plan is saved in `other-jobs.json` as `routePlan` (`RoutePlanDoc`, `v: 1`: plan time,
+     start, order of stop keys `<job id>:<step id>`, nearest-next and planned metres, jumps, grey stops, tags, added
+     stops, events, complete time). Both windows read the same plan; it survives a restart and stays saved while in
+     Haul mode. One route at a time.
+114. **Visits.** Stops at the same place in a row show as one visit ("Seraphim Station · pick up 2 · drop off 1"). The
+     overlay card shows the next visit and "then: B · C" (the next 2 visits).
+115. **Flying: the order never changes on its own.** Live reads only update distances. Finished steps drop out (note
+     "<place> done · next: <place>"). A contract abandoned or failed, a step withdrawn or a job removed: its stops stay
+     in place, grey, with no number and the label "<reason> HH:MM" (abandoned | failed | withdrawn | removed); they are
+     not counted and never next, and stay until RE-PLAN or route complete (note "J22 abandoned · 2 stops greyed out").
+     A grey stop keeps its step, contract ref and place on screen (saved when it went grey). A contract finished or
+     abandoned while the route was not shown (and moved to history) counts as done or abandoned, never "removed". A
+     restored contract's grey stops come back in their place, numbered again (note "J22 restored"; lead's call,
+     2026-10-15, re-trace). The route is not complete while an open stop still waits for a place.
+     A stop that had no point at planning and gets one later is slotted in at the cheapest spot without moving the
+     others (note "<place> placed · now stop N"). A new contract's stop that gets its place later counts as added
+     (rule 116). Notes never show a mission id: the contract ref, else "A contract".
+116. **New contract after planning (accepted anywhere).** Its open stops are inserted into the remaining route from
+     the current position (they may go before the current next stop) at the cheapest spots, keeping pickup before
+     delivery and the other stops' relative order. Tag NEW for 60 s; stops whose position changed because of the
+     insertion get MOVED for 60 s. Note "J25 added · pickup 1st, drop-off 6th · +38 Gm"; the status adds "+N stops
+     added (+X)".
+117. **Re-plan suggestion and RE-PLAN.** When the remaining planned route is at least 15% longer than a fresh plan from
+     the current position, the status adds "Added stops made the route N% longer than a fresh plan · RE-PLAN?"
+     (a suggestion only). Once planned the button reads RE-PLAN: a fresh plan of everything left from the current
+     position, clearing grey stops and tags, with a new plan time.
+118. **Route complete and feedback.** With no open planned stops left the status reads "Route complete"; the next
+     PLAN ROUTE starts fresh, and new contracts after completion go back to the preview. Status line in both windows,
+     with a lock icon when planned ("🔒 Route planned 13:40 · 12 stops · 98.6 Gm · saves 11.5 Gm"; overlay short
+     "🔒 ROUTE · 7 of 12 left"). Every route event shows as a 4 s note in both windows (from `routePlan.events`, newest
+     10 kept). Clicking a row on the Next tab shows one "Why here?" line ("After its pickup at <place> (Jxx)",
+     "Closest next stop from <place> · <dist>", "Added after planning (Jxx) · cheapest spot · +<dist>", "No place yet ·
+     fix the tag to route it"). A bottom line "N stops can't be routed (no place) · FIX" opens the first in the fix
+     panel. The overlay shows the status and notes only. Every plan, slot-in, grey and re-plan is logged (dlog and
+     decide) and shown in diagnostics (rule 110).
+119. **Not in this batch.** Moving stops by hand inside a locked route (MANUAL is a separate order), landing cost, and
+     planned vs flown comparison (docs/TODO.md).
+
+Tests: `test/replay/route_plan_checks.mjs` (plan, slot-in, reconcile: done, grey, placed, complete; route view and
+determinism); `test/replay/next_order.mjs` and `test/replay/route_bench_checks.mjs` (without the pin); the batch 19
+scenario in `test/replay/replay.mjs` (PLAN ROUTE on the Next tab and overlay, order kept on live reads, new contract
+slotted in, abandoned contract greyed out, RE-PLAN, restart keeps the plan).
 
 ## Data folder and releases (batch 12, user 2026-10-14)
 
