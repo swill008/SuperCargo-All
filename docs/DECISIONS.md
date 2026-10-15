@@ -56,6 +56,11 @@ Marked **NOT DOING**: decided against, or left out on purpose.
   independent reviewer (11:40, "yes proceed").
 - Rep ranges like "[100-500 Rep]" are read and shown as "+100-500 REP" (batch 12, overlay fix O2, approved 20:24 "2, yes").
 
+- **Contracts are accepted through the contract manager, almost anywhere in game** (user, 2026-10-15: "contracts
+  are done with a contract manager and can be accepted almost anywhere in game. so you are aware."). Where you are
+  when you accept says nothing about the contract's places; planning and slotting-in start from your current
+  position, not from where a contract was offered.
+
 ## 3. Next page, distances and the overlay
 
 - The Next page must show distances and prove it is sorted by distance (12:24-12:27, "do it all, lets
