@@ -12,9 +12,22 @@ export const TARGET_TEXT_PX = 30
 export const MAX_OUT_PX = 4_000_000
 export const MAX_SCALE = 4
 
-/** tesseract parameters for the WHERE AM I worker: psm 6 = one block (zone 2), 7 = one line (zone 1); 2 = Sauvola */
+/**
+ * Tesseract parameters for the WHERE AM I worker, which reads both zones (full set applied on every zone switch).
+ * Zone 2 (r_DisplayInfo, prepForOcr input): psm 6 = one block, thresholding 2 = Sauvola.
+ * Zone 1 (map bottom line, 2x upscale, no prep): the 1.0.1 shared-engine settings, psm 3 = auto, thresholding 0 = Otsu.
+ */
 export const OCR_PARAMS = { preserve_interword_spaces: '1', thresholding_method: '2' } as const
-export const ZONE_PSM = { 1: '7', 2: '6' } as const
+export const ZONE_PSM = { 1: '3', 2: '6' } as const
+export const ZONE_PARAMS = {
+  1: { tessedit_pageseg_mode: ZONE_PSM[1], preserve_interword_spaces: '1', thresholding_method: '0' },
+  2: { tessedit_pageseg_mode: ZONE_PSM[2], ...OCR_PARAMS }
+} as const
+
+/** full tesseract parameter set for a zone (a fresh copy, safe to hand to setParameters) */
+export function zoneParams(zone: 1 | 2): Record<string, string> {
+  return { ...ZONE_PARAMS[zone] }
+}
 
 export interface Bitmap {
   /** BGRA, 4 bytes per pixel, rows packed */

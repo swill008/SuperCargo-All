@@ -25,6 +25,7 @@ Game ids (mission ids, zone ids) and repo owner handles are replaced with placeh
 | 11 | [batch-11-learned-data-tab.md](batch-11-learned-data-tab.md) | LEARNED DATA main tab (Places, Sites, Planets) | `ab1edb7` |
 | 12a | [batch-12a-data-folder-releases.md](batch-12a-data-folder-releases.md) | First plan: user data folder, movable folder, Setup.exe + Portable.zip releases, R1 versioning (parts superseded by 12b) | `4345d95` |
 | 12b | [batch-12b-final-scope.md](batch-12b-final-scope.md) | Final batch 12 scope: data folder like Gremlin, damaged-data check and "Moved for Repair", updates like Gremlin, reference data status, overlay fixes O1-O3, release notes in the workflow | `4345d95` |
+| 14 | [batch-14-zones-share-reader.md](batch-14-zones-share-reader.md) | Zones 1 and 2 share the WHERE AM I reader: two OCR readers instead of three | (batch 14 commit) |
 
 Earlier work (debug logging, the upstream v0.9.1 merge, the first Other-mode fix batch with options 1-10,
 the replay tests, distances on the Next page and overlay) was planned in the chat without a written

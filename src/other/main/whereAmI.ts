@@ -1,8 +1,10 @@
 /**
  * WHERE AM I (main process): one screenshot of the map screen, two zones read with OCR.
  * Zone 2 (r_DisplayInfo text, upper right) first when otherWhereUseZone2, then zone 1 (map bottom line).
- * OCR: own tesseract.js worker (psm 6 zone 2, psm 7 zone 1, Sauvola) on ocrPrep.ts output (grey, inverted, scaled for
- * ~30 px text from the frame height); falls back to the shared engine (3x/2x upscale, psm 3) when it won't load.
+ * OCR: one own tesseract.js worker reads both zones. Zone 2: ocrPrep.ts output (grey, inverted, scaled for ~30 px text
+ * from the frame height), psm 6, Sauvola. Zone 1: 2x upscale, no prep, psm 3, Otsu (the 1.0.1 settings). The full
+ * parameter set (ocrPrep.ts zoneParams) is applied whenever the zone changes. If the worker won't load, both zones fall
+ * back to a TesseractEngine (3x/2x upscale, psm 3), created only then.
  * Test seam: env SC_WHERE_TEXT_FILE = JSON {"zone1"?: string, "zone2"?: string} replaces capture + OCR.
  * Live position (otherWhereLive): zone 2 only, every otherWhereLiveSec (30-120 s); every result broadcast with why 'live'
  * (the overlay stays quiet until 3 live failures in a row).
@@ -33,7 +35,7 @@ import { getBodies, onWhereRead } from './bodies'
 import { bodyRadiusFromTable } from '../otherBodies'
 import { captureGameWindow, captureDisplay, cropImage, toUpscaledPng, toPreviewDataUrl } from '../../main/capture'
 import { TesseractEngine } from '../../main/ocr/tesseractEngine'
-import { OCR_PARAMS, prepForOcr, ZONE_PSM } from './ocrPrep'
+import { prepForOcr, zoneParams } from './ocrPrep'
 import { logger } from '../../main/logger'
 import { trace } from '../../main/trace'
 
@@ -175,7 +177,7 @@ function seamText(): { zone1?: string; zone2?: string } | null {
   }
 }
 
-// ---- own OCR worker (zone psm differs from the shared engine's psm 3) ----
+// ---- own OCR worker (both zones; parameters differ per zone) ----
 
 type TessWorker = {
   recognize: (img: Buffer) => Promise<{ data: { text: string } }>
@@ -186,7 +188,8 @@ type CreateWorker = (lang: string, oem: number, opts: Record<string, unknown>) =
 let worker: TessWorker | null = null
 let workerLoading: Promise<TessWorker | null> | null = null
 let workerFailed = false
-let workerPsm = ''
+/** zone whose full parameter set is on the worker (0 = none / unknown) */
+let workerZone: Zone | 0 = 0
 
 async function whereWorker(): Promise<TessWorker | null> {
   if (worker || workerFailed) return worker
@@ -200,7 +203,7 @@ async function whereWorker(): Promise<TessWorker | null> {
       const create = t.createWorker ?? t.default?.createWorker
       if (!create) throw new Error('tesseract.js missing createWorker')
       const w = await create('eng', 1, { cachePath, gzip: true })
-      await w.setParameters({ ...OCR_PARAMS })
+      // no parameters here: the first read applies its zone's full set
       worker = w
       logger.info('other', 'where: ocr worker ready', { ms: Date.now() - t0 })
       return w
@@ -225,21 +228,29 @@ async function ocrZone(img: NativeImage, crop: CropRect, zone: Zone): Promise<st
   } catch (e) {
     logger.debug('other', 'where: crop keep failed', { zone, error: errText(e) })
   }
-  // zone 1 (map line) keeps the old path until a real map-line crop is benchmarked; the tuned pipeline is zone 2 only
-  const w = zone === 2 ? await whereWorker() : null
+  const w = await whereWorker()
   if (w) {
-    const size = cropped.getSize()
-    const prep = prepForOcr({ data: cropped.toBitmap(), width: size.width, height: size.height }, img.getSize().height)
-    const png = nativeImage.createFromBitmap(Buffer.from(prep.data.buffer, prep.data.byteOffset, prep.data.byteLength), { width: prep.width, height: prep.height }).toPNG()
-    if (zone === 2) lastCrops.zone2Prepped = png
-    const psm = ZONE_PSM[zone]
-    if (workerPsm !== psm) {
-      await w.setParameters({ tessedit_pageseg_mode: psm })
-      workerPsm = psm
+    let png: Buffer
+    if (zone === 2) {
+      const size = cropped.getSize()
+      const prep = prepForOcr({ data: cropped.toBitmap(), width: size.width, height: size.height }, img.getSize().height)
+      png = nativeImage.createFromBitmap(Buffer.from(prep.data.buffer, prep.data.byteOffset, prep.data.byteLength), { width: prep.width, height: prep.height }).toPNG()
+      lastCrops.zone2Prepped = png
+    } else {
+      // zone 1: the 1.0.1 input (2x upscale, no prep)
+      png = toUpscaledPng(cropped, 2)
+    }
+    if (workerZone !== zone) {
+      // reset first so a failed call re-applies next time
+      workerZone = 0
+      const t0 = Date.now()
+      await w.setParameters(zoneParams(zone))
+      workerZone = zone
+      logger.debug('other', 'where: ocr params switch', { zone, ms: Date.now() - t0 })
     }
     return (await w.recognize(png)).data.text ?? ''
   }
-  // zone 1, or the worker failed: shared engine; zone 2's debug text is small: upscale more
+  // the worker failed (1.0.1 fallback): a TesseractEngine for both zones; zone 2's debug text is small: upscale more
   const png = toUpscaledPng(cropped, zone === 2 ? 3 : 2)
   engine ??= new TesseractEngine()
   const r = await engine.recognize(png)

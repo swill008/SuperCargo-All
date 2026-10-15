@@ -22,6 +22,14 @@ Open items for this app. Each one: what, why, how, and what it depends on.
 
 Added 2026-10-14 (user); narrowed 2026-10-14 (contract 14).
 
+## Zone 1 text on the shared WHERE AM I reader: compare with the old reader
+
+**What.** Batch 14 moved zone 1 (the map's bottom line) onto the WHERE AM I worker with its 1.0.1 settings. Compare the
+zone 1 text the old reader and the new one give on the user's real zone 1 picture.
+**Depends on.** A diagnostics export with images from the user (it keeps the zone 1 crop). Then run both paths on that
+crop; any difference goes to the user before a change.
+**Status.** Waiting for the export (recommendation A, user 2026-10-15).
+
 ## Tesseract console noise in WHERE AM I (to confirm first)
 
 **What.** The dev console prints "Estimating resolution as N" for every read and "Image too small to scale!! (1x36 vs

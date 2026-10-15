@@ -117,6 +117,16 @@ Marked **NOT DOING**: decided against, or left out on purpose.
   (zone 1 on the WHERE AM I reader), were planned and built, then dropped by the user: "I want exactly what we had
   before we started. excpet remove the AFK reader and code. thats it". The three readers stay as in 1.0.1 (measured
   2026-10-15 in Electron 33: about 115-128 MB each). Don't re-propose without new facts.
+  **Superseded in part by batch 14 (2026-10-15):** the two-reader idea (zone 1 on the WHERE AM I reader) is now
+  approved, see the next entry; one single shared reader for everything stays NOT DOING.
+- **Zones 1 and 2 share the WHERE AM I reader (batch 14, 2026-10-15).** "go ahead and code, you are approved on your
+  recommendations"; to "could zone 1 and 2 be combined?": "I meant 1" (both zones share one reader). Two readers
+  instead of three: the contract reader (unchanged) and the WHERE AM I worker, which reads zone 2 and zone 1 with each
+  zone's own settings (zone 1 keeps its 1.0.1 settings: page mode 3, interword spaces, default threshold, 2× upscale, no
+  prep). Zone order, busy, live reads (zone 2 only), calibrator TEST, diagnostics pictures and not closing readers on
+  quit are unchanged. Recommendation A taken: if the worker won't load, both zones fall back to the `TesseractEngine`
+  path as in 1.0.1; the same-zone-1-text proof on the user's real picture waits for an export with images (docs/TODO.md).
+  About 115 MB less memory once zone 1 has been read (STANDALONE rule 56).
 - **AFK takes no position reads (batch 13, 2026-10-15).** "afk reads, can go away period." The once-a-minute WHERE AM I
   read during AFK, the setting `otherAfkWhereRead` and its Settings row "Read position while AFK" are removed; the AFK
   button and key presses stay; old saved values are ignored, no migration (STANDALONE rule 19). (supersedes batch 2's

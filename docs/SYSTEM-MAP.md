@@ -199,7 +199,7 @@ In `whereAmI.ts`: `syncWhereLive()` / `stopWhereLive()` (live timer, called by `
 
 ```
 hotkey otherWhereHotkey ──┐
-overlay WHERE AM I button ┴─► otherWhere:run ─► main/whereAmI: one capture + Tesseract (or SC_WHERE_TEXT_FILE)
+overlay WHERE AM I button ┴─► otherWhere:run ─► main/whereAmI: one capture + own Tesseract worker for both zones (or SC_WHERE_TEXT_FILE)
    ─► OCR zone 2 (if otherWhereUseZone2) ─► parseDisplayInfo ─► resolveDisplayInfo ─┐
    └► else / fallback OCR zone 1 ─► parseMapLine ─► resolveMapLine ─────────────────┤
                                                     WhereRunResult {ok, where, zone, raw, ms}
@@ -486,8 +486,8 @@ source: the roster is still UEX plus the bundled starmap file, now tagged by sou
 | `src/other/renderer/components/LearnedPlaces.tsx` | "(place's source is off)" on entries whose place isn't in the active sources | `LearnedPlaces` |
 | `src/other/renderer/state/otherDiag.ts` | `placeSource` uses the tags; SNAPSHOT shows the enabled sources | |
 | `src/other/otherResolve.ts` | Confusion-folded keys (`corrected` +5); weighted Damerau-Levenshtein "close spelling" (+4 / +3); code words must fold equal; "· from starmap data" on starmap candidates | `resolveStopPlace()`, `placeKey()` |
-| `src/other/main/whereAmI.ts` | Own tesseract.js worker for zone 2 only (page mode 6, interword spaces, Sauvola `thresholding_method` 2); zone 1 keeps the shared engine; falls back to it when the worker won't load; `zone2-prepped` picture in `## IMAGES` | `SC_WHERE_TEXT_FILE` seam unchanged |
-| `src/other/main/ocrPrep.ts` (new, pure JS on the BGRA bitmap) | Grey, invert, scale to ~30 px text (capped ~4 Mpx); `OCR_PARAMS`, `ZONE_PSM`. No global Otsu (it dropped text over bright sky/glare); Tesseract thresholds locally | `prepForOcr()` |
+| `src/other/main/whereAmI.ts` | Own tesseract.js worker for zone 2 (page mode 6, interword spaces, Sauvola `thresholding_method` 2) and, since batch 14, zone 1 too (no second `TesseractEngine`); both fall back to the shared engine when the worker won't load; `zone2-prepped` picture in `## IMAGES` | `SC_WHERE_TEXT_FILE` seam unchanged |
+| `src/other/main/ocrPrep.ts` (new, pure JS on the BGRA bitmap) | Grey, invert, scale to ~30 px text (capped ~4 Mpx); `OCR_PARAMS`, `ZONE_PSM`; since batch 14 the full per-zone parameter sets (zone 1: page mode 3, interword spaces, threshold 0, 2× upscale, no prep). No global Otsu (it dropped text over bright sky/glare); Tesseract thresholds locally | `prepForOcr()` |
 | `test/replay/sources_checks.mjs` (new) | `mergeLocations` on/off: starmap-only places gone, filled coordinates stripped, UEX coordinates kept | `node test/replay/sources_checks.mjs` |
 | `test/replay/resolve_checks.mjs`, `test/replay/fixtures/stop_cases.json` | A row per typo rule; the OCR-misread rows re-decided (right place or `none`, never a wrong place) | `node test/replay/resolve_checks.mjs` |
 | `test/replay/ocr_bench.mjs` (new) | Old (3×, page mode 3) vs new pipeline on a real zone 2 crop: ms and parsed fields | `node test/replay/ocr_bench.mjs` |
@@ -501,7 +501,7 @@ renderer: mergeLocations(haul, places, otherSourceStarmap)
    off ─► drop source starmap, strip coordsFrom starmap ─► resolver / distances / LEARNED PLACES / SNAPSHOT
 resolver: exact (+6) ─► placeKey equal (+5) ─► confusion-folded equal (+5, corrected) ─► close spelling (+4 / +3, code words must fold equal)
 WHERE AM I zone 2: capture ─► ocrPrep (grey, invert, scale ~30 px) ─► own Tesseract (psm 6, Sauvola) ─► parseDisplayInfo
-WHERE AM I zone 1: capture ─► shared engine as before (until a map-line crop is benchmarked)
+WHERE AM I zone 1: capture ─► 2× upscale ─► same own Tesseract, zone 1 params (psm 3, threshold 0) ─► parseMapLine (batch 14; was a second shared engine)
 ```
 
 Run only the addendum 2 app scenarios (after `npm run build`):
@@ -744,3 +744,21 @@ dataSync refreshFromRepo ─► reference-data-status.json ─► evt:refData �
 Run (after `npm run build`): `node test/replay/replay.mjs data-folder damaged-data update-window refdata-status overlay-header settings-tabs`;
 pure: `node test/replay/paths_checks.mjs`, `npm run test:update`, `node test/replay/refresh_checks.mjs`,
 `node test/replay/where_checks.mjs`, `node test/replay/release_checks.mjs`.
+
+## Zones 1 and 2 share the WHERE AM I reader (batch 14, 2026-10-15)
+
+Rule 56 in [STANDALONE.md](../src/other/STANDALONE.md); decision in [DECISIONS.md](DECISIONS.md) section 4; contract
+[batch-14-zones-share-reader.md](contracts/batch-14-zones-share-reader.md). Two OCR readers instead of three; about 115 MB
+less memory once zone 1 has been read.
+
+| File | Owns (batch 14) | Entry points |
+|---|---|---|
+| `src/other/main/whereAmI.ts` | One own worker reads both zones, setting the zone's full parameter set before each read; the zone 1 `TesseractEngine` is gone; worker load failure -> both zones use the `TesseractEngine` path as in 1.0.1 | `runWhere()`, calibrator TEST (unchanged) |
+| `src/other/main/ocrPrep.ts` | Per-zone parameter sets (zone 1: psm 3, interword spaces, threshold 0, 2× upscale, no prep; zone 2: psm 6, interword spaces, Sauvola 2, after `prepForOcr`) | constants used by `whereAmI.ts` |
+| `test/replay/zonereader_checks.mjs` (new) | Both zones read on one worker with their own settings; no third reader; fallback path | `node test/replay/zonereader_checks.mjs` |
+
+```
+contract OCR ─► upstream TesseractEngine (unchanged)
+WHERE AM I ─► own worker: set zone 2 params ─► read zone 2 ─► nothing? ─► set zone 1 params ─► read zone 1 (2× crop)
+worker won't load ─► TesseractEngine path for both zones (as 1.0.1)
+```
