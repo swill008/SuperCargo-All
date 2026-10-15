@@ -49,7 +49,9 @@ Read these before doing anything. The user's decisions about the program are in 
   tests, fixtures, docs, commit messages or release notes. Game logs and exports contain them: use the
   sanitiser (`src/main/sanitize.ts`: handle -> PLAYER, other players -> OWNER-n), placeholders, or leave it out.
 - Fixtures from real logs are made with `test/replay/make_fixture.py` (cleaned). Screenshots and OCR pictures
-  can't be cleaned: never commit them.
+  can't be cleaned: never commit them, except gold pictures the user approves after a check for personal data
+  (user, 2026-10-15: "keep these images as gold standard, for future tests"): they live in
+  `test/replay/fixtures/gold/<date>-<place>/` with a README (source, what each shows, true content, baseline read).
 - No email addresses or OS user names in the repo.
 
 ## Agents

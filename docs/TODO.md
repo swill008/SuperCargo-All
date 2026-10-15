@@ -28,7 +28,9 @@ Added 2026-10-14 (user); narrowed 2026-10-14 (contract 14).
 zone 1 text the old reader and the new one give on the user's real zone 1 picture.
 **Depends on.** A diagnostics export with images from the user (it keeps the zone 1 crop). Then run both paths on that
 crop; any difference goes to the user before a change.
-**Status.** Waiting for the export (recommendation A, user 2026-10-15).
+**Status.** Done 2026-10-15: on the user's real zone 1 picture the old reader and the new one give the identical
+text, matching the 1.0.1 export character for character; zone 2 is identical after the settings switch; the switch
+takes 1-2 ms. The pictures are kept as gold fixtures in `test/replay/fixtures/gold/2026-10-15-orison-hangar/`.
 
 ## Tesseract console noise in WHERE AM I (to confirm first)
 

@@ -132,6 +132,11 @@ Marked **NOT DOING**: decided against, or left out on purpose.
   button and key presses stay; old saved values are ignored, no migration (STANDALONE rule 19). (supersedes batch 2's
   quiet AFK read.)
 
+- **Gold pictures may be committed** (2026-10-15): "keep these images as gold standard, for future tests" → "yes" to
+  committing them with a written exception to the privacy rule. Only pictures the user approves after a check for
+  personal data; kept in `test/replay/fixtures/gold/<date>-<place>/` with a README (CLAUDE.md Privacy). First set:
+  Orison hangar, zone 1, zone 2, zone 2 prepped, overlay.
+
 ## 5. Place matching: resolver, match memory, learned data
 
 - Prevent wrong matches showing as correct, with a streamlined design instead of more rules. "we need a

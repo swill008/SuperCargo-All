@@ -1,0 +1,44 @@
+Zone: Hangar XLTop Orison 866260671985 Pos: -13.27m -177.82m -110.28m
+
+Zone: 00C Stanton 2 Crusader Pos: 5296.0803km -874.4176km 5280.8983km
+
+Zone: SolarSystem 862399811847 Pos: -18966812.6362km -2662255.4340km 5280.8983km
+
+Zone: Root Pos: -18966812.6362km -2662255.4340km 5280.8983km
+
+FPS 94.1 - 10.0ms [9.7ms]
+
+Phys: 6.6ms Stall: 0.6ms Event: 0.6ms
+
+Server FPS 22.2 [17.9..23.8] - 45.1ms [42.1..56.0], Hitches: ©
+
+Server: pub-uselb- sc-alpha-4162-12913470-game- 93, restarts ©, pop. [shard 418, srv 34]
+
+Net: ping 57.4ms, loss 0.6% BwIn 946.227kbps, BwOut 165.939kbps
+
+RL: entities: 49051, tick: 0.17ms, MTSync: 8.21ms
+
+—                                                   ServerTime: Thu Oct 15 89:37:13 2026
+N      X                                        UniverseTime: Fri Sep 24 09:43:21 2990
+Working Set (0S): 22.83 GiB Committed (0S): 36.97 GiB
+
+204                                            Render: MT: 9.9ms RT: 2.7ms GPU: 9.0ms
+Graphics Renderer : Vulkan (DLSS-57%)
+
+Current player location : Stanton2 Orison (LZ : Stanton2 Orison)
+
+Planet:00C Stanton 2 Crusader (working) (Load Complete)
+
+CamPos Planet Zone: 5296080.321068 -874417.567942 5280898.342495
+
+Radius: 7450010.000000 ElevationUnderCam: 1.500000 Altitude 79992.494295
+
+XYPos: -1230045.491806 7428653.496400 Page: © (+X)
+
+Virtual Terrain Cache: Disabled
+
+Entities: 77557, PS: ©, QdBatches: ©, LB: ©, QdFinalize: 0, Net-DeferredFinalize: ©, QdSOC: ©
+
+Component updates: 19492, Events handled:   1366
+
+Game: 0.00ms
