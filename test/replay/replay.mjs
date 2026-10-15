@@ -1442,18 +1442,20 @@ const scenarios = {
     const stop = await launch(e)
     const id = mission()
     e.append(L.accept(id, 'Bounty Hunt'), L.objective(id, 'Go to Port Tressler'))
-    await sleep(2000)
+    // poll, never a fixed sleep: a fixed read raced the watcher on a busy CI runner
+    await until(() => findJob(e.jobs(), id)?.status === 'active', 15000)
     e.append(L.end(id, 'Abandon'))
-    await sleep(2000)
-    // poll: one read 2 s after the append raced the watcher on a busy CI runner (status=active)
-    const afterAbandon = (await until(() => (findJob(e.jobs(), id)?.status === 'abandoned' ? 'abandoned' : null))) ?? findJob(e.jobs(), id)?.status
+    const afterAbandon = (await until(() => (findJob(e.jobs(), id)?.status === 'abandoned' ? 'abandoned' : null), 15000)) ?? findJob(e.jobs(), id)?.status
     e.append(L.shared('900000000001', id), L.accept(id, 'Bounty Hunt'))
-    await sleep(2000)
-    const mid = e.jobs()
+    // was a fixed 2 s sleep: read status=abandoned on a slow CI runner before the re-share was processed
+    const mid = (await until(() => {
+      const d = e.jobs()
+      return findJob(d, id)?.status === 'active' ? d : null
+    }, 15000)) ?? e.jobs()
     const afterReshare = findJob(mid, id)?.status
     const midCopies = copies(mid, id)
     e.append(L.end(id, 'Complete'))
-    await sleep(2000)
+    await until(() => findJob(e.jobs(), id)?.status === 'complete', 15000)
     await stop()
     const doc = e.jobs()
     return [
@@ -4701,6 +4703,18 @@ if (argv[0] === '--log') {
 const pick = argv
 const names = pick.length ? pick : Object.keys(scenarios)
 let failed = 0
+// results.txt in the run root (CI uploads that folder on failure): written as each scenario finishes,
+// so a killed run or a log too long to read still shows every PASS/FAIL and the summary
+const resultsFile = path.join(runRoot, 'results.txt')
+const record = (line) => {
+  try {
+    fs.appendFileSync(resultsFile, line + '\n')
+  } catch {
+    // never let the results file break the run
+  }
+}
+const resultLine = (name, [what, ok, detail]) => `${ok ? 'PASS' : 'FAIL'}  ${name}: ${what}  (${detail})`
+record(`replay: ${names.length} scenario(s): ${names.join(' ')}`)
 console.log(`replay: ${names.length} scenario(s), data under ${runRoot}${useXvfb ? ' (xvfb)' : ''}`)
 // scenarios are independent (own data dir, own X display), so run REPLAY_JOBS at once
 const jobs = Math.max(1, Number(process.env.REPLAY_JOBS) || os.cpus().length)
@@ -4715,14 +4729,23 @@ await Promise.all(
       } catch (e) {
         results.set(name, [['scenario threw', false, String(e?.stack ?? e)]])
       }
+      for (const r of results.get(name)) record(resultLine(name, r))
     }
   })
 )
+const fails = []
 for (const name of names) {
-  for (const [what, ok, detail] of results.get(name)) {
-    if (!ok) failed++
-    console.log(`${ok ? 'PASS' : 'FAIL'}  ${name}: ${what}  (${detail})`)
+  for (const r of results.get(name)) {
+    if (!r[1]) {
+      failed++
+      fails.push(resultLine(name, r))
+    }
+    console.log(resultLine(name, r))
   }
 }
-console.log(failed ? `\n${failed} check(s) failed` : '\nall checks passed')
+const summary = failed ? `${failed} check(s) failed` : 'all checks passed'
+record(summary)
+// repeat every FAIL next to the summary so a long log can't bury them
+if (fails.length) console.log(`\nfailed checks:\n${fails.join('\n')}`)
+console.log(`\n${summary}  (results: ${resultsFile})`)
 process.exit(failed ? 1 : 0)

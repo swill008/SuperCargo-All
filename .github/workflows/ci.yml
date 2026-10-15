@@ -40,11 +40,35 @@ jobs:
           sudo apt-get install -y --no-install-recommends \
             xvfb libnss3 libatk1.0-0 libatk-bridge2.0-0 libgtk-3-0 libgbm1 libasound2t64
           python3 --version
-      # replay.mjs launches Electron with --no-sandbox via xvfb-run.
+      # Disk fills (0 MB free) late in the replay with tens of GB outside /tmp, freed when the step ends: most likely
+      # Electron crash dumps (user 2026-10-15, CI fix A). Turn core dumps off for the replay steps (core_pattern back
+      # to a plain file so the 0 limit holds), printing what the runner used.
+      - name: No crash dumps during replay
+        run: |
+          echo "core_pattern was: $(cat /proc/sys/kernel/core_pattern)"
+          echo core | sudo tee /proc/sys/kernel/core_pattern
+          sudo sysctl -w fs.suid_dumpable=0
+      # replay.mjs launches Electron with --no-sandbox via xvfb-run. A disk sampler runs alongside (every 15 s) and
+      # names the folders that grow.
       - name: Replay scenarios
-        run: node test/replay/replay.mjs
+        run: |
+          ulimit -c 0
+          ( while true; do
+              echo "[disk $(date +%H:%M:%S)] $(df -h / | tail -1)"
+              sudo du -xsh /var/crash /var/lib/systemd/coredump /var/lib/apport /var/tmp "$GITHUB_WORKSPACE" 2>/dev/null | tr '\n' ' '; echo
+              sleep 15
+            done ) > /tmp/disk-sampler.log 2>&1 &
+          echo $! > /tmp/disk-sampler.pid
+          node test/replay/replay.mjs
       - name: Replay real-log fixtures
-        run: node test/replay/run_all.mjs
+        run: |
+          ulimit -c 0
+          node test/replay/run_all.mjs
+      - name: Disk sampler log
+        if: always()
+        run: |
+          kill "$(cat /tmp/disk-sampler.pid 2>/dev/null)" 2>/dev/null || true
+          cat /tmp/disk-sampler.log 2>/dev/null || true
       # where the disk space went, so a "no space left on device" run names the folder
       - name: Disk use on failure
         if: failure()
@@ -52,6 +76,9 @@ jobs:
           df -h / /tmp; df -i /
           du -xsh /tmp/* ~/.config ~/.cache ~/.npm 2>/dev/null | sort -h | tail -20
           du -sh /tmp/sc-replay-*/*/.config /tmp/sc-replay-*/*/.cache /tmp/sc-replay-*/*/SuperCargo-OtherModes 2>/dev/null | sort -h | tail -20
+          sudo du -xsh /var/crash /var/lib/systemd/coredump /var/lib/apport /var/tmp /var/log "$GITHUB_WORKSPACE" 2>/dev/null | sort -h
+          # large files deleted but still held open (space only comes back when the process exits)
+          sudo lsof -nP +L1 2>/dev/null | sort -k7 -n | tail -20 || true
       - name: Upload replay data
         if: failure()
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2

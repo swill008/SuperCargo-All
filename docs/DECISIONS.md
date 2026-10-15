@@ -294,6 +294,13 @@ Marked **NOT DOING**: decided against, or left out on purpose.
 - Build the whole batch, test at the end, then push (14:21, 15:33, 18:08).
 - CI runs typecheck, build and the replay tests on every push (11:40).
 
+- **CI disk fix A** (2026-10-15): "for the failing ci, do as recommend". CI's disk filled (0 MB free) about 8 min into
+  the replay with tens of GB outside the test folders, freed when the step ended; most likely Electron crash dumps.
+  `ci.yml` turns core dumps off for the replay steps (and prints the runner's core_pattern), samples disk use every
+  15 s including the system crash folders, and on failure lists large deleted-but-open files. `reshare-reactivates`
+  waits for its result instead of a fixed 2 s, and every replay result and the summary are also written to
+  `results.txt` in the uploaded test folder, so a slow runner log can't hide a failure.
+
 ## 12. Docs
 
 - The code audit and system map go in the repo (09:21, "push those to repo" 10:41, commit `40299e5`).
