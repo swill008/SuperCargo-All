@@ -51,3 +51,5 @@ with a push: + CI (~10 min, in the background); a release: + ~4 min.
 | 2026-10-14 | e2e for all final items incl. old-code proofs (one agent, staggered) | agent | ~6 min | 10 min | 23:02-23:12 |
 | 2026-10-14 | Final full run: typecheck, checks, replay 529, 8 real logs | test | ~7 min | 6 min | 23:13-23:19 |
 | 2026-10-14 | 3 CI-timing tests made to wait (shared-by, init-once, start-mode-auto-fixed; lead) | agent | 2-6 min | 2 min | 23:39-23:41 |
+| 2026-10-14 | OCR timing analysis: 4 parallel read-only agents (chain, history, bench, contention) | study | rough guess 10-15 min | 4-7 min each | 23:58-00:04 |
+| 2026-10-15 | Full run before push of e2285c2 (529 replay, 8 real logs) | test | ~7 min | 6 min | 00:03-00:09 |
