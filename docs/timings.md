@@ -68,3 +68,6 @@ with a push: + CI (~10 min, in the background); a release: + ~4 min.
 | 2026-10-15 | Batch 16 delete & block: 7 agents (memory, bodies, blocked, page, fix, e2e, docs) + 4 fix-ups | agent | 2-6 min | 1-5 min each | 10:34-10:45 |
 | 2026-10-15 | Batch 17 OCR split: 4 agents (ocrsplit, resolver, e2e, docs) + marker fix-up; study + re-traces | agent | 2-6 min | 1-7 min each | 10:46-11:01 |
 | 2026-10-15 | Full run 1.0.4 (587 pass, 0 fail, 8 real logs) | test | ~7 min | 6 min | 11:02-11:08 |
+| 2026-10-15 | Release run R1 1.0.4 (Windows) | release | ~4 min | 4 min | 11:09-11:13 |
+| 2026-10-15 | Release run R1 1.0.4 (Linux AppImage) | release | rough guess 2 min | 2 min | 11:14-11:16 |
+| 2026-10-15 | CI on the 1.0.4 push (features + main) | ci | ~10 min | passed both | 11:09-11:16 |
