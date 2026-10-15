@@ -33,10 +33,15 @@ Read these before doing anything. The user's decisions about the program are in 
    released."), never leave the user to work out the state from a summary.
    Every question carries its own context: what the thing is, where the user sees it in the app, what it does
    now, what each answer would do, and your recommendation. Never a bare list of questions.
-6. **Answer what was asked.** When the user asks for a list or a comparison "nothing else", give only that.
-7. When the user corrects a fact about the game (how contracts end, quits, crashes, sharing), take it as the
+6. **Recommendation at the top of every question** (user, 2026-10-15: "restate your questions, with options and your
+   recommendations. put your recommendations at top. make this a rule"). Each question is laid out in this order:
+   the question in one plain sentence; **Recommendation:** the option I recommend and why, in one or two lines; then
+   every option (the recommended one included) with what it does and its effect; then the effort (rule 10). Never
+   bury the recommendation in the option list.
+7. **Answer what was asked.** When the user asks for a list or a comparison "nothing else", give only that.
+8. When the user corrects a fact about the game (how contracts end, quits, crashes, sharing), take it as the
    spec, write it into STANDALONE.md / DECISIONS.md, and don't argue it back.
-8. Record every new user decision in `docs/DECISIONS.md` in the same batch (superseded ones stay, marked).
+9. Record every new user decision in `docs/DECISIONS.md` in the same batch (superseded ones stay, marked).
 
 ## Privacy
 
