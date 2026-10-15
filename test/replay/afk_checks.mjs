@@ -49,12 +49,13 @@ check('keys', 'F2 once, then F1', j(seq) === j(['F2', 'F1', 'F1', 'F1']), j(seq)
 
 // config
 const def = A.afkConfig({})
-check('config', 'defaults', def.intervalMs === 15000 && def.firstKey === 'F2' && def.cycleKey === 'F1' && def.maxMs === 120 * 60000 && def.whereRead === true, j(def))
+check('config', 'defaults', def.intervalMs === 15000 && def.firstKey === 'F2' && def.cycleKey === 'F1' && def.maxMs === 120 * 60000, j(def))
 check('config', 'interval clamped', A.afkConfig({ otherAfkIntervalSec: 1 }).intervalMs === 5000 && A.afkConfig({ otherAfkIntervalSec: 99999 }).intervalMs === 600000)
 check('config', 'test override', A.afkConfig({ otherAfkIntervalSec: 15 }, 50).intervalMs === 50)
 check('config', 'bad key -> default', A.afkConfig({ otherAfkFirstKey: 'Ctrl', otherAfkCycleKey: 'm' }).firstKey === 'F2' && A.afkConfig({ otherAfkCycleKey: 'm' }).cycleKey === 'M')
 check('config', '0 = no limit', A.afkConfig({ otherAfkMaxMin: 0 }).maxMs === 0)
-check('config', 'where read off', A.afkConfig({ otherAfkWhereRead: false }).whereRead === false)
+// batch 13: AFK takes no WHERE AM I reads; an old saved otherAfkWhereRead is ignored (no migration)
+check('config', 'no whereRead field', !('whereRead' in def) && !('whereRead' in A.afkConfig({ otherAfkWhereRead: true })), j(def))
 
 // cycle with a fake clock: 15 s interval, 1 min limit
 const T0 = Date.parse('2026-10-14T12:00:00Z')
@@ -91,14 +92,19 @@ check('cycle', 'next good press clears error', A.afkPressed(sk, T0, cfg, 'F1').l
 check('cycle', 'stop with error', A.afkStopped(s2, 'Star Citizen window closed').lastError === 'Star Citizen window closed')
 check('cycle', 'off state stop reason', A.afkStopReason(A.afkOff(), T0) === 'off')
 
-// where reads: first after the first press, then about once a minute
-check('where', 'first read due', A.afkWhereDue(null, T0))
-check('where', 'not again within a minute', !A.afkWhereDue(T0, T0 + 45000))
-check('where', 'due after a minute', A.afkWhereDue(T0, T0 + 60000))
-check('where', 'delay ~2 s', A.AFK_WHERE_DELAY_MS === 2000)
+// no where reads (batch 13): nothing in the pure module schedules one, and a dry run of several cycles
+// (the same afkStart/afkPressed path main/afk.ts takes in SC_AFK_DRYRUN) leaves no where-read trace in the state
+check('no where', 'no where-read exports', !Object.keys(A).some((k) => /where/i.test(k)), Object.keys(A).filter((k) => /where/i.test(k)).join(','))
+{
+  const dc = A.afkConfig({ otherAfkWhereRead: true, otherAfkMaxMin: 0 }, 500)
+  let d = A.afkStart(T0, dc, true)
+  for (let i = 0; i < 6; i++) d = A.afkPressed(d, T0 + i * 500, dc, A.afkNextKey(d, dc))
+  check('no where', 'dry run: 6 cycles, state has no where read', d.presses === 6 && !Object.keys(d).some((k) => /where/i.test(k)), j(d))
+}
 
 // helper script text (can't run here): pull the String.raw block out of afk.ts
 const src = fs.readFileSync(path.join(root, 'src/other/main/afk.ts'), 'utf8').replace(/\r\n/g, '\n') // a Windows checkout has CRLF
+check('no where', 'main/afk.ts never runs a WHERE AM I read', !/whereAmI|runWhere|whereTimer|scheduleWhere/.test(src))
 const m = src.match(/AFK_HELPER_PS1 = String\.raw`([\s\S]*?)`\n/)
 check('helper', 'script found', !!m)
 if (m) {

@@ -113,6 +113,14 @@ Marked **NOT DOING**: decided against, or left out on purpose.
   "Open space" only when none apply. Distances keep the panel's exact position; unknown codes keep the old wording
   (STANDALONE rules 16, 32). (refined 2026-10-14: the earlier "Open space" wording, used for any read not on a
   planet zone line, including at a station.)
+- **NOT DOING: fewer OCR readers (batch 13, 2026-10-15).** One shared reader with contract priority, then two readers
+  (zone 1 on the WHERE AM I reader), were planned and built, then dropped by the user: "I want exactly what we had
+  before we started. excpet remove the AFK reader and code. thats it". The three readers stay as in 1.0.1 (measured
+  2026-10-15 in Electron 33: about 115-128 MB each). Don't re-propose without new facts.
+- **AFK takes no position reads (batch 13, 2026-10-15).** "afk reads, can go away period." The once-a-minute WHERE AM I
+  read during AFK, the setting `otherAfkWhereRead` and its Settings row "Read position while AFK" are removed; the AFK
+  button and key presses stay; old saved values are ignored, no migration (STANDALONE rule 19). (supersedes batch 2's
+  quiet AFK read.)
 
 ## 5. Place matching: resolver, match memory, learned data
 

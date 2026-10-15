@@ -18,10 +18,6 @@ export interface AfkState {
 export const AFK_LAST_KEYS_MAX = 5
 export const AFK_INTERVAL_MIN_SEC = 5
 export const AFK_INTERVAL_MAX_SEC = 600
-/** a WHERE AM I read about once a minute while AFK is on */
-export const AFK_WHERE_EVERY_MS = 60_000
-/** ...taken this long after a key press, so the game has settled */
-export const AFK_WHERE_DELAY_MS = 2_000
 /** focus failures in a row before AFK gives up */
 export const AFK_MAX_FOCUS_FAILS = 3
 
@@ -91,7 +87,6 @@ export interface AfkConfig {
   cycleKey: string
   /** 0 = no limit */
   maxMs: number
-  whereRead: boolean
 }
 
 export interface AfkSettingsIn {
@@ -99,7 +94,6 @@ export interface AfkSettingsIn {
   otherAfkFirstKey?: unknown
   otherAfkCycleKey?: unknown
   otherAfkMaxMin?: unknown
-  otherAfkWhereRead?: unknown
 }
 
 function num(v: unknown, dflt: number): number {
@@ -115,8 +109,7 @@ export function afkConfig(s: AfkSettingsIn, intervalMsOverride?: number): AfkCon
     intervalMs: intervalMsOverride !== undefined && intervalMsOverride > 0 ? intervalMsOverride : sec * 1000,
     firstKey: normaliseAfkKey(s.otherAfkFirstKey) ?? 'F2',
     cycleKey: normaliseAfkKey(s.otherAfkCycleKey) ?? 'F1',
-    maxMs: maxMin * 60_000,
-    whereRead: s.otherAfkWhereRead !== false
+    maxMs: maxMin * 60_000
   }
 }
 
@@ -169,11 +162,6 @@ export function afkStopped(s: AfkState, error?: string): AfkState {
   delete out.nextAt
   if (error) out.lastError = error
   return out
-}
-
-/** a WHERE AM I read is due after the press at `now` (none yet this AFK run, or a minute since the last) */
-export function afkWhereDue(lastReadAt: number | null, now: number): boolean {
-  return lastReadAt === null || now - lastReadAt >= AFK_WHERE_EVERY_MS
 }
 
 /** ms until the next press, never negative (for "next key in 12 s") */

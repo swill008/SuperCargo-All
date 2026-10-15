@@ -169,7 +169,6 @@ export default function OtherSettingsPage({
     document.getElementById(sectionDomId(id))?.scrollIntoView({ block: 'start' })
   }
   const whereLive = otherSetting(settings, 'otherWhereLive')
-  const afkWhereRead = otherSetting(settings, 'otherAfkWhereRead')
   const withdrawn = otherSetting(settings, 'otherWithdrawnSteps')
   const haulPrompt = otherSetting(settings, 'otherHaulSwitchPrompt')
   const startMode = otherSetting(settings, 'otherStartMode')
@@ -396,13 +395,6 @@ export default function OtherSettingsPage({
           <span style={hintStyle}>Stop pressing keys after this many minutes. 0 = no limit.</span>
         </span>
         {renderNum('otherAfkMaxMin', 0, 1440, 'min')}
-      </div>
-      <div style={rowStyle}>
-        <span style={keyStyle}>
-          Read position while AFK
-          <span style={hintStyle}>About once a minute, after a key press, quietly run a WHERE AM I read.</span>
-        </span>
-        <Toggle on={afkWhereRead} onClick={() => set({ otherAfkWhereRead: !afkWhereRead })} />
       </div>
       {zonesOpen && (
         <div

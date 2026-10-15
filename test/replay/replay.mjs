@@ -2280,13 +2280,18 @@ const scenarios = {
     ]
   },
 
-  // AFK button, dry run (SC_AFK_DRYRUN: no focus, no keys sent): first press F2 (map), then F1; stop turns it off
+  // AFK button, dry run (SC_AFK_DRYRUN: no focus, no keys sent): first press F2 (map), then F1; stop turns it off.
+  // Batch 13: AFK takes no WHERE AM I read (before, one came 2 s after the first press); the seam is on so a read
+  // would finish and be logged.
   'afk-dry-run': async () => {
     const e = setup('afk-dry-run', { otherAfkFirstKey: 'F2', otherAfkCycleKey: 'F1' })
+    const textFile = path.join(e.home, 'where-text.json')
+    fs.writeFileSync(textFile, JSON.stringify({ zone2: DISPLAY_INFO_HURSTON, zone1: '' }))
     const port = await freePort()
-    const stop = await launch(e, cdpArgs(port), { SC_AFK_DRYRUN: '1', SC_AFK_INTERVAL_MS: '500' })
+    const stop = await launch(e, cdpArgs(port), { SC_AFK_DRYRUN: '1', SC_AFK_INTERVAL_MS: '500', SC_WHERE_TEXT_FILE: textFile })
     let started
     let mid
+    let late
     let stopped
     let after
     let err = ''
@@ -2294,6 +2299,8 @@ const scenarios = {
       started = await cdpEval(port, 'main', 'window.supercargo.otherAfkStart()')
       // lastKeys keeps the newest 5: read as soon as 2 presses are in, so the first F2 is still there
       mid = await until(() => cdpEval(port, 'main', 'window.supercargo.otherAfkGet()').then((s) => (s?.presses >= 2 ? s : null)), 2500)
+      // stay on past the old read time (2 s after the first press): 9 presses at 500 ms is ~4 s
+      late = await until(() => cdpEval(port, 'main', 'window.supercargo.otherAfkGet()').then((s) => (s?.presses >= 9 ? s : null)), 8000)
       stopped = await cdpEval(port, 'main', 'window.supercargo.otherAfkStop()')
       await sleep(1200)
       after = await cdpEval(port, 'main', 'window.supercargo.otherAfkGet()')
@@ -2301,13 +2308,16 @@ const scenarios = {
       err = String(x?.message ?? x)
     }
     await stop()
+    const whereRuns = count(e.log(), /where: run done/g)
     const keys = mid?.lastKeys ?? []
     return [
       ['start turns it on (dry run)', started?.on === true && started?.dryRun === true, `start=${JSON.stringify(started)} ${err}`],
       ['at least 2 presses in ~2 s', (mid?.presses ?? 0) >= 2, `state=${JSON.stringify(mid)}`],
       ['first key F2, then F1', keys[0] === 'F2' && keys[1] === 'F1', `lastKeys=${JSON.stringify(keys)}`],
       ['stop turns it off', stopped?.on === false && after?.on === false, `stop=${JSON.stringify(stopped)} after=${JSON.stringify(after)}`],
-      ['no presses after stop', typeof after?.presses === 'number' && after.presses === stopped?.presses, `stopped=${stopped?.presses} after=${after?.presses}`]
+      ['no presses after stop', typeof after?.presses === 'number' && after.presses === stopped?.presses, `stopped=${stopped?.presses} after=${after?.presses}`],
+      ['AFK ran ~4 s (9+ presses)', (late?.presses ?? 0) >= 9, `state=${JSON.stringify(late)?.slice(0, 200)}`],
+      ['AFK took no WHERE AM I read', whereRuns === 0, `where run lines=${whereRuns}`]
     ]
   },
 

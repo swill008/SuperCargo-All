@@ -14,7 +14,6 @@ import { IPC } from '@shared/channels'
 import type { AppSettings } from '@shared/types'
 import {
   AFK_MAX_FOCUS_FAILS,
-  AFK_WHERE_DELAY_MS,
   afkConfig,
   afkNextKey,
   afkOff,
@@ -24,11 +23,9 @@ import {
   afkStart,
   afkStopReason,
   afkStopped,
-  afkWhereDue,
   type AfkConfig,
   type AfkState
 } from '@other/otherAfk'
-import { runWhere } from './whereAmI'
 import { logger } from '../../main/logger'
 import { trace } from '../../main/trace'
 
@@ -355,8 +352,6 @@ class PsHelper {
 let state: AfkState = afkOff()
 let getSettingsRef: (() => AppSettings) | null = null
 let timer: ReturnType<typeof setTimeout> | null = null
-let whereTimer: ReturnType<typeof setTimeout> | null = null
-let lastWhereAt: number | null = null
 let focusFails = 0
 let restarts = 0
 let helper: PsHelper | null = null
@@ -394,9 +389,7 @@ function set(next: AfkState): void {
 
 function clearTimers(): void {
   if (timer) clearTimeout(timer)
-  if (whereTimer) clearTimeout(whereTimer)
   timer = null
-  whereTimer = null
 }
 
 function finish(why: string, error?: string): AfkState {
@@ -440,16 +433,6 @@ async function sendPress(key: string): Promise<HelperReply> {
   return r
 }
 
-function scheduleWhere(now: number, cfg: AfkConfig): void {
-  if (!cfg.whereRead || !afkWhereDue(lastWhereAt, now) || whereTimer) return
-  lastWhereAt = now
-  whereTimer = setTimeout(() => {
-    whereTimer = null
-    if (!state.on) return
-    void runWhere({ why: 'live' }).catch((e: unknown) => logger.warn('other', 'afk: where read failed', { error: errText(e) }))
-  }, AFK_WHERE_DELAY_MS)
-}
-
 function scheduleNext(): void {
   if (!state.on || !state.nextAt) return
   const ms = Math.max(0, Date.parse(state.nextAt) - Date.now())
@@ -472,7 +455,6 @@ async function tick(): Promise<void> {
     if (isDryRun()) {
       logPress(key, null)
       set(afkPressed(state, Date.now(), cfg, key))
-      scheduleWhere(Date.now(), cfg)
       scheduleNext()
       return
     }
@@ -487,7 +469,6 @@ async function tick(): Promise<void> {
     if (r.ok) {
       focusFails = 0
       set(afkPressed(state, Date.now(), cfg, key))
-      scheduleWhere(Date.now(), cfg)
     } else if (r.found === false) {
       finish('game window gone', state.presses === 0 ? 'Star Citizen window not found' : 'Star Citizen window closed')
       return
@@ -519,7 +500,6 @@ export async function startOtherAfk(): Promise<AfkState> {
   clearTimers()
   focusFails = 0
   restarts = 0
-  lastWhereAt = null
   set(afkStart(Date.now(), cfg, dry))
   logger.info('other', 'afk: started', { intervalMs: cfg.intervalMs, firstKey: cfg.firstKey, cycleKey: cfg.cycleKey, maxMs: cfg.maxMs, dryRun: dry })
   trace({ area: 'usage', mode: 'other', what: 'afk started', data: { intervalMs: cfg.intervalMs, firstKey: cfg.firstKey, cycleKey: cfg.cycleKey, maxMs: cfg.maxMs, dryRun: dry } })

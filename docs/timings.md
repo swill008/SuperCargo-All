@@ -53,3 +53,8 @@ with a push: + CI (~10 min, in the background); a release: + ~4 min.
 | 2026-10-14 | 3 CI-timing tests made to wait (shared-by, init-once, start-mode-auto-fixed; lead) | agent | 2-6 min | 2 min | 23:39-23:41 |
 | 2026-10-14 | OCR timing analysis: 4 parallel read-only agents (chain, history, bench, contention) | study | rough guess 10-15 min | 4-7 min each | 23:58-00:04 |
 | 2026-10-15 | Full run before push of e2285c2 (529 replay, 8 real logs) | test | ~7 min | 6 min | 00:03-00:09 |
+| 2026-10-15 | Batch 13 single reader (dropped later): 6 parallel agents (reader, where, hold, afk, e2e, docs) | agent | 2-6 min | 2-3 min each | 00:46-00:49 |
+| 2026-10-15 | Full run (batch 13 single reader, 536 replay, 8 real logs) | test | ~7 min | 6 min | 00:53-00:59 |
+| 2026-10-15 | Review agents: retrace, audit, old-fail, memory (read-only / scratch) | study | 1-8 min | 1-3 min each | 00:58-01:00 |
+| 2026-10-15 | Two-reader rework (dropped): 3 agents (where2, e2e, docs) | agent | 2-6 min | 1-2 min each | 01:06-01:08 |
+| 2026-10-15 | AFK-only: reset docs/code to 1.0.1 + quick tests + 4 targeted scenarios (lead) | test | ~1 + 1-3 min | 1 min | 01:09-01:10 |

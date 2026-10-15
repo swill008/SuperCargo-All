@@ -92,8 +92,6 @@ declare module '@shared/types' {
     otherAfkCycleKey?: string
     /** AFK: stop by itself after this many minutes (0 = no limit) */
     otherAfkMaxMin?: number
-    /** AFK: run a WHERE AM I read about once a minute while the map is open */
-    otherAfkWhereRead?: boolean
     /** distances on the overlay card */
     otherOverlayDistance?: boolean
     /** data source: the bundled starmap positions (places UEX lacks + coords UEX lacks); UEX is always on */
@@ -126,7 +124,6 @@ export const OTHER_SETTING_DEFAULTS = {
   otherAfkFirstKey: 'F2',
   otherAfkCycleKey: 'F1',
   otherAfkMaxMin: 120,
-  otherAfkWhereRead: true,
   otherOverlayDistance: true,
   otherSourceStarmap: true,
   otherSettingsTab: 'general' as 'general' | 'other'
