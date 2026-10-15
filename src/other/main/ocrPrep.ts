@@ -13,7 +13,8 @@ export const MAX_OUT_PX = 4_000_000
 export const MAX_SCALE = 4
 
 /**
- * Tesseract parameters for the WHERE AM I worker, which reads both zones (full set applied on every zone switch).
+ * Tesseract parameters for the WHERE AM I zones: the shared reader's 'zone1' / 'zone2' profiles (ocrReader.ts
+ * READER_PROFILES; its full set is applied whenever the job's profile differs from the last one applied).
  * Zone 2 (r_DisplayInfo, prepForOcr input): psm 6 = one block, thresholding 2 = Sauvola.
  * Zone 1 (map bottom line, 2x upscale, no prep): the 1.0.1 shared-engine settings, psm 3 = auto, thresholding 0 = Otsu.
  */

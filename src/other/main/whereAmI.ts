@@ -1,18 +1,21 @@
 /**
  * WHERE AM I (main process): one screenshot of the map screen, two zones read with OCR.
  * Zone 2 (r_DisplayInfo text, upper right) first when otherWhereUseZone2, then zone 1 (map bottom line).
- * OCR: one own tesseract.js worker reads both zones. Zone 2: ocrPrep.ts output (grey, inverted, scaled for ~30 px text
- * from the frame height), psm 6, Sauvola. Zone 1: 2x upscale, no prep, psm 3, Otsu (the 1.0.1 settings). The full
- * parameter set (ocrPrep.ts zoneParams) is applied whenever the zone changes. If the worker won't load, both zones fall
- * back to a TesseractEngine (3x/2x upscale, psm 3), created only then.
- * Test seam: env SC_WHERE_TEXT_FILE = JSON {"zone1"?: string, "zone2"?: string} replaces capture + OCR.
- * Live position (otherWhereLive): zone 2 only, every otherWhereLiveSec (30-120 s); every result broadcast with why 'live'
- * (the overlay stays quiet until 3 live failures in a row).
+ * OCR: the app's one shared Tesseract reader (ocrReader.ts, batch 15); no own worker, no fallback reader.
+ * Zone 2: ocrPrep.ts output (grey, inverted, scaled for ~30 px text from the frame height) -> readerRecognize 'zone2'
+ * (psm 6, Sauvola). Zone 1: 2x upscale, no prep -> readerRecognize 'zone1' (psm 3, Otsu, the 1.0.1 settings); the
+ * profiles are ocrPrep.ts zoneParams. A failed load or a time limit hit (ReaderTimeoutError) fails that zone read
+ * like any recognize error. Contract reads go first: a zone job running when one arrives is trashed
+ * (ReaderTrashedError). A manual run then runs again (whole run, fresh screenshot) once no contract job is running
+ * or queued, at most 5 re-runs (whereRerun.ts), then fails; a trashed live run is dropped silently (skipped).
+ * Test seam: env SC_WHERE_TEXT_FILE = JSON {"zone1"?: string, "zone2"?: string} replaces capture + OCR (never
+ * touches the reader).
+ * Live position (otherWhereLive): zone 2 only, every otherWhereLiveSec (30-120 s), skipped while the reader is busy;
+ * every result broadcast with why 'live' (the overlay stays quiet until 3 live failures in a row).
  * Hotkeys: pauseOtherHotkeys() unregisters every app global shortcut while the recorder listens.
  */
 import * as fs from 'node:fs'
 import { BrowserWindow, globalShortcut, ipcMain, nativeImage, screen, type NativeImage } from 'electron'
-import { cachePath as appCachePath } from '../../main/paths'
 import { IPC } from '@shared/channels'
 import type { AppSettings, CropRect } from '@shared/types'
 import {
@@ -34,8 +37,9 @@ import { currentLocationRoster } from './scanLog'
 import { getBodies, onWhereRead } from './bodies'
 import { bodyRadiusFromTable } from '../otherBodies'
 import { captureGameWindow, captureDisplay, cropImage, toUpscaledPng, toPreviewDataUrl } from '../../main/capture'
-import { TesseractEngine } from '../../main/ocr/tesseractEngine'
-import { prepForOcr, zoneParams } from './ocrPrep'
+import { contractPending, readerBusy, readerRecognize, ReaderTrashedError } from './ocrReader'
+import { prepForOcr } from './ocrPrep'
+import { runWithReruns, TRASHED } from './whereRerun'
 import { logger } from '../../main/logger'
 import { trace } from '../../main/trace'
 
@@ -46,7 +50,6 @@ type Why = NonNullable<WhereRunResult['why']>
 
 type Zone = 1 | 2
 
-let engine: TesseractEngine | null = null
 let busy = false
 const recent: WhereRunResult[] = []
 const RECENT_MAX = 10
@@ -177,45 +180,18 @@ function seamText(): { zone1?: string; zone2?: string } | null {
   }
 }
 
-// ---- own OCR worker (both zones; parameters differ per zone) ----
+// ---- zone reads through the shared reader ----
 
-type TessWorker = {
-  recognize: (img: Buffer) => Promise<{ data: { text: string } }>
-  setParameters: (p: Record<string, unknown>) => Promise<unknown>
-}
-type CreateWorker = (lang: string, oem: number, opts: Record<string, unknown>) => Promise<TessWorker>
-
-let worker: TessWorker | null = null
-let workerLoading: Promise<TessWorker | null> | null = null
-let workerFailed = false
-/** zone whose full parameter set is on the worker (0 = none / unknown) */
-let workerZone: Zone | 0 = 0
-
-async function whereWorker(): Promise<TessWorker | null> {
-  if (worker || workerFailed) return worker
-  workerLoading ??= (async () => {
-    const t0 = Date.now()
-    try {
-      // same tessdata cache as the shared engine
-      const cachePath = appCachePath('tessdata')
-      fs.mkdirSync(cachePath, { recursive: true })
-      const t = (await import('tesseract.js')) as unknown as { createWorker?: CreateWorker; default?: { createWorker?: CreateWorker } }
-      const create = t.createWorker ?? t.default?.createWorker
-      if (!create) throw new Error('tesseract.js missing createWorker')
-      const w = await create('eng', 1, { cachePath, gzip: true })
-      // no parameters here: the first read applies its zone's full set
-      worker = w
-      logger.info('other', 'where: ocr worker ready', { ms: Date.now() - t0 })
-      return w
-    } catch (e) {
-      workerFailed = true
-      logger.warn('other', 'where: own ocr worker failed, using shared engine', { error: errText(e) })
-      return null
-    } finally {
-      workerLoading = null
-    }
-  })()
-  return workerLoading
+/** zone image as the reader gets it: zone 2 prepForOcr, zone 1 the 1.0.1 input (2x upscale, no prep) */
+function zonePng(img: NativeImage, cropped: NativeImage, zone: Zone): Buffer {
+  if (zone === 2) {
+    const size = cropped.getSize()
+    const prep = prepForOcr({ data: cropped.toBitmap(), width: size.width, height: size.height }, img.getSize().height)
+    const png = nativeImage.createFromBitmap(Buffer.from(prep.data.buffer, prep.data.byteOffset, prep.data.byteLength), { width: prep.width, height: prep.height }).toPNG()
+    lastCrops.zone2Prepped = png
+    return png
+  }
+  return toUpscaledPng(cropped, 2)
 }
 
 async function ocrZone(img: NativeImage, crop: CropRect, zone: Zone): Promise<string> {
@@ -228,33 +204,8 @@ async function ocrZone(img: NativeImage, crop: CropRect, zone: Zone): Promise<st
   } catch (e) {
     logger.debug('other', 'where: crop keep failed', { zone, error: errText(e) })
   }
-  const w = await whereWorker()
-  if (w) {
-    let png: Buffer
-    if (zone === 2) {
-      const size = cropped.getSize()
-      const prep = prepForOcr({ data: cropped.toBitmap(), width: size.width, height: size.height }, img.getSize().height)
-      png = nativeImage.createFromBitmap(Buffer.from(prep.data.buffer, prep.data.byteOffset, prep.data.byteLength), { width: prep.width, height: prep.height }).toPNG()
-      lastCrops.zone2Prepped = png
-    } else {
-      // zone 1: the 1.0.1 input (2x upscale, no prep)
-      png = toUpscaledPng(cropped, 2)
-    }
-    if (workerZone !== zone) {
-      // reset first so a failed call re-applies next time
-      workerZone = 0
-      const t0 = Date.now()
-      await w.setParameters(zoneParams(zone))
-      workerZone = zone
-      logger.debug('other', 'where: ocr params switch', { zone, ms: Date.now() - t0 })
-    }
-    return (await w.recognize(png)).data.text ?? ''
-  }
-  // the worker failed (1.0.1 fallback): a TesseractEngine for both zones; zone 2's debug text is small: upscale more
-  const png = toUpscaledPng(cropped, zone === 2 ? 3 : 2)
-  engine ??= new TesseractEngine()
-  const r = await engine.recognize(png)
-  return r.text
+  const r = await readerRecognize(zonePng(img, cropped, zone), zone === 1 ? 'zone1' : 'zone2')
+  return r.text ?? ''
 }
 
 /** the one resolver over the merged roster with main's match memory (site codes: gameData.ts already loaded them) */
@@ -331,6 +282,8 @@ async function doRun(settings: AppSettings, zones: Zone | 'both' | undefined): P
         }
       }
     } catch (e) {
+      // thrown away for a contract read: runWhere decides (re-run or drop); a time limit hit fails like any error
+      if (e instanceof ReaderTrashedError) throw e
       logger.warn('other', 'where: recognize failed', { zone, error: errText(e) })
       continue
     }
@@ -431,7 +384,15 @@ export interface RunWhereOptions {
   why?: Why
 }
 
-/** one WHERE AM I read; one run at a time (a second call while busy returns an error, not broadcast) */
+/** error of a live run whose zone read was trashed for a contract read (not broadcast, not recorded) */
+export const WHERE_TRASHED = 'trashed'
+
+const sleep = (ms: number): Promise<void> => new Promise((res) => setTimeout(res, ms))
+
+/**
+ * one WHERE AM I read; one run at a time (a second call while busy returns an error, not broadcast).
+ * Busy covers the re-runs after a trashed zone read and the wait for the contract read.
+ */
 export async function runWhere(opts: RunWhereOptions = {}): Promise<WhereRunResult> {
   if (busy) {
     logger.info('other', 'where: busy, ignored', { why: opts.why })
@@ -440,16 +401,39 @@ export async function runWhere(opts: RunWhereOptions = {}): Promise<WhereRunResu
   if (!getSettingsRef) return { ok: false, raw: {}, error: 'not ready', ms: 0, why: opts.why }
   busy = true
   const why: Why = opts.why ?? 'button'
+  const getSettings = getSettingsRef
+  const t0 = Date.now()
   let r: WhereRunResult
-  lastParsed = {}
-  curTimings = { ocrMs: {}, parseMs: 0 }
-  curCapture = null
   try {
-    r = await doRun(getSettingsRef(), opts.zones)
-  } catch (e) {
-    logger.error('other', 'where: run threw', { error: errText(e) })
-    r = { ok: false, raw: {}, error: WHERE_FAIL_MESSAGE, ms: 0 }
-    if (lastParsed.info) r.info = lastParsed.info
+    const out = await runWithReruns<WhereRunResult>({
+      live: why === 'live',
+      contractPending,
+      sleep,
+      onRerun: (n) => logger.info('other', 'where: zone read trashed for contract, run again', { why, rerun: n }),
+      attempt: async () => {
+        lastParsed = {}
+        curTimings = { ocrMs: {}, parseMs: 0 }
+        curCapture = null
+        try {
+          return await doRun(getSettings(), opts.zones)
+        } catch (e) {
+          if (e instanceof ReaderTrashedError) return TRASHED
+          logger.error('other', 'where: run threw', { error: errText(e) })
+          const f: WhereRunResult = { ok: false, raw: {}, error: WHERE_FAIL_MESSAGE, ms: 0 }
+          if (lastParsed.info) f.info = lastParsed.info
+          return f
+        }
+      }
+    })
+    if (out.kind === 'dropped') {
+      // live: silent (no broadcast, no record; runLiveWhere counts it skipped)
+      logger.info('other', 'where: live read trashed for contract, dropped')
+      return { ok: false, raw: {}, error: WHERE_TRASHED, ms: Date.now() - t0, why }
+    }
+    if (out.kind === 'failed') {
+      logger.warn('other', 'where: zone read trashed too often, failed', { why, reruns: out.reruns })
+      r = { ok: false, raw: {}, error: WHERE_FAIL_MESSAGE, ms: Date.now() - t0 }
+    } else r = out.value
   } finally {
     busy = false
   }
@@ -468,7 +452,7 @@ export interface WhereLiveStats {
   reads: number
   ok: number
   failed: number
-  /** ticks skipped: busy, hotkeys paused for recording, not in Other mode */
+  /** ticks skipped: busy, reader busy, hotkeys paused for recording, not in Other mode, zone read trashed */
   skipped: number
   /** failures in a row since the last ok read */
   failsInRow: number
@@ -495,16 +479,17 @@ export function liveEverySec(settings: AppSettings): number {
 
 /**
  * One quiet zone 2 read (why 'live'), broadcast ok or failed (renderer decides what to show).
- * Skipped (returns null) while a run is busy or hotkeys are paused for recording.
+ * Skipped (returns null) while a run is busy, the shared reader is busy (contract read) or hotkeys are paused for
+ * recording, and when its zone read was trashed for a contract read (failsInRow unchanged).
  * AFK should import this for its once-a-minute read (counts in diagnostics).
  */
 export async function runLiveWhere(): Promise<WhereRunResult | null> {
-  if (busy || hotkeysPaused) {
+  if (busy || hotkeysPaused || readerBusy()) {
     live.skipped++
     return null
   }
   const r = await runWhere({ zones: 2, why: 'live' })
-  if (r.error === 'busy' || r.error === 'not ready') {
+  if (r.error === 'busy' || r.error === 'not ready' || r.error === WHERE_TRASHED) {
     live.skipped++
     return null
   }

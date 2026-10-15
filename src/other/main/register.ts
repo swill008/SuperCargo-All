@@ -27,6 +27,7 @@ import {
   stopWhereLive,
   syncWhereLive
 } from './whereAmI'
+import { disposeReader, setReaderTimeLimit } from './ocrReader'
 import { getAfkDiag, registerOtherAfkIpc, stopOtherAfk } from './afk'
 import { getBodiesDiag, registerOtherBodiesIpc } from './bodies'
 import { flushMemory, getMemoryDiag, registerOtherMemoryIpc } from './matchMemory'
@@ -55,6 +56,8 @@ export function registerOther({ watcher, getSettings, getMainWindow, reregisterH
   started = true
   registerOtherJobsIpc(getSettings)
   registerOtherActionRelay(getMainWindow)
+  // shared OCR reader (batch 15): time limit read per job from settings
+  setReaderTimeLimit(() => getSettings().ocrTimeLimitSec)
   registerOtherWhereIpc(getSettings)
   if (reregisterHotkeys) setOtherHotkeyReregister(reregisterHotkeys)
   syncWhereLive(getSettings)
@@ -83,6 +86,8 @@ export function registerOther({ watcher, getSettings, getMainWindow, reregisterH
     stopWhereLive()
     stopOtherAfk()
     flushMemory()
+    // close the shared OCR reader's worker (batch 15 answer 4)
+    void disposeReader()
   })
   wipeOtherOcrSession()
   hookOtherOcrSessionQuit()

@@ -119,6 +119,8 @@ Marked **NOT DOING**: decided against, or left out on purpose.
   2026-10-15 in Electron 33: about 115-128 MB each). Don't re-propose without new facts.
   **Superseded in part by batch 14 (2026-10-15):** the two-reader idea (zone 1 on the WHERE AM I reader) is now
   approved, see the next entry; one single shared reader for everything stays NOT DOING.
+  **Superseded by batch 15 (2026-10-15):** one shared reader for everything is now approved and built ("ok, approved,
+  build it"), see "One Tesseract reader for all OCR" below.
 - **Zones 1 and 2 share the WHERE AM I reader (batch 14, 2026-10-15).** "go ahead and code, you are approved on your
   recommendations"; to "could zone 1 and 2 be combined?": "I meant 1" (both zones share one reader). Two readers
   instead of three: the contract reader (unchanged) and the WHERE AM I worker, which reads zone 2 and zone 1 with each
@@ -127,6 +129,32 @@ Marked **NOT DOING**: decided against, or left out on purpose.
   quit are unchanged. Recommendation A taken: if the worker won't load, both zones fall back to the `TesseractEngine`
   path as in 1.0.1; the same-zone-1-text proof on the user's real picture waits for an export with images (docs/TODO.md).
   About 115 MB less memory once zone 1 has been read (STANDALONE rule 56).
+  **Superseded by batch 15 (2026-10-15):** the two readers become one shared reader; the fallback to `TesseractEngine`
+  is dropped ("not use a fallback ocr") and the reader now closes on quit.
+- **One Tesseract reader for all OCR (batch 15, 2026-10-15).** "ok, approved, build it"; then "test and push it, then
+  release it". Engine: "we will use tesseract". Contract scans, zone 1 and zone 2 share one tesseract.js worker
+  (`src/other/main/ocrReader.ts`; at most one worker alive), each job given its own full settings. About 115 MB less
+  memory than 1.0.2. Contract `docs/contracts/batch-15-one-reader.md`; STANDALONE rule 56. Answers:
+  1. **C, contract first.** A contract job arriving while a zone read runs throws the zone read away, the worker is
+     closed and a fresh one starts (about 0.13-0.29 s); waiting zone reads go after waiting contract jobs (first in,
+     first out within a kind).
+  2. **A.** A WHERE AM I press during a contract read waits, then reads; a second WHERE AM I press while one run is
+     going still returns busy.
+  3. **No backup reader:** "lets change 3, and not use a fallback ocr". A failed load fails that job with the usual
+     message (contract "tesseract engine is unavailable", WHERE AM I "couldn't read the map, try again"); the next job
+     tries to load again.
+  4. **A.** The reader closes on quit.
+  5. **Time limit:** setting `ocrTimeLimitSec`, default 10 s, 5-30. A job running longer (timed from its start on the
+     worker; loading is not counted) is stopped, the worker is closed and the next job gets a fresh one.
+  6. A WHERE AM I run you started (button, hotkey, calibrator) whose read was thrown away for a contract runs again
+     (whole run, fresh screenshot) once no contract job is waiting, at most 5 times; a 6th time it fails with "couldn't
+     read the map, try again". A thrown-away live read is dropped silently (counted as skipped, not as a failure).
+  7. **B.** No hold when a contract is accepted; the zone read is thrown away only when the contract job reaches the
+     reader.
+  8. **A.** The setting sits in Settings → GENERAL → OCR under "Capture delay": "OCR time limit (seconds)", 5-30,
+     default 10, hint "A read that takes longer is stopped and the reader restarts."
+  (supersedes batch 14's two readers, its fallback and "readers are not closed on quit", and the batch 13 NOT DOING
+  entry for fewer readers / one shared reader.)
 - **AFK takes no position reads (batch 13, 2026-10-15).** "afk reads, can go away period." The once-a-minute WHERE AM I
   read during AFK, the setting `otherAfkWhereRead` and its Settings row "Read position while AFK" are removed; the AFK
   button and key presses stay; old saved values are ignored, no migration (STANDALONE rule 19). (supersedes batch 2's
@@ -172,6 +200,8 @@ Marked **NOT DOING**: decided against, or left out on purpose.
 - Settings has a section to change the user data folder (20:01).
 - Update checks are on by default once they point at this fork's repo. "is it pointing to my repo, if yes,
   then make it default" (20:24).
+- OCR time limit: Settings → GENERAL → OCR, "OCR time limit (seconds)", 5-30, default 10 (batch 15, 2026-10-15,
+  answers 5 and 8 in section 4).
 
 ## 7. Data folder
 

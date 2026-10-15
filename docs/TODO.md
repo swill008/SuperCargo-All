@@ -31,6 +31,8 @@ crop; any difference goes to the user before a change.
 **Status.** Done 2026-10-15: on the user's real zone 1 picture the old reader and the new one give the identical
 text, matching the 1.0.1 export character for character; zone 2 is identical after the settings switch; the switch
 takes 1-2 ms. The pictures are kept as gold fixtures in `test/replay/fixtures/gold/2026-10-15-orison-hangar/`.
+Batch 15 (2026-10-15) moved both zones and contract scans onto one shared reader; the same gold fixtures are the
+proof that zone text stays identical.
 
 ## Tesseract console noise in WHERE AM I (to confirm first)
 
@@ -47,3 +49,13 @@ line; check with the OCR benchmark before and after, since it can change what is
 Printed by @supabase/supabase-js (usage stats, crew sharing) because Electron 33 runs Node 20. Harmless today; goes away
 with an Electron version that runs Node 22. The Electron upgrade is NOT DOING for now (docs/DECISIONS.md section 1).
 
+
+## One-reader follow-ups (batch 15 review, 2026-10-15; ask the user before changing behaviour)
+
+- A reader load that never finishes (stalled first-run tessdata download) is outside the time limit, so it holds
+  contract reads and WHERE AM I until restart. Option: a separate load time limit.
+- After a failed load, the contract adapter's `readerAvailable()` check starts a second load (two "tesseract load
+  failed" lines, one more delay before "tesseract engine is unavailable"); Settings' engine info retries a load each
+  time it is opened while tesseract.js is broken.
+- `readerStats()` (restarts, trashed, timeouts, switches) is not in the diagnostics export yet.
+- Haul glare retries (up to 5 contract reads 400 ms apart) can use up a WHERE AM I press's 5 re-runs.

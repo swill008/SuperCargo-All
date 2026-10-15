@@ -875,10 +875,19 @@ const J82_PICKUP_STEP = {
 const settingsGet = (port) => cdpEval(port, 'main', 'window.supercargo.getSettings()')
 // CONTRACT11: Settings has a tab bar GENERAL | OTHER MODE; every Other-only row (DATA SOURCES, the LEARNED DATA link, zones,
 // hotkey, AFK) lives on OTHER MODE. Opens the Settings page, then that tab; returns which clicks found their button.
+// Right after a fresh launch the SETTINGS click can miss (CI: update-window "clicked=false"), so both clicks retry
+// until the tab button is there and the tab's own content shows (GENERAL: UPDATES; OTHER MODE: a data-other-section).
 async function openSettingsTab(port, tab = 'OTHER MODE') {
-  const page = await clickButton(port, 'main', /^SETTINGS$/)
   const re = new RegExp(`^${reEsc(tab)}$`)
-  const tabOk = !!(await until(() => clickButton(port, 'main', re).then((ok) => ok || null), 8000))
+  const tabShown = () =>
+    cdpEval(port, 'main', tab === 'OTHER MODE' ? `!!document.querySelector('[data-other-section]')` : `!document.querySelector('[data-other-section]') && /^UPDATES$/m.test(document.body.innerText)`)
+  let page = false
+  let tabOk = false
+  await until(async () => {
+    if (!(await uiHas(port, re))) page = (await clickButton(port, 'main', /^SETTINGS$/)) || page
+    if (await uiHas(port, re)) tabOk = (await clickButton(port, 'main', re)) || tabOk
+    return tabOk && (await tabShown())
+  }, 15000)
   return { page, tab: tabOk }
 }
 // Settings -> OTHER MODE tab text once DATA SOURCES shows
@@ -3468,6 +3477,76 @@ const scenarios = {
     ]
   },
 
+  // Batch 15 answer 8: Settings -> GENERAL, OCR section: "OCR time limit (seconds)", 5-30, default 10. An old settings
+  // file without ocrTimeLimitSec shows 10 s; moving the slider to 20 saves ocrTimeLimitSec 20, still 20 after a restart.
+  'ocr-time-limit-setting': async () => {
+    const e = setup('ocr-time-limit-setting')
+    // read before launch: the app writes its defaults into settings.json at start
+    const file0 = e.settings()
+    const port = await freePort()
+    let stop = await launch(e, cdpArgs(port))
+    const probe = (p) =>
+      cdpEval(
+        p,
+        'main',
+        `(() => {
+          const vis = (el) => !!(el.offsetWidth || el.offsetHeight || el.getClientRects().length)
+          const key = [...document.querySelectorAll('span')].find((s) => vis(s) && s.textContent.trim() === 'OCR time limit (seconds)')
+          if (!key) return null
+          const row = key.parentElement
+          const input = row.querySelector('input')
+          return { text: row.innerText, value: input ? input.value : null, min: input?.min ?? null, max: input?.max ?? null }
+        })()`
+      )
+    const r = { tab: null, row0: null, file0: null, set0: null, moved: null, row1: null, set1: null, row2: null }
+    let err = ''
+    try {
+      r.file0 = file0
+      r.tab = await openSettingsTab(port, 'GENERAL')
+      r.row0 = await until(() => probe(port), 10000)
+      r.set0 = (await settingsGet(port))?.ocrTimeLimitSec ?? null
+      // move the slider the way a user does (React reads the input event)
+      r.moved = await cdpEval(
+        port,
+        'main',
+        `(() => {
+          const key = [...document.querySelectorAll('span')].find((s) => s.textContent.trim() === 'OCR time limit (seconds)')
+          const input = key?.parentElement.querySelector('input')
+          if (!input) return false
+          Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value').set.call(input, '20')
+          input.dispatchEvent(new Event('input', { bubbles: true }))
+          input.dispatchEvent(new Event('change', { bubbles: true }))
+          return true
+        })()`
+      )
+      r.set1 = (await until(() => settingsGet(port).then((x) => (x?.ocrTimeLimitSec === 20 ? x : null)), 8000))?.ocrTimeLimitSec ?? null
+      r.row1 = await until(() => probe(port).then((x) => (/\b20 s\b/.test(x?.text ?? '') ? x : null)), 5000)
+    } catch (x) {
+      err = String(x?.message ?? x)
+    }
+    await stop()
+    const saved1 = e.settings()
+    try {
+      const port2 = await freePort()
+      stop = await launch(e, cdpArgs(port2))
+      await openSettingsTab(port2, 'GENERAL')
+      r.row2 = await until(() => probe(port2).then((x) => (/\b20 s\b/.test(x?.text ?? '') ? x : null)), 10000)
+    } catch (x) {
+      err += ` restart: ${String(x?.message ?? x)}`
+    }
+    await stop()
+    const saved2 = e.settings()
+    return [
+      ['old settings file has no ocrTimeLimitSec', r.file0 && !('ocrTimeLimitSec' in r.file0), `file=${short(r.file0?.ocrTimeLimitSec)}`],
+      ['GENERAL shows "OCR time limit (seconds)" with 10 s by default', /\b10 s\b/.test(r.row0?.text ?? '') && r.row0?.value === '10', `tab=${short(r.tab)} row=${short(r.row0)} ${err}`],
+      ['the row explains the limit and is 5-30', /A read that takes longer is stopped and the reader restarts\./.test(r.row0?.text ?? '') && r.row0?.min === '5' && r.row0?.max === '30', `row=${short(r.row0)}`],
+      ['getSettings gives 10 for the missing key', r.set0 === 10, `ocrTimeLimitSec=${r.set0}`],
+      ['slider to 20: setting saved and row shows 20 s', r.moved && r.set1 === 20 && !!r.row1, `moved=${r.moved} set=${r.set1} row=${short(r.row1)}`],
+      ['settings.json has ocrTimeLimitSec 20', saved1?.ocrTimeLimitSec === 20, `file=${saved1?.ocrTimeLimitSec}`],
+      ['after a restart: row shows 20 s, file still 20', !!r.row2 && saved2?.ocrTimeLimitSec === 20, `row=${short(r.row2)} file=${saved2?.ocrTimeLimitSec} ${err}`]
+    ]
+  },
+
   'resolver-memory-everywhere': async () => {
     const name = 'resolver-memory-everywhere'
     const SCAN_TITLE = 'Resolver Memory Scan'
@@ -3921,6 +4000,8 @@ const scenarios = {
       try {
         const stop = await launch(ev, [...cdpArgs(port), ...inspectArgs(iport)], { SC_TEST_UPDATE_FEED: f })
         try {
+          // five variant apps start at once: the main window can take longer than cdpTarget's usual 15 s
+          await cdpTarget(port, 'main', 45000)
           await recordUpdates(port)
           await stubExternal(iport)
           out.clicked = await checkByHand(port)

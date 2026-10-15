@@ -94,6 +94,9 @@ export default function SettingsPage(): React.ReactElement {
     return updateSettingsRaw(patch)
   }
   const tab: SettingsTab = otherSetting(settings, 'otherSettingsTab') === 'other' ? 'other' : 'general'
+  // old settings files may lack the key: show 10, kept within 5-30
+  const ocrTimeLimitRaw: unknown = settings.ocrTimeLimitSec
+  const ocrTimeLimit = typeof ocrTimeLimitRaw === 'number' && Number.isFinite(ocrTimeLimitRaw) ? Math.min(30, Math.max(5, Math.round(ocrTimeLimitRaw))) : 10
 
   const watcher = useStore((s) => s.watcher)
   const appVersion = useStore((s) => s.appVersion)
@@ -563,6 +566,24 @@ export default function SettingsPage(): React.ReactElement {
             style={{ width: 200, accentColor: C.acc }}
           />
           <span style={{ fontFamily: F.mono, fontSize: 13, color: C.body }}>{settings.ocrCaptureDelay.toFixed(1)} s</span>
+        </div>
+      </div>
+      <div style={rowStyle}>
+        <span style={keyStyle}>OCR time limit (seconds)</span>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
+          <input
+            type="range"
+            min={5}
+            max={30}
+            step={1}
+            value={ocrTimeLimit}
+            onChange={(e) => void updateSettings({ ocrTimeLimitSec: Number(e.target.value) })}
+            style={{ width: 200, accentColor: C.acc }}
+          />
+          <span style={{ fontFamily: F.mono, fontSize: 13, color: C.body }}>{ocrTimeLimit} s</span>
+          <span style={{ fontFamily: F.body, fontSize: 12, color: C.dim }}>
+            A read that takes longer is stopped and the reader restarts.
+          </span>
         </div>
       </div>
 

@@ -41,7 +41,7 @@ The compact overlay is the same renderer bundle at `#compact`, in a second alway
 | `uex.ts` | Loads the cached ships, locations, commodities, grid faces and contract overrides | data folder |
 | `store.ts` | JSON persistence: settings (default folder), manifest, history, window state | data folder (`paths.ts`) |
 | `capture.ts` | `desktopCapturer` grabs, crop, upscale and grayscale | Electron |
-| `ocr/` | Engine selection (`tesseractEngine`, `onnxEngine`), `runOcr`, sample stash | jsdelivr (tess data), userData/ocr-model |
+| `ocr/` | Engine selection (`tesseractEngine`, `onnxEngine`), `runOcr`, sample stash; since batch 15 `tesseractEngine` is an adapter over the one shared reader `src/other/main/ocrReader.ts` (re-tie 23) | jsdelivr (tess data), userData/ocr-model |
 | `telemetry.ts` | Opt-in OCR sample upload queue (5 min retry) | Supabase Storage `ocr-samples` |
 | `usageStats.ts` | Daily anonymous ping (**on by default**) | Supabase `usage_pings` |
 | `boxReports.ts` | Box-size correction report when a contract ends (same flag) | Supabase `box_size_reports` |
@@ -186,7 +186,7 @@ facts are in [OTHER-MODE-AUDIT.md](OTHER-MODE-AUDIT.md#where-am-i-and-start-mode
 Settings (`src/other/workMode.ts`, defaults in `OTHER_SETTING_DEFAULTS`): `otherStartMode` ('auto' | 'fixed',
 replaces `otherAutoStart`), `otherWhereHotkey` (CommandOrControl+Shift+L), `otherWhereZone1`, `otherWhereZone2`,
 `otherWhereUseZone2`, `otherWhereLive` (false), `otherWhereLiveSec` (45, 30-120), `otherAfkIntervalSec` (15),
-`otherAfkFirstKey` (F2), `otherAfkCycleKey` (F1), `otherAfkMaxMin` (120, 0 = no limit). (`otherAfkWhereRead` was removed in batch 13: AFK takes no position reads; an old saved value is ignored.)
+`otherAfkFirstKey` (F2), `otherAfkCycleKey` (F1), `otherAfkMaxMin` (120, 0 = no limit). (`otherAfkWhereRead` was removed in batch 13: AFK takes no position reads; an old saved value is ignored.) Shared OCR setting (upstream `AppSettings`, GENERAL tab, batch 15): `ocrTimeLimitSec` (10, 5-30).
 Doc fields: `where` (replaces `currentLocation` / `currentLocationAt`; carries `accuracy` 0-10), `startTypedAt`,
 `trackedMissionId` (+ `trackedAt`).
 
@@ -199,7 +199,7 @@ In `whereAmI.ts`: `syncWhereLive()` / `stopWhereLive()` (live timer, called by `
 
 ```
 hotkey otherWhereHotkey ──┐
-overlay WHERE AM I button ┴─► otherWhere:run ─► main/whereAmI: one capture + own Tesseract worker for both zones (or SC_WHERE_TEXT_FILE)
+overlay WHERE AM I button ┴─► otherWhere:run ─► main/whereAmI: one capture + the shared OCR reader (ocrReader.ts) for both zones (or SC_WHERE_TEXT_FILE)
    ─► OCR zone 2 (if otherWhereUseZone2) ─► parseDisplayInfo ─► resolveDisplayInfo ─┐
    └► else / fallback OCR zone 1 ─► parseMapLine ─► resolveMapLine ─────────────────┤
                                                     WhereRunResult {ok, where, zone, raw, ms}
@@ -486,7 +486,7 @@ source: the roster is still UEX plus the bundled starmap file, now tagged by sou
 | `src/other/renderer/components/LearnedPlaces.tsx` | "(place's source is off)" on entries whose place isn't in the active sources | `LearnedPlaces` |
 | `src/other/renderer/state/otherDiag.ts` | `placeSource` uses the tags; SNAPSHOT shows the enabled sources | |
 | `src/other/otherResolve.ts` | Confusion-folded keys (`corrected` +5); weighted Damerau-Levenshtein "close spelling" (+4 / +3); code words must fold equal; "· from starmap data" on starmap candidates | `resolveStopPlace()`, `placeKey()` |
-| `src/other/main/whereAmI.ts` | Own tesseract.js worker for zone 2 (page mode 6, interword spaces, Sauvola `thresholding_method` 2) and, since batch 14, zone 1 too (no second `TesseractEngine`); both fall back to the shared engine when the worker won't load; `zone2-prepped` picture in `## IMAGES` | `SC_WHERE_TEXT_FILE` seam unchanged |
+| `src/other/main/whereAmI.ts` | Zone 2 (page mode 6, interword spaces, Sauvola `thresholding_method` 2) and zone 1 read on the one shared reader (`ocrReader.ts`, batch 15; no own worker, no fallback); `zone2-prepped` picture in `## IMAGES` | `SC_WHERE_TEXT_FILE` seam unchanged |
 | `src/other/main/ocrPrep.ts` (new, pure JS on the BGRA bitmap) | Grey, invert, scale to ~30 px text (capped ~4 Mpx); `OCR_PARAMS`, `ZONE_PSM`; since batch 14 the full per-zone parameter sets (zone 1: page mode 3, interword spaces, threshold 0, 2× upscale, no prep). No global Otsu (it dropped text over bright sky/glare); Tesseract thresholds locally | `prepForOcr()` |
 | `test/replay/sources_checks.mjs` (new) | `mergeLocations` on/off: starmap-only places gone, filled coordinates stripped, UEX coordinates kept | `node test/replay/sources_checks.mjs` |
 | `test/replay/resolve_checks.mjs`, `test/replay/fixtures/stop_cases.json` | A row per typo rule; the OCR-misread rows re-decided (right place or `none`, never a wrong place) | `node test/replay/resolve_checks.mjs` |
@@ -500,8 +500,8 @@ main/uex.ts: UEX places (source uex) ─► fillFromPositions (coordsFrom starma
 renderer: mergeLocations(haul, places, otherSourceStarmap)
    off ─► drop source starmap, strip coordsFrom starmap ─► resolver / distances / LEARNED PLACES / SNAPSHOT
 resolver: exact (+6) ─► placeKey equal (+5) ─► confusion-folded equal (+5, corrected) ─► close spelling (+4 / +3, code words must fold equal)
-WHERE AM I zone 2: capture ─► ocrPrep (grey, invert, scale ~30 px) ─► own Tesseract (psm 6, Sauvola) ─► parseDisplayInfo
-WHERE AM I zone 1: capture ─► 2× upscale ─► same own Tesseract, zone 1 params (psm 3, threshold 0) ─► parseMapLine (batch 14; was a second shared engine)
+WHERE AM I zone 2: capture ─► ocrPrep (grey, invert, scale ~30 px) ─► shared reader, job zone2 (psm 6, Sauvola) ─► parseDisplayInfo
+WHERE AM I zone 1: capture ─► 2× upscale ─► shared reader, job zone1 (psm 3, threshold 0) ─► parseMapLine (batch 15; batch 14 used an own worker)
 ```
 
 Run only the addendum 2 app scenarios (after `npm run build`):
@@ -753,12 +753,47 @@ less memory once zone 1 has been read.
 
 | File | Owns (batch 14) | Entry points |
 |---|---|---|
-| `src/other/main/whereAmI.ts` | One own worker reads both zones, setting the zone's full parameter set before each read; the zone 1 `TesseractEngine` is gone; worker load failure -> both zones use the `TesseractEngine` path as in 1.0.1 | `runWhere()`, calibrator TEST (unchanged) |
+| `src/other/main/whereAmI.ts` | (batch 14; replaced by batch 15 below) One own worker read both zones, setting the zone's full parameter set before each read; worker load failure -> both zones used the `TesseractEngine` path as in 1.0.1 | `runWhere()`, calibrator TEST (unchanged) |
 | `src/other/main/ocrPrep.ts` | Per-zone parameter sets (zone 1: psm 3, interword spaces, threshold 0, 2× upscale, no prep; zone 2: psm 6, interword spaces, Sauvola 2, after `prepForOcr`) | constants used by `whereAmI.ts` |
 | `test/replay/zonereader_checks.mjs` (new) | Both zones read on one worker with their own settings; no third reader; fallback path | `node test/replay/zonereader_checks.mjs` |
 
 ```
-contract OCR ─► upstream TesseractEngine (unchanged)
+(batch 14, replaced by batch 15)
+contract OCR ─► upstream TesseractEngine
 WHERE AM I ─► own worker: set zone 2 params ─► read zone 2 ─► nothing? ─► set zone 1 params ─► read zone 1 (2× crop)
 worker won't load ─► TesseractEngine path for both zones (as 1.0.1)
+```
+
+## One Tesseract reader for all OCR (batch 15, 2026-10-15)
+
+Rule 56 and re-tie 23 in [STANDALONE.md](../src/other/STANDALONE.md); decision in [DECISIONS.md](DECISIONS.md) section 4
+(answers 1-8); contract [batch-15-one-reader.md](contracts/batch-15-one-reader.md). One OCR reader instead of two
+(about 115 MB less memory than 1.0.2); contract first; no backup reader; closes on quit; time limit setting.
+
+| File | Owns (batch 15) | Entry points |
+|---|---|---|
+| `src/other/main/ocrReader.ts` (new) | The app's only tesseract.js worker (at most one alive); job queue, contract jobs before waiting zone jobs (FIFO within a kind); a contract job arriving trashes a running zone job (terminate, fresh worker); per-job settings `READER_PROFILES` (contract: psm 3, spaces, threshold 0, blocks output; zone1/zone2 from `zoneParams()`), applied when they differ from the last applied; load failure fails the job, next job retries; time limit per job (worker terminated, `ReaderTimeoutError`); `readerStats()` | `readerRecognize(png, job)`, `contractPending()`, `readerBusy()`, `readerAvailable()`, `readerAssetsReady()`, `disposeReader()`, `setReaderTimeLimit(getSec)`, `readerStats()`, `ReaderTrashedError`, `ReaderTimeoutError`, test seam `createReaderCore(deps)` |
+| `src/main/ocr/tesseractEngine.ts` (upstream, re-tie 23) | Adapter: `recognize` → `readerRecognize(png, 'contract')`, blocks → words unchanged; "tesseract engine is unavailable" / "OCR time limit reached"; `dispose()` no-op | `TesseractEngine` (unchanged API) |
+| `src/other/main/whereAmI.ts` | Zones through `readerRecognize(png, 'zone2' / 'zone1')`; no own worker, no fallback, no `TesseractEngine`; a trashed manual run re-runs (`whereRerun.ts`); live reads skip while `readerBusy()`, a trashed live read is dropped silently (`live.skipped`) | `runWhere()` (busy unchanged), `runLiveWhere()` |
+| `src/other/main/whereRerun.ts` (new, pure) | Re-run after a trashed zone read: wait until `!contractPending()` (poll 100 ms), whole run again with a fresh screenshot, at most 5 re-runs, then fail with `WHERE_FAIL_MESSAGE`; live: dropped | `runWithReruns(deps)`, `WHERE_MAX_RERUNS` (5), `WHERE_RERUN_POLL_MS` (100), `TRASHED` |
+| `src/other/main/ocrPrep.ts` | Keeps `ZONE_PARAMS` / `zoneParams()` (imported by `ocrReader.ts`); bench exports unchanged | `zoneParams(zone)`, `prepForOcr()` |
+| `src/other/main/register.ts` | `setReaderTimeLimit(() => getSettings().ocrTimeLimitSec)`; `void disposeReader()` in the existing `will-quit` | `registerOther()` |
+| `src/shared/types.ts`, `src/main/store.ts`, `src/renderer/src/state/store.ts` | Setting `ocrTimeLimitSec` (default 10, 5-30; missing/invalid → 10, clamped) | `AppSettings.ocrTimeLimitSec` |
+| `src/renderer/src/pages/SettingsPage.tsx` (upstream, re-tie 23) | GENERAL → OCR, under "Capture delay": "OCR time limit (seconds)", 5-30, shows "N s", hint "A read that takes longer is stopped and the reader restarts." | settings row |
+| `test/replay/reader_checks.mjs` (new) | One worker max; profiles in full; contract before waiting zones; trash on contract arrival; load failure then retry; time limit (fake timer), clamp, default 10; dispose leaves 0 | `node test/replay/reader_checks.mjs` |
+| `test/replay/zonereader_checks.mjs` | Updated: zones via `readerRecognize`, no `TesseractEngine` / tesseract.js in `whereAmI.ts`; re-run helper (5 re-runs max, live trash silent) | `node test/replay/zonereader_checks.mjs` |
+| `test/replay/replay.mjs` | GENERAL tab shows "OCR time limit" (10 s by default) and saves a new value | `node test/replay/replay.mjs <names>` |
+
+Settings: `ocrTimeLimitSec` (GENERAL, upstream `AppSettings`; default 10, 5-30).
+
+```
+contract scan ─► TesseractEngine (adapter) ─► readerRecognize(png,'contract') ─┐
+WHERE AM I ─► whereAmI ─► readerRecognize(png,'zone2' | 'zone1') ─────────────┼─► ocrReader queue (contract first)
+live read (skips while readerBusy()) ─────────────────────────────────────────┘        │
+   contract arrives while a zone job runs ─► zone job trashed ─► terminate ─► fresh worker ─► contract job
+   trashed manual WHERE AM I run ─► wait !contractPending() ─► whole run again (max 5 re-runs) ─► else WHERE_FAIL_MESSAGE
+   trashed live read ─► dropped (live.skipped++)
+   job over ocrTimeLimitSec ─► terminate ─► ReaderTimeoutError ─► next job on a fresh worker
+   load failure ─► that job fails; next job loads again
+will-quit ─► disposeReader()
 ```

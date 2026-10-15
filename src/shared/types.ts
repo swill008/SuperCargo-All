@@ -134,6 +134,8 @@ export interface AppSettings {
   spaceDeliveryPiles: boolean
 
   ocrCaptureDelay: number
+  /** one OCR read longer than this (5-30 s) is stopped and the shared reader restarts (batch 15) */
+  ocrTimeLimitSec: number
   ocrAutoCapture: boolean
   /** 'window' = grab just the Star Citizen window; 'display' = whole screen (hides our windows for the shot) */
   ocrCaptureTarget: 'window' | 'display'

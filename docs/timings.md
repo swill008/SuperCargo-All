@@ -62,3 +62,6 @@ with a push: + CI (~10 min, in the background); a release: + ~4 min.
 | 2026-10-15 | Batch 14 zones share reader: 2 agents (where2, docs) | agent | 2-6 min | 1-2 min each | 09:23-09:24 |
 | 2026-10-15 | Batch 14 quick tests + 13 WHERE/AFK scenarios (lead) | test | ~1 + 1-3 min | 2 min | 09:31-09:33 |
 | 2026-10-15 | Full run on b15bf55 (release 1.0.2) before push: 531 pass, 0 fail, 8 real logs | test | ~7 min | 7 min | 09:50-09:57 |
+| 2026-10-15 | Batch 15 one reader: 5 build agents (reader, where, settings, e2e, docs) + ci-digest | agent | 2-6 min | 1-6 min each | 10:16-10:22 |
+| 2026-10-15 | Batch 15 gold proof (real reader, 11 reads) + re-trace (read-only) | study | 1-8 min | 3 min each | 10:21-10:24 |
+| 2026-10-15 | Full run batch 15 (538 pass, 0 fail, 8 real logs) | test | ~7 min | 7 min | 10:25-10:32 |

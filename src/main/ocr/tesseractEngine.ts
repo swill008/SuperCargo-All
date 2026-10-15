@@ -1,96 +1,35 @@
-// lazy load so a broken install degrades instead of crashing boot
+// contract reads go through the one shared OCR reader (src/other/main/ocrReader.ts, batch 15)
 
-import * as fs from 'node:fs'
-import * as path from 'node:path'
 import type { OcrWord } from '@shared/types'
 import type { OcrEngine, OcrRecognition } from './engine'
-import { logger } from '../logger'
-import { cachePath } from '../paths'
-
-// keep types local so the dep stays optional
-type TessWord = { text: string; bbox: { x0: number; y0: number; x1: number; y1: number } }
-type TessBlock = { paragraphs: { lines: { words: TessWord[] }[] }[] }
-type TessData = { text: string; confidence: number; blocks?: TessBlock[] | null }
-type TessWorker = {
-  recognize: (
-    img: Buffer,
-    opts?: Record<string, unknown>,
-    output?: Record<string, unknown>
-  ) => Promise<{ data: TessData }>
-  setParameters: (p: Record<string, unknown>) => Promise<unknown>
-  terminate: () => Promise<unknown>
-}
-type CreateWorker = (lang: string, oem: number, opts: Record<string, unknown>) => Promise<TessWorker>
-type TessModule = { createWorker?: CreateWorker; default?: { createWorker?: CreateWorker } }
+import {
+  ReaderTimeoutError,
+  readerAssetsReady,
+  readerAvailable,
+  readerRecognize
+} from '../../other/main/ocrReader'
 
 export class TesseractEngine implements OcrEngine {
   readonly id = 'tesseract'
   readonly label = 'Tesseract (tesseract.js)'
 
-  private worker: TessWorker | null = null
-  private loading: Promise<TessWorker | null> | null = null
-  private loadFailed = false
-
-  private tessdataDir(): string {
-    return cachePath('tessdata')
-  }
-
   async isAvailable(): Promise<boolean> {
-    if (this.loadFailed) return false
-    try {
-      await this.ensureWorker()
-      return this.worker !== null
-    } catch {
-      return false
-    }
+    return readerAvailable()
   }
 
   async assetsReady(): Promise<boolean> {
-    try {
-      return fs.existsSync(path.join(this.tessdataDir(), 'eng.traineddata'))
-    } catch {
-      return false
-    }
-  }
-
-  private async ensureWorker(): Promise<TessWorker | null> {
-    if (this.worker) return this.worker
-    if (this.loading) return this.loading
-
-    this.loading = (async () => {
-      const t0 = Date.now()
-      logger.info('ocr', 'tesseract worker loading', { hasData: fs.existsSync(path.join(this.tessdataDir(), 'eng.traineddata')) })
-      try {
-        const cachePath = this.tessdataDir()
-        fs.mkdirSync(cachePath, { recursive: true })
-        const tesseract = (await import('tesseract.js')) as unknown as TessModule
-        const createWorker = tesseract.createWorker ?? tesseract.default?.createWorker
-        if (!createWorker) throw new Error('tesseract.js missing createWorker')
-        const worker: TessWorker = await createWorker('eng', 1, {
-          cachePath,
-          gzip: true
-        })
-        // psm 3 stops column text bleeding (the everus bug)
-        await worker.setParameters({ preserve_interword_spaces: '1', tessedit_pageseg_mode: '3' })
-        this.worker = worker
-        logger.info('ocr', 'tesseract worker ready', { ms: Date.now() - t0 })
-        return worker
-      } catch (e) {
-        this.loadFailed = true
-        console.error('[ocr] tesseract.js failed to load:', e)
-        logger.error('ocr', 'tesseract load failed', { error: (e as Error)?.message ?? String(e) })
-        return null
-      } finally {
-        this.loading = null
-      }
-    })()
-    return this.loading
+    return readerAssetsReady()
   }
 
   async recognize(png: Buffer): Promise<OcrRecognition> {
-    const worker = await this.ensureWorker()
-    if (!worker) throw new Error('tesseract engine is unavailable')
-    const { data } = await worker.recognize(png, {}, { blocks: true })
+    let data: Awaited<ReturnType<typeof readerRecognize>>
+    try {
+      data = await readerRecognize(png, 'contract')
+    } catch (e) {
+      if (e instanceof ReaderTimeoutError) throw new Error('OCR time limit reached')
+      if (await readerAvailable()) throw e
+      throw new Error('tesseract engine is unavailable') // as 1.0.1 when the reader can't load
+    }
     const words: OcrWord[] = []
     for (const block of data.blocks ?? [])
       for (const para of block.paragraphs ?? [])
@@ -102,14 +41,6 @@ export class TesseractEngine implements OcrEngine {
   }
 
   async dispose(): Promise<void> {
-    const w = this.worker
-    this.worker = null
-    if (w) {
-      try {
-        await w.terminate()
-      } catch {
-        /* ignore */
-      }
-    }
+    // no-op: the reader is shared with WHERE AM I; disposeReader() ends it at app quit
   }
 }

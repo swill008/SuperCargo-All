@@ -5,6 +5,11 @@ Each version's notes live here as `<version>.md`, e.g. `1.0.0.md`, where `<versi
 `## What's new in R1 <version>` ("R1" is the release line), then `### New`, `### Changed` and `### Fixed`
 sections as needed, each a list of `- ` bullets in plain user words.
 
+**Audience: the general public** (user, 2026-10-15: "when we build notes, its for the general public. remember that
+when generating them. keep them straight to the point an professional."). One short line per bullet: what the user
+gets, in professional plain English. No internal names (readers, workers, files, settings keys, batch numbers), no
+test or CI details, no hedging or asides.
+
 ## Writing notes as we go
 
 Rule: each batch commit adds its lines to release-notes/<next version>.md. The next version is the one after

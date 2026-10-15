@@ -82,6 +82,7 @@ const DEFAULT_SETTINGS: AppSettings = {
   installedModules: {},
   spaceDeliveryPiles: false,
   ocrCaptureDelay: 3,
+  ocrTimeLimitSec: 10,
   ocrAutoCapture: false,
   ocrCaptureTarget: 'window',
   ocrEngine: 'tesseract',

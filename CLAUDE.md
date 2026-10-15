@@ -95,7 +95,8 @@ Read these before doing anything. The user's decisions about the program are in 
 - End every commit message with the attribution lines the session gives you, in the form used by recent
   commits (`Co-Authored-By: ...` and `Claude-Session: ...`; see `git log -1`).
 - Release notes: each batch commit adds its lines to `release-notes/<next version>.md` (format and release
-  steps in `release-notes/README.md`). The release workflow refuses missing, placeholder or repeated notes.
+  steps in `release-notes/README.md`). They are for the general public: short, to the point, professional
+  (user, 2026-10-15). The release workflow refuses missing, placeholder or repeated notes.
 - **No push and no release unless the user says so** (user, 2026-10-14: "do not do another release until I tell
   you"; "do not push until I tell you to"). Commit locally when a batch passes its tests, then wait for the user's
   go before pushing. After a push the user asked for, watching CI is fine ("after a push, you can watch CI").
