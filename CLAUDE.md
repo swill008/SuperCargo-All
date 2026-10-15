@@ -143,7 +143,11 @@ repo. Where a rule here and one above disagree, the newer user instruction wins 
    test-only agents (end-to-end on the real path, carry-through to every path that carries the change, updating
    tests that pin the old behaviour); an audit agent for the same fault elsewhere; spec/map/docs as their own agent;
    then a "Left out:" line (same file, strict order, over ~8-10). The count comes from that analysis, never from
-   habit. Stagger an agent that must wait for a file another agent holds. The lead keeps shared files
+   habit. Stagger an agent that must wait for a file another agent holds. This holds for tasks whose main steps
+   must run in order too (commit, push, release, a full run): do the analysis unasked and show the table, and run
+   alongside them what can go in parallel: read-only studies of open problems (e.g. a CI failure), prep for the
+   plan the user said comes next, and checks of what was just changed (user, 2026-10-15: "why are you not
+   analyzing tasks and doing this yourself? why do I have to ask?"). The lead keeps shared files
    (`src/main/index.ts`, `src/shared/*`, `src/preload/index.ts`, `CLAUDE.md`, `package.json`, CI files). Give every
    agent this section and a time budget from `docs/timings.md`.
 7. **Overseeing agents.** Watch commands, not only results. When an agent's fix is proven (fails on old code,
