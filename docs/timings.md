@@ -78,3 +78,4 @@ with a push: + CI (~10 min, in the background); a release: + ~4 min.
 | 2026-10-15 | Batch 19 re-trace (read-only) | agent | rough guess 10 min | 3 min | 14:08-14:11 |
 | 2026-10-15 | Batch 19 re-trace fixes: 3 agents (fix-core, fix-state, fix-ui) | agent | 3-8 min | 3-4 min each | 14:13-14:17 |
 | 2026-10-15 | Full run 1.0.6 (all checks, 671 replay/log PASS, 8 real logs; one 1.0.5 timing check made robust mid-run) | test | ~7 min | 7 min | 14:19-14:26 |
+| 2026-10-15 | Release run R1 1.0.6 (Windows 4 min, then Linux 2 min) and CI on the push (passed both, ~7 min) | release | ~4 min + ~2 min | 6 min | 14:27-14:33 |
